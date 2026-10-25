@@ -12,6 +12,10 @@ protocol InventoryCollecting: AnyObject {
     func collectInventory(for process: ProcessMetrics) -> ProcessInventory
 }
 
+protocol NetworkPortCollecting: AnyObject {
+    func collectNetworkPorts() -> NetworkPortSnapshot
+}
+
 struct MetricDelta {
     static func difference(current: UInt64, previous: UInt64) -> UInt64? {
         current >= previous ? current - previous : nil

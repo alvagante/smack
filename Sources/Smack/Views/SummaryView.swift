@@ -25,6 +25,7 @@ struct SummaryView: View {
                         batteryCard(battery)
                     }
                     thermalCard
+                    networkPortsCard
                     applicationsCard
                     systemDetailsCard
                 }
@@ -32,6 +33,37 @@ struct SummaryView: View {
             }
             .padding(14)
         }
+    }
+
+    private var networkPortsCard: some View {
+        Button { store.route = .networkPorts } label: {
+            MetricCard(title: "Network Ports", systemImage: "cable.connector") {
+                if let ports = store.networkPorts {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(ports.ports.count) listening")
+                            .font(.title3.weight(.semibold))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        HStack(spacing: 8) {
+                            Label("\(ports.externalCount) external", systemImage: "globe")
+                                .foregroundStyle(.orange)
+                            Label("\(ports.localhostCount) local", systemImage: "house")
+                                .foregroundStyle(.green)
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .center)
+                } else {
+                    Text("Inspecting listening ports…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var applicationsCard: some View {
