@@ -2,6 +2,8 @@
 
 Smack is a lightweight macOS system monitor that opens from the camera island or menu bar. It presents live metrics in a compact, visual dashboard without third-party dependencies.
 
+![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
+
 ## Features
 
 - **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
