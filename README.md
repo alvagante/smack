@@ -4,22 +4,22 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 
 ## Features
 
-- Live CPU, memory, network, and disk activity graphs
-- Listening TCP ports with process ownership, browser links, and active client connections
-- Storage and battery gauges, plus thermal-state indicators
-- Sortable application metrics with real app icons
-- Process details, open files, connections, threads, and loaded libraries
-- Advanced Mac hardware and software information
-- Persistent history with JSON/CSV export
-- Configurable background collection and launch at login
+- **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
+- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in).
+- **Network Ports:** listening TCP ports with the owning process, browser links, and active client connections.
+- **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
+- **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
+- **Advanced system details:** Mac hardware and software information.
+- **History:** persistent, searchable history with JSON/CSV export, configurable background collection, and launch at login.
 
-All data stays on your Mac. Some other-user or protected processes remain unavailable because Smack runs without a privileged helper.
+All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some other-user or protected processes remain unavailable because Smack runs without a privileged helper.
 
 ## Requirements
 
 - macOS 15 or later
 - Apple-silicon Mac
 - Swift 6 toolchain for development
+- Optional: Screen Recording and Accessibility permissions for native menu-bar icons
 
 ## Build and run
 
@@ -27,6 +27,8 @@ All data stays on your Mac. Some other-user or protected processes remain unavai
 Scripts/build-app.sh
 open dist/Smack.app
 ```
+
+Create a `Smack Local Dev` code-signing certificate (or set `SMACK_SIGN_IDENTITY`) to keep Screen Recording and Accessibility grants across rebuilds; see [docs/signing.md](docs/signing.md) for local and release signing.
 
 Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use **Settings → Quit Smack** to exit completely.
 

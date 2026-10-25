@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
+    @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -12,6 +13,7 @@ struct MonitorRootView: View {
                 } else {
                     Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
                 }
+                NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: store.settingsStore)
                 Spacer()
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)

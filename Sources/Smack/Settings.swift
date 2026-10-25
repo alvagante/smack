@@ -14,6 +14,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var backgroundProcessInterval: TimeInterval? = 10
     var backgroundInventoryInterval: TimeInterval?
     var showBackgroundProcesses = false
+    var showMenuBarItems = false
     var launchAtLogin = false
     var fullResolutionHours = 24
     var retentionDays = 7

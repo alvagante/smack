@@ -17,5 +17,6 @@
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSScreenCaptureUsageDescription</key><string>Smack shows your native Mac menu-bar icons, including items hidden by limited menu-bar space, only when you enable this feature.</string>
 </dict>
 </plist>

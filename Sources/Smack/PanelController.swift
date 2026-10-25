@@ -8,6 +8,7 @@ private final class FloatingPanel: NSPanel {
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
     private let store: MonitorStore
+    private let nativeMenuBarStore: NativeMenuBarStore
     private let statusItem: NSStatusItem
     private let panel: NSPanel
     private let smackSound = SmackSound()
@@ -18,9 +19,12 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var hoverTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private var pinned = false
+    /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
+    private var hotZoneSuppressedUntil = Date.distantPast
 
-    init(store: MonitorStore, statusItem: NSStatusItem) {
+    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, statusItem: NSStatusItem) {
         self.store = store
+        self.nativeMenuBarStore = nativeMenuBarStore
         self.statusItem = statusItem
         panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 430),
@@ -37,8 +41,14 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.minSize = NSSize(width: 720, height: 390)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.contentViewController = NSHostingController(rootView: MonitorRootView(store: store))
+        panel.contentViewController = NSHostingController(rootView: MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore))
         installMonitors()
+        nativeMenuBarStore.onItemActivated = { [weak self] in
+            guard let self else { return }
+            self.hotZoneSuppressedUntil = Date().addingTimeInterval(1)
+            self.hoverTask?.cancel()
+            self.close()
+        }
     }
 
     func togglePinned() {
@@ -70,6 +80,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             panel.alphaValue = 0
         }
         panel.orderFrontRegardless()
+        nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
         store.setVisible(true)
         smackSound.play()
         guard !reduceMotion else { return }
@@ -101,6 +112,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func cameraHotZone() -> NSRect? {
+        guard Date() >= hotZoneSuppressedUntil else { return nil }
         guard let screen = screenContainingPointer(), let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
         let minX = left.maxX - 12
         let maxX = right.minX + 12
@@ -168,6 +180,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         hoverTask?.cancel()
         dismissTask?.cancel()
         dismissTask = nil
+        nativeMenuBarStore.setPanelVisible(false)
         store.setVisible(false)
     }
 }

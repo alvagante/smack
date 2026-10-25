@@ -2,6 +2,29 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Add a Network Ports page listing listening TCP ports with owning process, browser links, and active client connections.
+- Show native macOS menu-bar icons, including those hidden behind the notch, in the panel header with click and right-click forwarding. Opt-in; uses Screen Recording for icons and Accessibility for clicks.
+- Add lookup icons for public remote addresses in Network Ports and process connections: IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise (IPv4), and Shodan.
+- Add Reveal in Finder, Google search, and VirusTotal SHA-256 lookup icons for open files and loaded libraries; only the hash or file name leaves the Mac, and only on click.
+- Show hover popups describing each lookup icon.
+- Document local and Developer ID signing in `docs/signing.md`.
+
+### Changed
+
+- Sign builds with the `Smack Local Dev` certificate when present, or `SMACK_SIGN_IDENTITY`, so privacy grants survive rebuilds; fall back to ad hoc with a warning.
+- Keep a per-display snapshot of menu-bar icons so they stay visible while the menu bar is hidden.
+- Close the panel when a native menu-bar icon is clicked so its menu or window appears in front.
+
+### Fixed
+
+- Stop `lsof` warnings about unreachable network volumes (such as Time Machine shares) appearing in Network Ports, and avoid blocking on them.
+- Fix main-actor isolation in the settings interval field.
+- Allow unavailable GPU hardware in the collector smoke test.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

@@ -17,7 +17,8 @@ final class NetworkPortCollector: NetworkPortCollecting {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.executableURL = executableURL
-        process.arguments = ["-nP", "-iTCP", "-FpcfuLnT"]
+        // -b avoids stat() on mounts (a stale network volume can block or warn), -w drops the resulting warnings.
+        process.arguments = ["-b", "-w", "-nP", "-iTCP", "-FpcfuLnT"]
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 

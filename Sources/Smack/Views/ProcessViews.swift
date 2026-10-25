@@ -233,13 +233,22 @@ struct ProcessDetailView: View {
                         }
                         TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
                         inventorySection("Open Files", count: inventory.files.count) {
-                            ForEach(filtered(inventory.files)) { file in Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                            ForEach(filtered(inventory.files)) { file in
+                                HStack {
+                                    FileLookupLinks(path: file.path, checksFileOnDisk: false)
+                                    Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
                         }
                         inventorySection("Network Connections", count: inventory.connections.count) {
                             ForEach(filtered(inventory.connections)) { connection in
-                                VStack(alignment: .leading) {
-                                    Text("\(connection.protocolName) · \(connection.state)").font(.caption).foregroundStyle(.secondary)
-                                    Text("\(connection.localAddress) → \(connection.remoteAddress)").textSelection(.enabled)
+                                HStack {
+                                    IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
+                                    VStack(alignment: .leading) {
+                                        Text("\(connection.protocolName) · \(connection.state)").font(.caption).foregroundStyle(.secondary)
+                                        Text("\(connection.localAddress) → \(connection.remoteAddress)").textSelection(.enabled)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }
@@ -247,7 +256,12 @@ struct ProcessDetailView: View {
                             ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
                         }
                         inventorySection("Loaded Libraries", count: inventory.libraries.count) {
-                            ForEach(filtered(inventory.libraries)) { library in Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                            ForEach(filtered(inventory.libraries)) { library in
+                                HStack {
+                                    FileLookupLinks(path: library.path)
+                                    Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
                         }
                     }
                 }.padding()

@@ -94,6 +94,7 @@ struct NetworkPortsView: View {
                                     HStack(alignment: .top, spacing: 12) {
                                         Image(systemName: "arrow.right.circle.fill")
                                             .foregroundStyle(.secondary)
+                                        IPLookupLinks(host: client.remoteHost)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(client.remoteAddress)
                                                 .font(.callout.weight(.semibold))
