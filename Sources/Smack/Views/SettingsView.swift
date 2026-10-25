@@ -48,6 +48,14 @@ struct SettingsView: View {
                 }
 
                 if let error = settings.errorMessage ?? model.exportError { Text(error).foregroundStyle(.red).font(.caption) }
+                SectionHeader(title: "Application")
+                Button("Quit Smack") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q")
+                Text("Closing the panel only hides it. Quit Smack to stop monitoring and background collection completely.")
+                    .font(.caption).foregroundStyle(.secondary)
+                SectionHeader(title: "Process Visibility")
+                Text("Processes owned by other users or protected by macOS can show Permission denied or Unavailable. Broader visibility requires a properly signed privileged helper; an administrator prompt or settings toggle alone cannot grant it.")
+                    .font(.caption).foregroundStyle(.secondary)
                 SectionHeader(title: "Privacy")
                 Text("All metrics and settings remain on this Mac. Smack has no analytics. Exports contain metrics only, never file paths or connection inventories.").font(.caption).foregroundStyle(.secondary)
             }.padding()

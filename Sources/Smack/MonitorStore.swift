@@ -20,6 +20,7 @@ enum AppRoute: Hashable {
     case history
     case settings
     case systemDetails
+    case advancedSystemDetails
 }
 
 @MainActor
@@ -27,8 +28,12 @@ final class MonitorStore: ObservableObject {
     @Published var system: SystemSample?
     @Published var processes: ProcessSnapshot?
     @Published var route: AppRoute = .summary
-    @Published var recentCPU: [HistoricalPoint] = []
+    @Published private(set) var recentMetrics = LiveMetricHistory()
     @Published var inventory: ProcessInventory?
+
+    var recentCPU: [HistoricalPoint] {
+        recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
+    }
     @Published var inventoryLoading = false
     @Published var errorMessage: String?
     private var scheduledInventories: [String: ProcessInventory] = [:]
@@ -59,8 +64,18 @@ final class MonitorStore: ObservableObject {
 
     func receive(_ sample: SystemSample) {
         system = sample
-        recentCPU.append(HistoricalPoint(timestamp: sample.timestamp, average: sample.cpu.totalUsage, peak: sample.cpu.totalUsage))
-        if recentCPU.count > 60 { recentCPU.removeFirst(recentCPU.count - 60) }
+        let memoryUsage = sample.memory.totalBytes > 0
+            ? Double(sample.memory.usedBytes) / Double(sample.memory.totalBytes) * 100
+            : 0
+        recentMetrics.append(LiveMetricPoint(
+            timestamp: sample.timestamp,
+            cpuUsage: sample.cpu.totalUsage,
+            memoryUsage: memoryUsage,
+            receiveRate: sample.receiveRate,
+            sendRate: sample.sendRate,
+            diskReadRate: sample.diskReadRate,
+            diskWriteRate: sample.diskWriteRate
+        ))
     }
 
     func receive(_ snapshot: ProcessSnapshot) {
