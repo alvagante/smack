@@ -2,7 +2,7 @@
 
 All notable changes to Smack are documented in this file.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-25
 
 ### Added
 
