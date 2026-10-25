@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 private typealias CGSConnectionID = Int32
 
