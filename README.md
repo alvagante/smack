@@ -66,3 +66,7 @@ swift test
 ```
 
 Pull requests run the test and build workflow. Pushing a Git tag builds `Smack-<tag>-macOS-arm64.zip` and publishes it with a SHA-256 checksum to the GitHub release.
+
+## License
+
+Smack is released under the [MIT License](LICENSE).
