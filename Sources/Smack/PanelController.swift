@@ -10,6 +10,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let store: MonitorStore
     private let statusItem: NSStatusItem
     private let panel: NSPanel
+    private let smackSound = SmackSound()
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var globalClickMonitor: Any?
@@ -22,7 +23,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         self.store = store
         self.statusItem = statusItem
         panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 430),
             styleMask: [.titled, .closable, .nonactivatingPanel, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: true
@@ -33,7 +34,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.titleVisibility = .hidden
         panel.isFloatingPanel = true
         panel.level = .statusBar
-        panel.minSize = NSSize(width: 400, height: 420)
+        panel.minSize = NSSize(width: 720, height: 390)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.contentViewController = NSHostingController(rootView: MonitorRootView(store: store))
@@ -50,23 +51,48 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func open() {
-        positionPanel()
-        if !panel.isVisible { panel.orderFrontRegardless() }
-        store.setVisible(true)
         dismissTask?.cancel()
+        guard !panel.isVisible else { return }
+        let target = targetFrame()
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            panel.setFrame(target, display: false)
+            panel.alphaValue = 1
+        } else {
+            let initialSize = NSSize(width: target.width * 0.96, height: target.height * 0.96)
+            let initialFrame = NSRect(
+                x: target.midX - initialSize.width / 2,
+                y: target.maxY - initialSize.height + 12,
+                width: initialSize.width,
+                height: initialSize.height
+            )
+            panel.setFrame(initialFrame, display: false)
+            panel.alphaValue = 0
+        }
+        panel.orderFrontRegardless()
+        store.setVisible(true)
+        smackSound.play()
+        guard !reduceMotion else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(target, display: true)
+            panel.animator().alphaValue = 1
+        }
     }
 
     func close() {
         panel.close()
     }
 
-    private func positionPanel() {
+    private func targetFrame() -> NSRect {
         let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
-        let frame = screen.frame
-        let topInset = screen.safeAreaInsets.top
-        let x = min(max(panel.frame.width / 2 + frame.minX + 12, NSEvent.mouseLocation.x - panel.frame.width / 2), frame.maxX - panel.frame.width / 2 - 12)
-        let y = frame.maxY - max(topInset, 24) - panel.frame.height - 6
-        panel.setFrameOrigin(NSPoint(x: x - panel.frame.width / 2, y: y))
+        let frame = screen.visibleFrame
+        let width = frame.width * 0.92
+        let height = min(430, frame.height * 0.55)
+        let x = frame.midX - width / 2
+        let y = screen.frame.maxY - max(screen.safeAreaInsets.top, 24) - height - 6
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 
     private func screenContainingPointer() -> NSScreen? {

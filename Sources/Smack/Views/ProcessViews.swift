@@ -4,8 +4,9 @@ import AppKit
 enum ProcessSort: String, CaseIterable, Identifiable {
     case cpu = "CPU"
     case memory = "Memory"
-    case disk = "Disk"
-    case name = "Name"
+    case disk = "Disk Activity"
+    case energy = "Energy Impact"
+    case name = "Application"
     var id: String { rawValue }
 }
 
@@ -13,6 +14,16 @@ enum ProcessSort: String, CaseIterable, Identifiable {
 final class ApplicationListViewModel: ObservableObject {
     @Published var query = ""
     @Published var sort = ProcessSort.cpu
+    @Published var ascending = false
+
+    func toggleSort(_ newSort: ProcessSort) {
+        if sort == newSort {
+            ascending.toggle()
+        } else {
+            sort = newSort
+            ascending = newSort == .name
+        }
+    }
 }
 
 @MainActor
@@ -23,6 +34,8 @@ final class ProcessDetailViewModel: ObservableObject {
 struct ApplicationListView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ApplicationListViewModel
+    private let metricWidth: CGFloat = 130
+    private let diskWidth: CGFloat = 160
 
     init(store: MonitorStore) {
         self.store = store
@@ -30,47 +43,110 @@ struct ApplicationListView: View {
     }
 
     var body: some View {
-        VStack {
-            HStack {
-                TextField("Search applications and processes", text: $model.query).textFieldStyle(.roundedBorder)
-                Picker("Sort", selection: $model.sort) { ForEach(ProcessSort.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(width: 100)
-            }.padding([.horizontal, .top])
+        VStack(spacing: 0) {
+            TextField("Search applications and processes", text: $model.query)
+                .textFieldStyle(.roundedBorder)
+                .padding([.horizontal, .top])
+
+            HStack(spacing: 12) {
+                sortHeader(.name)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sortHeader(.cpu).frame(width: metricWidth, alignment: .trailing)
+                sortHeader(.memory).frame(width: metricWidth, alignment: .trailing)
+                sortHeader(.disk).frame(width: diskWidth, alignment: .trailing)
+                sortHeader(.energy).frame(width: metricWidth, alignment: .trailing)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            Divider()
+
             List {
                 Section("Applications") {
                     ForEach(filtered(store.processes?.applications ?? [])) { application in
                         Button { store.route = .application(application.id) } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(application.name)
-                                    Text("\(application.processes.count) process\(application.processes.count == 1 ? "" : "es")").font(.caption).foregroundStyle(.secondary)
+                            HStack(spacing: 12) {
+                                HStack(spacing: 10) {
+                                    ApplicationIcon(application: application, size: 30)
+                                    VStack(alignment: .leading) {
+                                        Text(application.name).lineLimit(1)
+                                        Text("\(application.processes.count) process\(application.processes.count == 1 ? "" : "es")")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
-                                Spacer()
-                                Text(metric(application)).monospacedDigit().foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                metric(Formatting.percent(application.cpuUsage), width: metricWidth)
+                                metric(Formatting.bytes(application.memoryBytes), width: metricWidth)
+                                metric(Formatting.rate(application.diskReadRate + application.diskWriteRate), width: diskWidth)
+                                metric(energy(application.energyImpact), width: metricWidth)
                             }
-                        }.buttonStyle(.plain)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 if store.settingsStore.settings.showBackgroundProcesses {
                     Section("Background Processes") {
                         ForEach(filtered(store.processes?.backgroundProcesses ?? [])) { process in
                             Button { store.route = .process(process.id) } label: {
-                                HStack { Text(process.name); Spacer(); Text(metric(process)).monospacedDigit().foregroundStyle(.secondary) }
-                            }.buttonStyle(.plain)
+                                HStack(spacing: 12) {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "terminal")
+                                            .frame(width: 30, height: 30)
+                                            .foregroundStyle(.secondary)
+                                        Text(process.name).lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    metric(Formatting.percent(process.cpuUsage), width: metricWidth)
+                                    metric(Formatting.bytes(process.memoryBytes), width: metricWidth)
+                                    metric(Formatting.rate(process.diskReadRate + process.diskWriteRate), width: diskWidth)
+                                    metric(energy(process.energyImpact), width: metricWidth)
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-            }.listStyle(.plain)
+            }
+            .listStyle(.plain)
         }
+    }
+
+    private func sortHeader(_ sort: ProcessSort) -> some View {
+        Button { model.toggleSort(sort) } label: {
+            HStack(spacing: 4) {
+                if model.sort == sort {
+                    Image(systemName: model.ascending ? "chevron.up" : "chevron.down")
+                        .font(.caption2)
+                }
+                Text(sort.rawValue).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(model.sort == sort ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Sort by \(sort.rawValue)")
+    }
+
+    private func metric(_ value: String, width: CGFloat) -> some View {
+        Text(value)
+            .font(.callout)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(width: width, alignment: .trailing)
+    }
+
+    private func energy(_ value: Double?) -> String {
+        value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
     }
 
     private func filtered(_ applications: [ApplicationMetrics]) -> [ApplicationMetrics] {
         let result = model.query.isEmpty ? applications : applications.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
         return result.sorted { lhs, rhs in
             switch model.sort {
-            case .cpu: lhs.cpuUsage > rhs.cpuUsage
-            case .memory: lhs.memoryBytes > rhs.memoryBytes
-            case .disk: lhs.diskReadRate + lhs.diskWriteRate > rhs.diskReadRate + rhs.diskWriteRate
-            case .name: lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
+            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
+            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
+            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
+            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
             }
         }
     }
@@ -79,30 +155,17 @@ struct ApplicationListView: View {
         let result = model.query.isEmpty ? processes : processes.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
         return result.sorted { lhs, rhs in
             switch model.sort {
-            case .cpu: lhs.cpuUsage > rhs.cpuUsage
-            case .memory: lhs.memoryBytes > rhs.memoryBytes
-            case .disk: lhs.diskReadRate + lhs.diskWriteRate > rhs.diskReadRate + rhs.diskWriteRate
-            case .name: lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
+            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
+            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
+            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
+            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
             }
         }
     }
 
-    private func metric(_ app: ApplicationMetrics) -> String {
-        switch model.sort {
-        case .cpu: Formatting.percent(app.cpuUsage)
-        case .memory: Formatting.bytes(app.memoryBytes)
-        case .disk: Formatting.rate(app.diskReadRate + app.diskWriteRate)
-        case .name: Formatting.percent(app.cpuUsage)
-        }
-    }
-
-    private func metric(_ process: ProcessMetrics) -> String {
-        switch model.sort {
-        case .cpu: Formatting.percent(process.cpuUsage)
-        case .memory: Formatting.bytes(process.memoryBytes)
-        case .disk: Formatting.rate(process.diskReadRate + process.diskWriteRate)
-        case .name: Formatting.percent(process.cpuUsage)
-        }
+    private func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool {
+        model.ascending ? lhs < rhs : lhs > rhs
     }
 }
 
@@ -113,7 +176,10 @@ struct ApplicationDetailView: View {
         ScrollView {
             if let app = store.application(id: id) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(app.name).font(.title2.bold())
+                    HStack(spacing: 10) {
+                        ApplicationIcon(application: app, size: 34)
+                        Text(app.name).font(.title2.bold())
+                    }
                     KeyValueRow(key: "Bundle", value: app.bundleIdentifier ?? "Unavailable")
                     KeyValueRow(key: "CPU", value: Formatting.percent(app.cpuUsage))
                     KeyValueRow(key: "Memory", value: Formatting.bytes(app.memoryBytes))

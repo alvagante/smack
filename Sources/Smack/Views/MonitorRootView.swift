@@ -5,7 +5,9 @@ struct MonitorRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                if store.route != .summary {
+                if store.route == .advancedSystemDetails {
+                    Button { store.route = .systemDetails } label: { Label("System Details", systemImage: "chevron.left") }
+                } else if store.route != .summary {
                     Button { store.route = .summary } label: { Label("Summary", systemImage: "chevron.left") }
                 } else {
                     Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
@@ -28,6 +30,7 @@ struct MonitorRootView: View {
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
+                case .advancedSystemDetails: AdvancedSystemDetailsView(store: store)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }

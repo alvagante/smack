@@ -16,6 +16,7 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BINARY" "$CONTENTS/MacOS/Smack"
 cp "$ROOT/Sources/Smack/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$ROOT/Sources/Smack/Resources/PrivacyInfo.xcprivacy" "$CONTENTS/Resources/PrivacyInfo.xcprivacy"
+cp "$ROOT/Sources/Smack/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
 
 if command -v codesign >/dev/null; then
     codesign --force --sign - "$APP_DIR" >/dev/null

@@ -162,3 +162,28 @@ struct HistoricalPoint: Identifiable, Sendable {
     var average: Double
     var peak: Double
 }
+
+struct LiveMetricPoint: Identifiable, Sendable {
+    var id: Date { timestamp }
+    var timestamp: Date
+    var cpuUsage: Double
+    var memoryUsage: Double
+    var receiveRate: Double
+    var sendRate: Double
+    var diskReadRate: Double
+    var diskWriteRate: Double
+}
+
+struct LiveMetricHistory {
+    private(set) var points: [LiveMetricPoint] = []
+    let capacity: Int
+
+    init(capacity: Int = 60) {
+        self.capacity = max(1, capacity)
+    }
+
+    mutating func append(_ point: LiveMetricPoint) {
+        points.append(point)
+        if points.count > capacity { points.removeFirst(points.count - capacity) }
+    }
+}
