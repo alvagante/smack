@@ -5,6 +5,7 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 ## Features
 
 - Live CPU, memory, network, and disk activity graphs
+- Listening TCP ports with process ownership, browser links, and active client connections
 - Storage and battery gauges, plus thermal-state indicators
 - Sortable application metrics with real app icons
 - Process details, open files, connections, threads, and loaded libraries

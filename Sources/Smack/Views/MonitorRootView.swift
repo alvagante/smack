@@ -27,6 +27,7 @@ struct MonitorRootView: View {
                 case .applications: ApplicationListView(store: store)
                 case .application(let id): ApplicationDetailView(store: store, id: id)
                 case .process(let id): ProcessDetailView(store: store, id: id)
+                case .networkPorts: NetworkPortsView(store: store)
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)

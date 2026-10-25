@@ -17,6 +17,7 @@ enum AppRoute: Hashable {
     case applications
     case application(String)
     case process(String)
+    case networkPorts
     case history
     case settings
     case systemDetails
@@ -35,6 +36,8 @@ final class MonitorStore: ObservableObject {
         recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
     }
     @Published var inventoryLoading = false
+    @Published private(set) var networkPorts: NetworkPortSnapshot?
+    @Published private(set) var networkPortsLoading = false
     @Published var errorMessage: String?
     private var scheduledInventories: [String: ProcessInventory] = [:]
 
@@ -43,9 +46,11 @@ final class MonitorStore: ObservableObject {
     let historyViewModel = HistoryViewModel()
     let applicationListViewModel = ApplicationListViewModel()
     let processDetailViewModel = ProcessDetailViewModel()
+    let networkPortsViewModel = NetworkPortsViewModel()
     let settingsViewModel = SettingsViewModel()
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
+    private var networkPortsTask: Task<Void, Never>?
 
     init(settingsStore: SettingsStore, history: HistoryRepository, scheduler: CollectionScheduler) {
         self.settingsStore = settingsStore
@@ -82,8 +87,23 @@ final class MonitorStore: ObservableObject {
         processes = snapshot
     }
 
+    func receive(_ snapshot: NetworkPortSnapshot) {
+        networkPorts = snapshot
+        networkPortsLoading = false
+    }
+
     func receive(_ inventory: ProcessInventory, for id: String) {
         scheduledInventories[id] = inventory
+    }
+
+    func loadNetworkPorts() {
+        networkPortsTask?.cancel()
+        networkPortsLoading = true
+        networkPortsTask = Task {
+            let result = await scheduler.networkPorts()
+            guard !Task.isCancelled else { return }
+            receive(result)
+        }
     }
 
     func application(id: String) -> ApplicationMetrics? {

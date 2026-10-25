@@ -126,6 +126,59 @@ struct NetworkConnection: Identifiable, Sendable {
     var state: String
 }
 
+enum NetworkPortScope: String, Sendable {
+    case localhost = "Localhost"
+    case external = "External"
+}
+
+struct NetworkClient: Identifiable, Sendable, Equatable {
+    var id: String
+    var localAddress: String
+    var remoteAddress: String
+    var remoteHost: String
+    var remotePort: UInt16
+    var state: String
+}
+
+struct ListeningPort: Identifiable, Sendable, Equatable {
+    var id: String
+    var pid: Int32
+    var descriptor: Int32
+    var processName: String
+    var userName: String?
+    var protocolName: String
+    var localAddress: String
+    var host: String
+    var port: UInt16
+    var clients: [NetworkClient]
+
+    var scope: NetworkPortScope {
+        let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if normalized == "localhost" || normalized == "::1" || normalized.hasPrefix("127.") || normalized.hasPrefix("::ffff:127.") {
+            return .localhost
+        }
+        return .external
+    }
+
+    var browserURL: URL? {
+        let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let browserHost = normalized.isEmpty || normalized == "*" || normalized == "0.0.0.0" || normalized == "::"
+            ? "127.0.0.1"
+            : normalized.replacingOccurrences(of: "%", with: "%25")
+        let authority = browserHost.contains(":") ? "[\(browserHost)]" : browserHost
+        return URL(string: "http://\(authority):\(port)")
+    }
+}
+
+struct NetworkPortSnapshot: Sendable {
+    var timestamp: Date
+    var ports: [ListeningPort]
+    var warning: String?
+
+    var externalCount: Int { ports.count { $0.scope == .external } }
+    var localhostCount: Int { ports.count { $0.scope == .localhost } }
+}
+
 struct ThreadInfo: Identifiable, Sendable {
     var id: UInt64
     var name: String?

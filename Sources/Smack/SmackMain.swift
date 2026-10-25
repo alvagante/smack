@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 systemCollector: SystemCollector(),
                 processCollector: ProcessCollector(),
                 inventoryCollector: InventoryCollector(),
+                networkPortCollector: NetworkPortCollector(),
                 history: history,
                 settings: settingsStore.settings,
                 onSystem: { [weak self] sample in
@@ -41,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 onInventory: { [weak self] id, inventory in
                     Task { @MainActor in self?.store?.receive(inventory, for: id) }
+                },
+                onNetworkPorts: { [weak self] snapshot in
+                    Task { @MainActor in self?.store?.receive(snapshot) }
                 }
             )
             let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
