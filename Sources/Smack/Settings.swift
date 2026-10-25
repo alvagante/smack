@@ -1,0 +1,51 @@
+import Foundation
+
+enum PanelTrigger: String, Codable, CaseIterable, Identifiable {
+    case hover = "Hover"
+    case click = "Click"
+    var id: String { rawValue }
+}
+
+struct CollectionSettings: Codable, Equatable, Sendable {
+    var trigger: PanelTrigger = .hover
+    var hoverDelay: TimeInterval = 0.3
+    var hoverGracePeriod: TimeInterval = 0.5
+    var backgroundSystemInterval: TimeInterval? = 5
+    var backgroundProcessInterval: TimeInterval? = 10
+    var backgroundInventoryInterval: TimeInterval?
+    var showBackgroundProcesses = false
+    var launchAtLogin = false
+    var fullResolutionHours = 24
+    var retentionDays = 7
+    var historyStorageLimitMB = 250
+
+    static let backgroundIntervalRange: ClosedRange<TimeInterval> = 1...86_400
+    static let inventoryIntervalRange: ClosedRange<TimeInterval> = 10...86_400
+
+    var warning: String? {
+        if let interval = backgroundSystemInterval, interval < 2 {
+            return "Frequent background collection may exceed the lightweight CPU budget."
+        }
+        if backgroundInventoryInterval != nil {
+            return "Automatic inventories can be expensive and reveal rapidly changing data."
+        }
+        return nil
+    }
+
+    mutating func validate() {
+        hoverDelay = min(max(hoverDelay, 0), 2)
+        hoverGracePeriod = min(max(hoverGracePeriod, 0), 5)
+        if let value = backgroundSystemInterval {
+            backgroundSystemInterval = min(max(value, Self.backgroundIntervalRange.lowerBound), Self.backgroundIntervalRange.upperBound)
+        }
+        if let value = backgroundProcessInterval {
+            backgroundProcessInterval = min(max(value, Self.backgroundIntervalRange.lowerBound), Self.backgroundIntervalRange.upperBound)
+        }
+        if let value = backgroundInventoryInterval {
+            backgroundInventoryInterval = min(max(value, Self.inventoryIntervalRange.lowerBound), Self.inventoryIntervalRange.upperBound)
+        }
+        fullResolutionHours = min(max(fullResolutionHours, 1), 168)
+        retentionDays = min(max(retentionDays, 1), 365)
+        historyStorageLimitMB = min(max(historyStorageLimitMB, 25), 10_000)
+    }
+}
