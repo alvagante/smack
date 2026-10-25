@@ -51,7 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.store = store
             self.scheduler = scheduler
             configureStatusItem()
-            panelController = PanelController(store: store, statusItem: statusItem)
+            let nativeMenuBarStore = NativeMenuBarStore()
+            panelController = PanelController(store: store, nativeMenuBarStore: nativeMenuBarStore, statusItem: statusItem)
             store.setVisible(false)
             if CommandLine.arguments.contains("--open-panel") {
                 panelController?.togglePinned()

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Smack
 
@@ -31,4 +32,18 @@ import Testing
     var settings = CollectionSettings()
     settings.backgroundSystemInterval = 1
     #expect(settings.warning != nil)
+}
+
+@Test @MainActor func menuBarItemsAreOptInAndPersist() throws {
+    let suiteName = "MenuBarItemsSettingsTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    #expect(CollectionSettings().showMenuBarItems == false)
+    #expect(SettingsStore(defaults: defaults).settings.showMenuBarItems == false)
+
+    let store = SettingsStore(defaults: defaults)
+    store.update { $0.showMenuBarItems = true }
+
+    #expect(SettingsStore(defaults: defaults).settings.showMenuBarItems == true)
 }
