@@ -21,6 +21,31 @@ All data stays on your Mac: lookups send only an address, file name, or hash, an
 - Swift 6 toolchain for development
 - Optional: Screen Recording and Accessibility permissions for native menu-bar icons
 
+## Install from a GitHub release
+
+Release builds are not notarized by Apple, so macOS blocks the first launch.
+
+1. Download `Smack-<version>-macOS-arm64.zip` from the GitHub release, optionally check it against the `.sha256` file (`shasum -a 256 -c Smack-<version>-macOS-arm64.zip.sha256`), unzip it, and move `Smack.app` to `/Applications`.
+2. Try to open the app normally. macOS blocks it and shows a warning that it cannot be opened.
+3. Click **OK** to close the warning.
+4. Go to **Apple menu > System Settings > Privacy & Security**.
+5. Scroll down to the **Security** section. You will see a message saying Smack was blocked.
+6. Click **Open Anyway** and enter your Mac's administrator password.
+7. Click **Open** on the final confirmation prompt.
+
+The **Open Anyway** button is only available for about one hour after your first attempt to open the app. Control-click > Open no longer bypasses this check on macOS 15 and later.
+
+Alternatively, from Terminal, remove the quarantine flag and open the app:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Smack.app
+open /Applications/Smack.app
+```
+
+Only do this for a download you trust and have verified against its checksum.
+
+If you enable native menu-bar icons, grant Screen Recording and Accessibility when asked, then reopen Smack. Release builds are not signed with a stable identity yet, so each update may ask for these permissions again; see [docs/signing.md](docs/signing.md).
+
 ## Build and run
 
 ```bash
