@@ -105,6 +105,7 @@ private struct OptionalIntervalField: View {
     }
 }
 
+@MainActor
 private func intervalField(_ title: String, value: Binding<Double>, unit: String) -> some View {
     HStack {
         Text(title)
