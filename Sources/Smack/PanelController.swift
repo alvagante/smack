@@ -12,7 +12,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let nativeMenuBarStore: NativeMenuBarStore
     private let statusItem: NSStatusItem
     private let panel: NSPanel
-    private let smackSound = SmackSound()
+    private let smackSound: SmackSound
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var globalClickMonitor: Any?
@@ -24,10 +24,23 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var hotZoneSuppressedUntil = Date.distantPast
     private var glassModeSubscription: AnyCancellable?
 
-    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, statusItem: NSStatusItem) {
+    /// Initializes the panel controller with the necessary stores and audio player.
+    ///
+    /// - Parameters:
+    ///   - store: Central state store for metrics and configuration.
+    ///   - nativeMenuBarStore: Store managing forwarded native menu-bar icons.
+    ///   - statusItem: Status item representing Smack in the macOS menu bar.
+    ///   - smackSound: Audio player responsible for playing panel open sounds.
+    init(
+        store: MonitorStore,
+        nativeMenuBarStore: NativeMenuBarStore,
+        statusItem: NSStatusItem,
+        smackSound: SmackSound = SmackSound()
+    ) {
         self.store = store
         self.nativeMenuBarStore = nativeMenuBarStore
         self.statusItem = statusItem
+        self.smackSound = smackSound
         panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 430),
             styleMask: [.titled, .closable, .nonactivatingPanel, .resizable, .fullSizeContentView],
@@ -95,7 +108,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
         store.setVisible(true)
-        smackSound.play()
+        smackSound.play(sound: store.settingsStore.settings.panelSound)
         guard !reduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.28

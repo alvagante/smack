@@ -6,10 +6,45 @@ enum PanelTrigger: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Auditory feedback options played when the monitoring panel is presented.
+enum PanelSound: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Procedurally synthesized audio effect resembling a physical slap and thump.
+    case smack = "Smack"
+    /// Silent presentation without invoking audio playback.
+    case none = "None"
+    case basso = "Basso"
+    case blow = "Blow"
+    case bottle = "Bottle"
+    case frog = "Frog"
+    case funk = "Funk"
+    case glass = "Glass"
+    case hero = "Hero"
+    case morse = "Morse"
+    case ping = "Ping"
+    case pop = "Pop"
+    case purr = "Purr"
+    case sosumi = "Sosumi"
+    case submarine = "Submarine"
+    case tink = "Tink"
+
+    var id: String { rawValue }
+
+    /// Human-readable label displayed within settings menus.
+    var displayName: String {
+        switch self {
+        case .smack: return "Smack (Default)"
+        case .none: return "None (Mute)"
+        default: return rawValue
+        }
+    }
+}
+
 struct CollectionSettings: Codable, Equatable, Sendable {
     var trigger: PanelTrigger = .hover
     var hoverDelay: TimeInterval = 0.3
     var hoverGracePeriod: TimeInterval = 0.5
+    /// Sound effect played when the panel is opened.
+    var panelSound: PanelSound = .smack
     var backgroundSystemInterval: TimeInterval? = 5
     var backgroundProcessInterval: TimeInterval? = 10
     var backgroundInventoryInterval: TimeInterval?
@@ -81,6 +116,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case retentionDays
         case historyStorageLimitMB
         case privilegedSampling
+        case panelSound
     }
 
     /// Settings written before superuser sampling existed must keep their values instead of
@@ -93,6 +129,12 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         trigger = try container.decodeIfPresent(PanelTrigger.self, forKey: .trigger) ?? defaults.trigger
         hoverDelay = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverDelay) ?? defaults.hoverDelay
         hoverGracePeriod = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverGracePeriod) ?? defaults.hoverGracePeriod
+        if let soundString = try? container.decodeIfPresent(String.self, forKey: .panelSound),
+           let sound = PanelSound(rawValue: soundString) {
+            panelSound = sound
+        } else {
+            panelSound = defaults.panelSound
+        }
         // JSONEncoder omits nil optionals, so a missing interval key means the user disabled it.
         backgroundSystemInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundSystemInterval)
         backgroundProcessInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundProcessInterval)

@@ -112,3 +112,39 @@ import Testing
 
     #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.showMenuBarItems == true)
 }
+
+@Test func panelSoundDefaultsToSmackAndPersists() throws {
+    #expect(CollectionSettings().panelSound == .smack)
+
+    var settings = CollectionSettings()
+    settings.panelSound = .none
+    var data = try JSONEncoder().encode(settings)
+    var decoded = try JSONDecoder().decode(CollectionSettings.self, from: data)
+    #expect(decoded.panelSound == .none)
+
+    settings.panelSound = .pop
+    data = try JSONEncoder().encode(settings)
+    decoded = try JSONDecoder().decode(CollectionSettings.self, from: data)
+    #expect(decoded.panelSound == .pop)
+}
+
+@Test func legacySettingsWithoutPanelSoundDefaultToSmack() throws {
+    let legacy = """
+        {
+          "trigger": "Hover",
+          "hoverDelay": 0.3
+        }
+        """.data(using: .utf8)!
+    let settings = try JSONDecoder().decode(CollectionSettings.self, from: legacy)
+    #expect(settings.panelSound == .smack)
+}
+
+@Test func invalidPanelSoundFallsBackToSmack() throws {
+    let corrupted = """
+        {
+          "panelSound": "InvalidNonExistentSound"
+        }
+        """.data(using: .utf8)!
+    let settings = try JSONDecoder().decode(CollectionSettings.self, from: corrupted)
+    #expect(settings.panelSound == .smack)
+}
