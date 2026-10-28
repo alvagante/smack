@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 private final class FloatingPanel: NSPanel {
@@ -21,6 +22,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var pinned = false
     /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
     private var hotZoneSuppressedUntil = Date.distantPast
+    private var glassModeSubscription: AnyCancellable?
 
     init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, statusItem: NSStatusItem) {
         self.store = store
@@ -42,6 +44,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.contentViewController = NSHostingController(rootView: MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore))
+        glassModeSubscription = store.settingsStore.$settings
+            .map(\.glassMode)
+            .removeDuplicates()
+            .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
         installMonitors()
         nativeMenuBarStore.onItemActivated = { [weak self] in
             guard let self else { return }
@@ -49,6 +55,13 @@ final class PanelController: NSObject, NSWindowDelegate {
             self.hoverTask?.cancel()
             self.close()
         }
+    }
+
+    /// Glass needs a transparent window; the SwiftUI root draws the glass itself (`GlassBackground`).
+    private func applyGlassMode(_ enabled: Bool) {
+        panel.isOpaque = !enabled
+        panel.backgroundColor = enabled ? .clear : .windowBackgroundColor
+        panel.invalidateShadow()
     }
 
     func togglePinned() {

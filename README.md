@@ -13,7 +13,8 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 - **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
 - **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.
 - **Advanced system details:** Mac hardware and software information.
-- **History:** persistent, searchable history with JSON/CSV export, configurable background collection, and launch at login.
+- **History:** persistent history of system metrics and programs, with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, JSON/CSV export, configurable background collection, and launch at login.
+- **Glass mode:** optional translucent panel with adjustable opacity.
 
 All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some Apple system processes remain hidden even with the helper.
 

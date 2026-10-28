@@ -2,7 +2,7 @@
 
 All notable changes to Smack are documented in this file.
 
-## [0.4.0] - 2026-10-27
+## [0.4.0] - 2026-10-28
 
 ### Added
 
@@ -13,6 +13,10 @@ All notable changes to Smack are documented in this file.
 - Add App Store packaging and helper signing guidance to `docs/signing.md`.
 - Add a manual App Store workflow for signed archives.
 - Declare the User Defaults and system boot time required-reason APIs in the privacy manifest.
+- Group history by program (every process instance sharing a name): the chart sums all instances, carrying idle instances' values forward between their rows, and an instance picker narrows it to one process.
+- Rank the history program list by Recent, CPU, Memory, or Disk over the selected range. Totals sum per-minute averages, so they do not depend on the sampling interval. The list is no longer limited to 200 entries.
+- Overlay several metrics in system and program history charts with toggle chips, a Peaks toggle for dashed peak lines, and a hover readout of average and peak. With several metrics, CPU stays absolute, system memory is a share of physical memory, and other metrics are scaled to their range maximum.
+- Add a Glass mode setting with an opacity slider for a translucent panel (a behind-window blur faded to the chosen opacity).
 
 ### Changed
 
@@ -24,6 +28,19 @@ All notable changes to Smack are documented in this file.
 - Sign the helper before the app and apply the hardened runtime only to Developer ID direct builds.
 - Bump the bundle version to 0.4.0.
 - Change the bundle identifier from `com.smack.monitor` to `it.lab42.smack` and the helper to `it.lab42.smack.helper`. Settings migrate automatically in the direct build and history stays in place; Screen Recording and Accessibility must be granted again.
+- Rework the History view to fit the panel: one compact control row, chart and program list side by side.
+- Reorganize Settings into a responsive grid of cards with right-aligned switches and values; rows that do not apply are hidden.
+- Skip storing idle, unchanged process samples (CPU below 0.05%, no disk activity, memory within 0.5%), keeping a one-minute heartbeat and the last sample of each idle run so lines stay flat until a change. Skipped samples are counted as a row weight, so one-minute averages stay correct. On a real 20-hour history this means about 80% fewer process rows at a 10 second interval and about 94% fewer with the panel open.
+- When history exceeds its storage limit, compact process samples older than an hour into one-minute rows first, then delete the oldest process history, and delete system history only as a last resort. Pruning goes to 85% of the limit and compacts the file once.
+- Rebuild process history tables without the per-row name and rowid (history schema 3), shrinking the database by about a quarter. The one-time migration at first launch keeps all rows and weights; older builds cannot open the migrated history.
+- Downsample history series to at most 720 points, weighted by duration, so long ranges stay responsive and sparse idle rows are not outweighed by dense active ones.
+
+### Fixed
+
+- History kept only about 20 hours: the storage limit deleted full-resolution data before it was old enough to be compacted, and it deleted system history along with process history.
+- The History view overflowed the panel and hid the navigation header.
+- History lines joined periods without collection with straight lines; they now break.
+- Fix a deprecation warning when reading disk names from the I/O Registry.
 
 ### Security
 

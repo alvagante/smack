@@ -3,6 +3,14 @@ import SwiftUI
 struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
+    @ObservedObject var settingsStore: SettingsStore
+
+    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore) {
+        self.store = store
+        self.nativeMenuBarStore = nativeMenuBarStore
+        settingsStore = store.settingsStore
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -37,9 +45,15 @@ struct MonitorRootView: View {
                 case .systemDetails: SystemDetailsView(store: store)
                 case .advancedSystemDetails: AdvancedSystemDetailsView(store: store)
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            // Top-aligned and clipped so an oversized route never pushes the navigation header out of view.
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .clipped()
         }
         .frame(minWidth: 400, minHeight: 420)
+        // Lists draw opaque backgrounds that would hide the glass.
+        .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
+        .background { if settingsStore.settings.glassMode { GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea() } }
         .alert("Smack", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }

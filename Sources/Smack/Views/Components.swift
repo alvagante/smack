@@ -192,3 +192,22 @@ struct MetricTable: View {
         }
     }
 }
+
+/// Full-window translucent background: a behind-window blur faded to `opacity`, so lower values show the desktop.
+/// Liquid Glass (`NSGlassEffectView`) is not used: as a full-window background it renders near-opaque.
+/// The panel must be non-opaque with a clear background for this to show the desktop.
+struct GlassBackground: NSViewRepresentable {
+    var opacity: Double
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let effect = NSVisualEffectView()
+        effect.material = .underWindowBackground
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        return effect
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.alphaValue = opacity
+    }
+}

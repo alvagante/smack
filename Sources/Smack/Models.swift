@@ -210,11 +210,138 @@ struct HistoricalProcess: Identifiable, Sendable {
     var lastSeen: Date
 }
 
+/// Every instance sharing a process name, summarized over a history range. Totals sum per-minute averages,
+/// so they do not depend on the sampling interval.
+struct HistoricalProgram: Identifiable, Sendable {
+    var id: String { name }
+    var name: String
+    var instanceCount: Int
+    var lastSeen: Date
+    /// CPU percent times minutes; divide by 100 for CPU minutes.
+    var cpuTotal: Double
+    var cpuPeak: Double
+    /// Bytes times minutes.
+    var memoryTotal: Double
+    var memoryPeak: Double
+    /// Bytes read and written.
+    var diskBytes: Double
+    var diskPeak: Double
+}
+
+/// One stored process row with every metric, in `ProcessMetric.allCases` order.
+struct ProcessHistoryRow: Sendable {
+    var processID: String
+    var timestamp: Double
+    var averages: SIMD4<Double>
+    var peaks: SIMD4<Double>
+
+    /// Sums instances over time. A skipped row means "unchanged", so each instance's value carries forward until its
+    /// next row; after its last row, or more than `gap` without one, the instance stops counting.
+    /// Peaks are exact for full-resolution rows and an upper bound for one-minute rows.
+    static func summed(_ rows: [ProcessHistoryRow], gap: TimeInterval) -> [ProcessMetric: [HistoricalPoint]] {
+        let rows = rows.sorted { $0.timestamp < $1.timestamp }
+        var endsRun = [Bool](repeating: true, count: rows.count)
+        var previousIndex: [String: Int] = [:]
+        for (index, row) in rows.enumerated() {
+            if let previous = previousIndex[row.processID], row.timestamp - rows[previous].timestamp <= gap { endsRun[previous] = false }
+            previousIndex[row.processID] = index
+        }
+
+        var current: [String: (averages: SIMD4<Double>, peaks: SIMD4<Double>)] = [:]
+        var total = SIMD4<Double>(), totalPeak = SIMD4<Double>()
+        var series = [[HistoricalPoint]](repeating: [], count: 4)
+        var start = 0
+        while start < rows.count {
+            let timestamp = rows[start].timestamp
+            var end = start
+            while end < rows.count, rows[end].timestamp == timestamp {
+                let row = rows[end]
+                if let previous = current[row.processID] {
+                    total -= previous.averages
+                    totalPeak -= previous.peaks
+                }
+                total += row.averages
+                totalPeak += row.peaks
+                current[row.processID] = (row.averages, row.peaks)
+                end += 1
+            }
+            let date = Date(timeIntervalSince1970: timestamp)
+            for metric in 0..<4 {
+                let average = max(0, total[metric])
+                series[metric].append(HistoricalPoint(timestamp: date, average: average, peak: max(average, totalPeak[metric])))
+            }
+            for index in start..<end where endsRun[index] {
+                if let previous = current.removeValue(forKey: rows[index].processID) {
+                    total -= previous.averages
+                    totalPeak -= previous.peaks
+                }
+            }
+            start = end
+        }
+        return Dictionary(uniqueKeysWithValues: ProcessMetric.allCases.enumerated().map { ($0.element, series[$0.offset]) })
+    }
+}
+
 struct HistoricalPoint: Identifiable, Sendable {
     var id: Date { timestamp }
     var timestamp: Date
     var average: Double
     var peak: Double
+}
+
+extension HistoricalPoint {
+    /// Averages points into at most `limit` equal time buckets, keeping each bucket's peak.
+    /// Each point is weighted by the time until the next one (capped at the gap threshold), so sparse idle rows
+    /// count as much as the period they stand for.
+    static func downsampled(_ points: [HistoricalPoint], limit: Int, minimumGap: TimeInterval = 0) -> [HistoricalPoint] {
+        guard limit > 0, points.count > limit, let first = points.first?.timestamp, let last = points.last?.timestamp, last > first else { return points }
+        let width = last.timeIntervalSince(first) / Double(limit)
+        let cap = gapThreshold(points, minimum: minimumGap) ?? width
+        var result: [HistoricalPoint] = []
+        result.reserveCapacity(limit)
+        var bucket = -1, count = 0.0, weightSum = 0.0, sum = 0.0, timeSum = 0.0, peak = -Double.infinity
+        func flush() {
+            guard count > 0 else { return }
+            result.append(HistoricalPoint(timestamp: Date(timeIntervalSince1970: timeSum / count), average: sum / weightSum, peak: peak))
+        }
+        var previousWeight = 1.0
+        for (offset, point) in points.enumerated() {
+            let index = min(limit - 1, Int(point.timestamp.timeIntervalSince(first) / width))
+            if index != bucket {
+                flush()
+                bucket = index; count = 0; weightSum = 0; sum = 0; timeSum = 0; peak = -.infinity
+            }
+            let weight = offset + 1 < points.count
+                ? max(0.001, min(cap, points[offset + 1].timestamp.timeIntervalSince(point.timestamp)))
+                : previousWeight
+            previousWeight = weight
+            count += 1
+            weightSum += weight
+            sum += point.average * weight
+            timeSum += point.timestamp.timeIntervalSince1970
+            peak = max(peak, point.peak)
+        }
+        flush()
+        return result
+    }
+
+    /// Spacing above which two consecutive points are treated as a collection gap: three times the median spacing,
+    /// but never less than `minimum`.
+    static func gapThreshold(_ points: [HistoricalPoint], minimum: TimeInterval = 0) -> TimeInterval? {
+        guard points.count > 2 else { return nil }
+        let spacings = zip(points.dropFirst(), points).map { $0.timestamp.timeIntervalSince($1.timestamp) }.sorted()
+        return max(minimum, max(1, spacings[spacings.count / 2]) * 3)
+    }
+
+    /// Segment number for each point; it increases after every collection gap so charts can break the line there.
+    static func segments(_ points: [HistoricalPoint], minimumGap: TimeInterval = 0) -> [Int] {
+        guard let threshold = gapThreshold(points, minimum: minimumGap) else { return Array(repeating: 0, count: points.count) }
+        var segment = 0
+        return points.indices.map { index in
+            if index > 0, points[index].timestamp.timeIntervalSince(points[index - 1].timestamp) > threshold { segment += 1 }
+            return segment
+        }
+    }
 }
 
 struct LiveMetricPoint: Identifiable, Sendable {

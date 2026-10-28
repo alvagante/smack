@@ -50,8 +50,39 @@ enum HistoryRepositoryError: Error, Equatable {
 }
 
 actor HistoryRepository {
-    private static let schemaVersion = 1
+    private static let schemaVersion = 3
+    /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
+    static let processHeartbeatInterval: TimeInterval = 60
+    /// Charts break a process line only after this long without rows.
+    static let processMinimumGap = processHeartbeatInterval * 2.5
+    private static let idleCPUThreshold = 0.05
+    private static let idleMemoryTolerance = 0.005
+
+    private struct ProcessRow {
+        var timestamp: Double
+        var cpu: Double
+        var memory: Double
+        var diskRead: Double
+        var diskWrite: Double
+
+        var isIdle: Bool { cpu < HistoryRepository.idleCPUThreshold && diskRead == 0 && diskWrite == 0 }
+
+        /// True when `next` is idle with the same memory, so storing it would only repeat this row.
+        func isRepeated(by next: ProcessRow) -> Bool {
+            isIdle && next.isIdle && abs(next.memory - memory) <= memory * HistoryRepository.idleMemoryTolerance
+        }
+    }
+
+    /// Last stored row per process and the idle run skipped since. Skipped samples are added to the stored row's
+    /// weight; the last skipped one is stored when the run ends with a change, so lines stay flat up to the change.
+    private struct IdleRun {
+        var stored: ProcessRow
+        var skipped = 0
+        var lastSkipped: ProcessRow?
+    }
+
     nonisolated(unsafe) private let database: OpaquePointer
+    private var idleRuns: [String: IdleRun] = [:]
 
     init(databaseURL: URL) throws {
         try FileManager.default.createDirectory(at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -109,38 +140,85 @@ actor HistoryRepository {
 
     func save(processes snapshot: ProcessSnapshot) throws {
         let samples = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
+        let timestamp = snapshot.timestamp.timeIntervalSince1970
         try transaction {
+            var seen = Set<String>()
             for sample in samples {
+                seen.insert(sample.id)
                 try withStatement("""
                     INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen
                     """) { statement in
                     bind(sample.id, at: 1, to: statement)
                     bind(sample.name, at: 2, to: statement)
-                    bind(snapshot.timestamp.timeIntervalSince1970, at: 3, to: statement)
+                    bind(timestamp, at: 3, to: statement)
                     try step(statement)
                 }
-                try withStatement("""
-                    INSERT INTO process_samples (
-                        process_id, timestamp, name, cpu, memory, disk_read, disk_write
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(process_id, timestamp) DO UPDATE SET
-                        name = excluded.name,
-                        cpu = excluded.cpu,
-                        memory = excluded.memory,
-                        disk_read = excluded.disk_read,
-                        disk_write = excluded.disk_write
-                    """) { statement in
-                    bind(sample.id, at: 1, to: statement)
-                    bind(snapshot.timestamp.timeIntervalSince1970, at: 2, to: statement)
-                    bind(sample.name, at: 3, to: statement)
-                    bind(sample.cpuUsage, at: 4, to: statement)
-                    bind(Double(sample.memoryBytes), at: 5, to: statement)
-                    bind(sample.diskReadRate, at: 6, to: statement)
-                    bind(sample.diskWriteRate, at: 7, to: statement)
-                    try step(statement)
+                let row = ProcessRow(
+                    timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
+                    diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate
+                )
+                if let run = idleRuns[sample.id], run.stored.isRepeated(by: row) {
+                    if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
+                        idleRuns[sample.id]?.skipped += 1
+                        idleRuns[sample.id]?.lastSkipped = row
+                        continue
+                    }
+                    // Heartbeat: values are unchanged, so the skipped run needs no closing row.
+                    try addWeight(run.skipped, toRowOf: sample.id, at: run.stored.timestamp)
+                } else {
+                    try closeIdleRun(processID: sample.id)
                 }
+                try insert(row, processID: sample.id)
+                idleRuns[sample.id] = IdleRun(stored: row)
             }
+            for id in idleRuns.keys where !seen.contains(id) {
+                try closeIdleRun(processID: id)
+                idleRuns[id] = nil
+            }
+        }
+    }
+
+    /// Ends an idle run before a changed row or a process exit: stores its last skipped sample and weights the rest
+    /// onto the row that started the run.
+    private func closeIdleRun(processID: String) throws {
+        guard let run = idleRuns[processID] else { return }
+        if let lastSkipped = run.lastSkipped {
+            try addWeight(run.skipped - 1, toRowOf: processID, at: run.stored.timestamp)
+            try insert(lastSkipped, processID: processID)
+        }
+        idleRuns[processID] = IdleRun(stored: run.lastSkipped ?? run.stored)
+    }
+
+    private func addWeight(_ weight: Int, toRowOf processID: String, at timestamp: Double) throws {
+        guard weight > 0 else { return }
+        try withStatement("UPDATE process_samples SET weight = weight + ? WHERE process_id = ? AND timestamp = ?") { statement in
+            sqlite3_bind_int64(statement, 1, Int64(weight))
+            bind(processID, at: 2, to: statement)
+            bind(timestamp, at: 3, to: statement)
+            try step(statement)
+        }
+    }
+
+    private func insert(_ row: ProcessRow, processID: String) throws {
+        try withStatement("""
+            INSERT INTO process_samples (
+                process_id, timestamp, cpu, memory, disk_read, disk_write, weight
+            ) VALUES (?, ?, ?, ?, ?, ?, 1)
+            ON CONFLICT(process_id, timestamp) DO UPDATE SET
+                cpu = excluded.cpu,
+                memory = excluded.memory,
+                disk_read = excluded.disk_read,
+                disk_write = excluded.disk_write,
+                weight = 1
+            """) { statement in
+            bind(processID, at: 1, to: statement)
+            bind(row.timestamp, at: 2, to: statement)
+            bind(row.cpu, at: 3, to: statement)
+            bind(row.memory, at: 4, to: statement)
+            bind(row.diskRead, at: 5, to: statement)
+            bind(row.diskWrite, at: 6, to: statement)
+            try step(statement)
         }
     }
 
@@ -176,26 +254,111 @@ actor HistoryRepository {
             })
     }
 
-    func historicalProcesses(matching query: String = "") throws -> [HistoricalProcess] {
+    /// Programs (process names) with history since `start`, with interval-independent totals for ranking.
+    func programs(from start: Date) throws -> [HistoricalProgram] {
         try withStatement("""
-            SELECT id, name,
-                MAX(COALESCE((SELECT MAX(timestamp) FROM process_samples WHERE process_id = processes.id), 0),
-                    COALESCE((SELECT MAX(timestamp) FROM process_minutes WHERE process_id = processes.id), 0)) AS last_seen
-            FROM processes WHERE name LIKE ? GROUP BY id, name ORDER BY last_seen DESC LIMIT 200
+            SELECT p.name, COUNT(DISTINCT u.process_id), MAX(p.last_seen),
+                SUM(u.cpu), MAX(u.cpu_peak), SUM(u.memory), MAX(u.memory_peak), SUM(u.disk) * 60, MAX(u.disk_peak)
+            FROM (
+                SELECT process_id,
+                    SUM(cpu * weight) / SUM(weight) AS cpu, MAX(cpu) AS cpu_peak,
+                    SUM(memory * weight) / SUM(weight) AS memory, MAX(memory) AS memory_peak,
+                    SUM((disk_read + disk_write) * weight) / SUM(weight) AS disk, MAX(disk_read + disk_write) AS disk_peak
+                FROM process_samples WHERE timestamp >= ?
+                GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
+                UNION ALL
+                SELECT process_id,
+                    cpu_total / sample_count, cpu_peak,
+                    memory_total / sample_count, memory_peak,
+                    (disk_read_total + disk_write_total) / sample_count, disk_read_peak + disk_write_peak
+                FROM process_minutes WHERE timestamp >= ?
+            ) u
+            JOIN processes p ON p.id = u.process_id
+            GROUP BY p.name
             """) { statement in
-            bind("%\(query)%", at: 1, to: statement)
+            bind(start.timeIntervalSince1970, at: 1, to: statement)
+            bind(start.timeIntervalSince1970, at: 2, to: statement)
+            var result: [HistoricalProgram] = []
+            while true {
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { return result }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
+                result.append(HistoricalProgram(
+                    name: stringColumn(statement, index: 0),
+                    instanceCount: Int(sqlite3_column_int64(statement, 1)),
+                    lastSeen: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
+                    cpuTotal: sqlite3_column_double(statement, 3),
+                    cpuPeak: sqlite3_column_double(statement, 4),
+                    memoryTotal: sqlite3_column_double(statement, 5),
+                    memoryPeak: sqlite3_column_double(statement, 6),
+                    diskBytes: sqlite3_column_double(statement, 7),
+                    diskPeak: sqlite3_column_double(statement, 8)
+                ))
+            }
+        }
+    }
+
+    /// Instances of a program with history since `start`, most recent first.
+    func instances(named name: String, from start: Date) throws -> [HistoricalProcess] {
+        try withStatement("""
+            SELECT id, name, last_seen FROM processes
+            WHERE name = ? AND (
+                EXISTS (SELECT 1 FROM process_samples WHERE process_id = processes.id AND timestamp >= ?)
+                OR EXISTS (SELECT 1 FROM process_minutes WHERE process_id = processes.id AND timestamp >= ?)
+            )
+            ORDER BY last_seen DESC
+            """) { statement in
+            bind(name, at: 1, to: statement)
+            bind(start.timeIntervalSince1970, at: 2, to: statement)
+            bind(start.timeIntervalSince1970, at: 3, to: statement)
             var result: [HistoricalProcess] = []
             while true {
-                let stepResult = sqlite3_step(statement)
-                if stepResult == SQLITE_DONE { break }
-                guard stepResult == SQLITE_ROW else { throw sqliteError(code: stepResult) }
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { return result }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
                 result.append(HistoricalProcess(
-                    id: String(cString: sqlite3_column_text(statement, 0)),
-                    name: String(cString: sqlite3_column_text(statement, 1)),
+                    id: stringColumn(statement, index: 0),
+                    name: stringColumn(statement, index: 1),
                     lastSeen: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
                 ))
             }
-            return result
+        }
+    }
+
+    /// Every metric for one instance, or summed over all instances of a program, downsampled to `limit` points.
+    func processHistory(program name: String, processID: String?, from start: Date, limit: Int) throws -> [ProcessMetric: [HistoricalPoint]] {
+        let filter = processID == nil ? "process_id IN (SELECT id FROM processes WHERE name = ?)" : "process_id = ?"
+        let key = processID ?? name
+        let rows = try withStatement("""
+            SELECT process_id, timestamp, cpu, memory, disk_read, disk_write, cpu, memory, disk_read, disk_write
+            FROM process_samples WHERE \(filter) AND timestamp >= ?
+            UNION ALL
+            SELECT process_id, timestamp,
+                cpu_total / sample_count, memory_total / sample_count, disk_read_total / sample_count, disk_write_total / sample_count,
+                cpu_peak, memory_peak, disk_read_peak, disk_write_peak
+            FROM process_minutes WHERE \(filter) AND timestamp >= ?
+            ORDER BY timestamp
+            """) { statement in
+            bind(key, at: 1, to: statement)
+            bind(start.timeIntervalSince1970, at: 2, to: statement)
+            bind(key, at: 3, to: statement)
+            bind(start.timeIntervalSince1970, at: 4, to: statement)
+            var rows: [ProcessHistoryRow] = []
+            while true {
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { return rows }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
+                func column(_ index: Int32) -> Double { sqlite3_column_double(statement, index) }
+                rows.append(ProcessHistoryRow(
+                    processID: stringColumn(statement, index: 0),
+                    timestamp: column(1),
+                    averages: SIMD4(column(2), column(3), column(4), column(5)),
+                    peaks: SIMD4(column(6), column(7), column(8), column(9))
+                ))
+            }
+        }
+        return ProcessHistoryRow.summed(rows, gap: Self.processMinimumGap).mapValues {
+            HistoricalPoint.downsampled($0, limit: limit, minimumGap: Self.processMinimumGap)
         }
     }
 
@@ -228,8 +391,8 @@ actor HistoryRepository {
             try execute("DELETE FROM process_minutes")
             try execute("DELETE FROM processes")
         }
-        try execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        try execute("VACUUM")
+        idleRuns = [:]
+        try compactFile()
     }
 
     func export(to url: URL, format: HistoryExportFormat) throws {
@@ -302,17 +465,20 @@ actor HistoryRepository {
 
         try execute("PRAGMA journal_mode = WAL")
         try execute("PRAGMA synchronous = NORMAL")
-        var statement: OpaquePointer?
-        let prepareResult = sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil)
-        guard prepareResult == SQLITE_OK, let statement else {
-            throw HistoryRepositoryError.sqlite(code: prepareResult, message: String(cString: sqlite3_errmsg(database)))
-        }
-        defer { sqlite3_finalize(statement) }
-        let stepResult = sqlite3_step(statement)
-        guard stepResult == SQLITE_ROW else {
-            throw HistoryRepositoryError.sqlite(code: stepResult, message: String(cString: sqlite3_errmsg(database)))
-        }
-        let version = Int(sqlite3_column_int(statement, 0))
+        // Finalized before migrating: an open statement makes DROP TABLE fail with "database table is locked".
+        let version = try {
+            var statement: OpaquePointer?
+            let prepareResult = sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil)
+            guard prepareResult == SQLITE_OK, let statement else {
+                throw HistoryRepositoryError.sqlite(code: prepareResult, message: String(cString: sqlite3_errmsg(database)))
+            }
+            defer { sqlite3_finalize(statement) }
+            let stepResult = sqlite3_step(statement)
+            guard stepResult == SQLITE_ROW else {
+                throw HistoryRepositoryError.sqlite(code: stepResult, message: String(cString: sqlite3_errmsg(database)))
+            }
+            return Int(sqlite3_column_int(statement, 0))
+        }()
         guard version <= schemaVersion else {
             throw HistoryRepositoryError.unsupportedSchemaVersion(version)
         }
@@ -356,38 +522,61 @@ actor HistoryRepository {
                 )
                 """)
             try execute("""
-                CREATE TABLE IF NOT EXISTS process_samples (
-                    process_id TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    name TEXT NOT NULL,
-                    cpu REAL NOT NULL,
-                    memory REAL NOT NULL,
-                    disk_read REAL NOT NULL,
-                    disk_write REAL NOT NULL,
-                    PRIMARY KEY (process_id, timestamp)
-                )
+                CREATE TABLE IF NOT EXISTS process_samples (\(processSamplesColumns)) WITHOUT ROWID
                 """)
-            try execute("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
+            if version == 1 {
+                // Version 2 skips identical idle samples; `weight` counts how many samples a row stands for.
+                try execute("ALTER TABLE process_samples ADD COLUMN weight INTEGER NOT NULL DEFAULT 1")
+            }
             try execute("""
-                CREATE TABLE IF NOT EXISTS process_minutes (
-                    process_id TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    sample_count INTEGER NOT NULL,
-                    cpu_total REAL NOT NULL,
-                    cpu_peak REAL NOT NULL,
-                    memory_total REAL NOT NULL,
-                    memory_peak REAL NOT NULL,
-                    disk_read_total REAL NOT NULL,
-                    disk_read_peak REAL NOT NULL,
-                    disk_write_total REAL NOT NULL,
-                    disk_write_peak REAL NOT NULL,
-                    PRIMARY KEY (process_id, timestamp)
-                )
+                CREATE TABLE IF NOT EXISTS process_minutes (\(processMinutesColumns)) WITHOUT ROWID
                 """)
+            if version == 1 || version == 2 {
+                // Version 3 drops the per-row name (the processes table keeps it) and the rowid, roughly halving
+                // process history. Dropping a table also drops its indexes, which are recreated below.
+                try execute("CREATE TABLE process_samples_v3 (\(processSamplesColumns)) WITHOUT ROWID")
+                try execute("""
+                    INSERT INTO process_samples_v3 (process_id, timestamp, cpu, memory, disk_read, disk_write, weight)
+                    SELECT process_id, timestamp, cpu, memory, disk_read, disk_write, weight FROM process_samples
+                    """)
+                try execute("DROP TABLE process_samples")
+                try execute("ALTER TABLE process_samples_v3 RENAME TO process_samples")
+                try execute("CREATE TABLE process_minutes_v3 (\(processMinutesColumns)) WITHOUT ROWID")
+                try execute("INSERT INTO process_minutes_v3 SELECT * FROM process_minutes")
+                try execute("DROP TABLE process_minutes")
+                try execute("ALTER TABLE process_minutes_v3 RENAME TO process_minutes")
+            }
+            try execute("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
             try execute("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
             try execute("PRAGMA user_version = \(Self.schemaVersion)")
         }
     }
+
+    private static let processSamplesColumns = """
+        process_id TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        cpu REAL NOT NULL,
+        memory REAL NOT NULL,
+        disk_read REAL NOT NULL,
+        disk_write REAL NOT NULL,
+        weight INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (process_id, timestamp)
+        """
+
+    private static let processMinutesColumns = """
+        process_id TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        sample_count INTEGER NOT NULL,
+        cpu_total REAL NOT NULL,
+        cpu_peak REAL NOT NULL,
+        memory_total REAL NOT NULL,
+        memory_peak REAL NOT NULL,
+        disk_read_total REAL NOT NULL,
+        disk_read_peak REAL NOT NULL,
+        disk_write_total REAL NOT NULL,
+        disk_write_peak REAL NOT NULL,
+        PRIMARY KEY (process_id, timestamp)
+        """
 
     private func downsampleSystemSamples(olderThan cutoff: Date) throws {
         try withStatement("""
@@ -432,9 +621,9 @@ actor HistoryRepository {
                 disk_read_total, disk_read_peak, disk_write_total, disk_write_peak
             )
             SELECT
-                process_id, CAST(timestamp / 60 AS INTEGER) * 60, COUNT(*),
-                SUM(cpu), MAX(cpu), SUM(memory), MAX(memory),
-                SUM(disk_read), MAX(disk_read), SUM(disk_write), MAX(disk_write)
+                process_id, CAST(timestamp / 60 AS INTEGER) * 60, SUM(weight),
+                SUM(cpu * weight), MAX(cpu), SUM(memory * weight), MAX(memory),
+                SUM(disk_read * weight), MAX(disk_read), SUM(disk_write * weight), MAX(disk_write)
             FROM process_samples WHERE timestamp < ?
             GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
             ON CONFLICT(process_id, timestamp) DO UPDATE SET
@@ -454,31 +643,47 @@ actor HistoryRepository {
     }
 
     private func enforceStorageLimit(_ limitMB: Int) throws {
-        let limit = limitMB * 1_024 * 1_024
-        while try databaseSize() > limit {
-            guard let cutoff = try oldestPruneCutoff() else { return }
-            try transaction {
-                try execute("DELETE FROM system_samples WHERE timestamp <= \(cutoff)")
-                try execute("DELETE FROM system_minutes WHERE timestamp <= \(cutoff)")
-                try execute("DELETE FROM process_samples WHERE timestamp <= \(cutoff)")
-                try execute("DELETE FROM process_minutes WHERE timestamp <= \(cutoff)")
-                try removeProcessesWithoutSamples()
-            }
-            try execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            try execute("VACUUM")
-        }
+        try enforceStorageLimit(bytes: limitMB * 1_024 * 1_024)
     }
 
-    private func oldestPruneCutoff() throws -> Double? {
-        try withStatement("""
-            SELECT MAX(timestamp) FROM (
-                SELECT timestamp FROM system_samples
-                UNION ALL SELECT timestamp FROM system_minutes
-                UNION ALL SELECT timestamp FROM process_samples
-                UNION ALL SELECT timestamp FROM process_minutes
-                ORDER BY timestamp LIMIT 10000
-            )
-            """) { statement in
+    /// Over the limit, frees space in order of least loss: compact process samples older than an hour into
+    /// one-minute rows, delete the oldest process history, and only then the oldest system history, which is tiny.
+    /// Prunes to 85% of the limit so the next maintenance pass does not immediately run again.
+    func enforceStorageLimit(bytes limit: Int, now: Date = Date(), batchRows: Int = 10_000) throws {
+        guard try usedStorageBytes() > limit else {
+            if try databaseSize() > limit { try compactFile() }
+            return
+        }
+        let target = limit / 100 * 85
+        let compactionCutoff = now.addingTimeInterval(-3_600)
+        try transaction {
+            try downsampleProcessSamples(olderThan: compactionCutoff)
+            try execute("DELETE FROM process_samples WHERE timestamp < \(compactionCutoff.timeIntervalSince1970)")
+        }
+        for tables in [["process_samples", "process_minutes"], ["system_samples", "system_minutes"]] {
+            while try usedStorageBytes() > target, let cutoff = try oldestPruneCutoff(in: tables, batchRows: batchRows) {
+                try transaction {
+                    for table in tables { try execute("DELETE FROM \(table) WHERE timestamp <= \(cutoff)") }
+                    try removeProcessesWithoutSamples()
+                }
+            }
+        }
+        try compactFile()
+    }
+
+    /// Bytes held by live pages; unlike the file size it drops as soon as rows are deleted.
+    func usedStorageBytes() throws -> Int {
+        try (integerQuery("PRAGMA page_count") - integerQuery("PRAGMA freelist_count")) * integerQuery("PRAGMA page_size")
+    }
+
+    private func compactFile() throws {
+        try execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        try execute("VACUUM")
+    }
+
+    private func oldestPruneCutoff(in tables: [String], batchRows: Int) throws -> Double? {
+        let union = tables.map { "SELECT timestamp FROM \($0)" }.joined(separator: " UNION ALL ")
+        return try withStatement("SELECT MAX(timestamp) FROM (\(union) ORDER BY timestamp LIMIT \(batchRows))") { statement in
             let result = sqlite3_step(statement)
             if result == SQLITE_DONE { return nil }
             guard result == SQLITE_ROW else {

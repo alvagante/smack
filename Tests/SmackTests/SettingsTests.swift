@@ -85,6 +85,18 @@ import Testing
     #expect(settings.retentionDays == 30)
     #expect(settings.privilegedSampling == false)
     #expect(settings.showMenuBarItems == false)
+    #expect(settings.glassMode == false)
+    #expect(settings.glassOpacity == 0.5)
+}
+
+@Test func glassOpacityIsClamped() {
+    var settings = CollectionSettings()
+    settings.glassOpacity = 0
+    settings.validate()
+    #expect(settings.glassOpacity == CollectionSettings.glassOpacityRange.lowerBound)
+    settings.glassOpacity = 2
+    settings.validate()
+    #expect(settings.glassOpacity == 1)
 }
 
 @Test @MainActor func menuBarItemsAreOptInAndPersist() throws {

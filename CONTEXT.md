@@ -12,6 +12,10 @@ _Avoid_: App process
 An individual running program instance, including application helpers, background services, and command-line tools.
 _Avoid_: Application, task
 
+**Program**:
+In Historical Data, every process instance sharing a process name, summarized and charted together; one instance can still be picked.
+_Avoid_: Application (which is user-facing and owns processes), process group
+
 **Background Process**:
 A process that is not presented as a user-facing application.
 _Avoid_: Background application

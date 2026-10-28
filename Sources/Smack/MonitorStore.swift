@@ -143,9 +143,28 @@ final class MonitorStore: ObservableObject {
         }
     }
 
-    func processHistory(processID: String, metric: ProcessMetric, hours: Double = 1) async -> [HistoricalPoint] {
+    /// Every metric for one instance (`processID`), or summed over all instances of `program`.
+    func processHistory(program: String, processID: String?, hours: Double, limit: Int) async -> [ProcessMetric: [HistoricalPoint]] {
         do {
-            return try await history.processSeries(processID: processID, metric: metric, from: Date().addingTimeInterval(-hours * 3600))
+            return try await history.processHistory(program: program, processID: processID, from: Date().addingTimeInterval(-hours * 3600), limit: limit)
+        } catch {
+            errorMessage = "History could not be read: \(error.localizedDescription)"
+            return [:]
+        }
+    }
+
+    func historicalPrograms(hours: Double) async -> [HistoricalProgram] {
+        do {
+            return try await history.programs(from: Date().addingTimeInterval(-hours * 3600))
+        } catch {
+            errorMessage = "History could not be read: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    func historicalInstances(of program: String, hours: Double) async -> [HistoricalProcess] {
+        do {
+            return try await history.instances(named: program, from: Date().addingTimeInterval(-hours * 3600))
         } catch {
             errorMessage = "History could not be read: \(error.localizedDescription)"
             return []

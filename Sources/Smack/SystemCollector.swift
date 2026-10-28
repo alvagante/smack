@@ -378,7 +378,9 @@ final class SystemCollector: SystemMetricsCollecting {
         }
 
         var buffer = [CChar](repeating: 0, count: 128)
-        let name = IORegistryEntryGetName(service, &buffer) == KERN_SUCCESS ? String(cString: buffer) : "Disk"
+        let name = IORegistryEntryGetName(service, &buffer) == KERN_SUCCESS
+            ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            : "Disk"
         return "\(name)-\(identifier)"
     }
 

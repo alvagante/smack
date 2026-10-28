@@ -20,67 +20,119 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeader(title: "Panel")
-                Picker("Open camera hot zone with", selection: binding(\.trigger)) {
-                    ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented)
-                intervalField("Hover delay", value: binding(\.hoverDelay), unit: "seconds")
-                Toggle("Show background processes", isOn: binding(\.showBackgroundProcesses))
-                Toggle("Launch at Login", isOn: binding(\.launchAtLogin))
-
-                SectionHeader(title: "Background Collection")
-                OptionalIntervalField(title: "System metrics", seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
-                OptionalIntervalField(title: "Process metrics", seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
-                if Capabilities.isSandboxed {
-                    Text("Scheduled inventories are unavailable in the App Sandbox. Use the on-demand inventory button on a process.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    OptionalIntervalField(title: "Expensive inventories", seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
-                }
-                Text("Visible metrics update every second. Expensive inventories are on-demand unless explicitly scheduled.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let warning = settings.settings.warning { Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
-
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 560), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+                panelCard
+                appearanceCard
+                collectionCard
+                historyCard
                 if Capabilities.supportsPrivilegedSampling, let controller = store.privilegedSampling {
-                    SectionHeader(title: "Privileges")
-                    PrivilegedSamplingSection(
-                        controller: controller,
-                        settings: settings,
-                        onChange: { store.settingsChanged() }
-                    )
+                    SettingsCard(title: "Superuser Sampling", systemImage: "lock.shield") {
+                        PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
+                    }
                 }
-
-                SectionHeader(title: "Historical Data")
-                Stepper("Retention: \(settings.settings.retentionDays) days", value: binding(\.retentionDays), in: 1...365)
-                Stepper("Full resolution: \(settings.settings.fullResolutionHours) hours", value: binding(\.fullResolutionHours), in: 1...168)
-                Stepper("Storage limit: \(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), in: 25...10_000, step: 25)
-                HStack {
-                    Button("Export JSON") { export(.json) }
-                    Button("Export CSV") { export(.csv) }
-                    Button("Delete History…", role: .destructive) { model.confirmDelete = true }
-                }
-
-                if let error = settings.errorMessage ?? model.exportError { Text(error).foregroundStyle(.red).font(.caption) }
-                SectionHeader(title: "Application")
-                Button("Quit Smack") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-                Text("Closing the panel only hides it. Quit Smack to stop monitoring and background collection completely.")
-                    .font(.caption).foregroundStyle(.secondary)
-                SectionHeader(title: "Process Visibility")
-                if Capabilities.isSandboxed {
-                    Text("Smack runs in the App Sandbox. Network Ports, native menu-bar icons, and click forwarding are unavailable, and memory, disk, and energy details are limited for other processes.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Standard sampling limits open-file and port inspection to processes owned by you. Superuser sampling extends metrics, inventory, and ports to other users; some Apple system processes remain hidden.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                SectionHeader(title: "Privacy")
-                Text("All metrics and settings remain on this Mac. Smack has no analytics. Exports contain metrics only, never file paths or connection inventories.").font(.caption).foregroundStyle(.secondary)
-            }.padding()
+                aboutCard
+            }
+            .padding()
         }
         .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
             Button("Delete History", role: .destructive) { Task { try? await store.history.deleteAll() } }
+        }
+    }
+
+    // MARK: Cards
+
+    private var panelCard: some View {
+        SettingsCard(title: "Panel", systemImage: "macwindow") {
+            SettingsRow("Open with", help: "How the camera hot zone opens the panel.") {
+                Picker("Open with", selection: binding(\.trigger)) {
+                    ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            if settings.settings.trigger == .hover {
+                SettingsRow("Hover delay") { NumberField(value: binding(\.hoverDelay), unit: "s") }
+            }
+            SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
+            SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
+        }
+    }
+
+    private var appearanceCard: some View {
+        SettingsCard(title: "Appearance", systemImage: "paintpalette") {
+            SettingsRow("Glass mode", help: "Translucent panel background that shows the desktop through it.") {
+                SettingsSwitch(isOn: appearanceBinding(\.glassMode))
+            }
+            if settings.settings.glassMode {
+                SettingsRow("Opacity", help: "Lower shows more of the desktop; higher is more frosted and easier to read.") {
+                    Slider(value: appearanceBinding(\.glassOpacity), in: CollectionSettings.glassOpacityRange).frame(width: 140)
+                    Text(settings.settings.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
+                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    private var collectionCard: some View {
+        SettingsCard(title: "Background Collection", systemImage: "timer") {
+            OptionalIntervalRow(title: "System metrics", seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
+            OptionalIntervalRow(title: "Process metrics", seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
+            if Capabilities.isSandboxed {
+                SettingsCaption("Scheduled inventories are unavailable in the App Sandbox. Use the on-demand inventory button on a process.")
+            } else {
+                OptionalIntervalRow(title: "Expensive inventories", seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
+            }
+            SettingsCaption("While the panel is open, metrics update every second. Expensive inventories are on demand unless scheduled.")
+            if let warning = settings.settings.warning {
+                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var historyCard: some View {
+        SettingsCard(title: "Historical Data", systemImage: "clock.arrow.circlepath") {
+            SettingsRow("Retention") {
+                StepperValue(text: "\(settings.settings.retentionDays) days", value: binding(\.retentionDays), range: 1...365)
+            }
+            SettingsRow("Full resolution", help: "Older samples are kept as one-minute averages and peaks.") {
+                StepperValue(text: "\(settings.settings.fullResolutionHours) hours", value: binding(\.fullResolutionHours), range: 1...168)
+            }
+            SettingsRow("Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.") {
+                StepperValue(text: "\(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), range: 25...10_000, step: 25)
+            }
+            HStack {
+                Button("Export JSON") { export(.json) }
+                Button("Export CSV") { export(.csv) }
+                Spacer()
+                Button(role: .destructive) { model.confirmDelete = true } label: {
+                    Label("Delete…", systemImage: "trash").foregroundStyle(.red)
+                }
+                .help("Delete all Historical Data")
+            }
+            .controlSize(.small)
+            .padding(.top, 2)
+            if let error = settings.errorMessage ?? model.exportError {
+                Text(error).foregroundStyle(.red).font(.caption)
+            }
+        }
+    }
+
+    private var aboutCard: some View {
+        SettingsCard(title: "Privacy & Visibility", systemImage: "hand.raised") {
+            Label {
+                SettingsCaption("All metrics and settings stay on this Mac; no analytics. Exports contain metrics only, never file paths or connection inventories.")
+            } icon: { Image(systemName: "lock").foregroundStyle(.secondary).frame(width: 18) }
+            Label {
+                SettingsCaption(Capabilities.isSandboxed
+                    ? "Smack runs in the App Sandbox. Network Ports, native menu-bar icons, and click forwarding are unavailable, and memory, disk, and energy details are limited for other processes."
+                    : "Standard sampling limits open-file and port inspection to your own processes. Superuser sampling extends metrics, inventory, and ports to other users; some Apple system processes remain hidden.")
+            } icon: { Image(systemName: "eye").foregroundStyle(.secondary).frame(width: 18) }
+            HStack {
+                SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
+                Spacer()
+                Button("Quit Smack") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q")
+                    .controlSize(.small)
+            }
+            .padding(.top, 2)
         }
     }
 
@@ -88,6 +140,13 @@ struct SettingsView: View {
         Binding(get: { settings.settings[keyPath: keyPath] }, set: { value in
             settings.update { $0[keyPath: keyPath] = value }
             store.settingsChanged()
+        })
+    }
+
+    /// Appearance changes only need saving; `settingsChanged()` would restart sampling on every slider tick.
+    private func appearanceBinding<Value>(_ keyPath: WritableKeyPath<CollectionSettings, Value>) -> Binding<Value> {
+        Binding(get: { settings.settings[keyPath: keyPath] }, set: { value in
+            settings.update { $0[keyPath: keyPath] = value }
         })
     }
 
@@ -125,11 +184,10 @@ private struct PrivilegedSamplingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Sample processes owned by other users", isOn: isEnabled)
-                .disabled(controller.isWorking)
-            Text("Uses a root helper for process metrics, open-file and connection inventory, and listening ports. It cannot read file contents or run commands. \(setupHint)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            SettingsRow("Sample other users' processes") {
+                SettingsSwitch(isOn: isEnabled).disabled(controller.isWorking)
+            }
+            SettingsCaption("Uses a root helper for process metrics, open-file and connection inventory, and listening ports. It cannot read file contents or run commands. \(setupHint)")
             if settings.settings.privilegedSampling {
                 HStack(spacing: 8) {
                     Image(systemName: statusImage)
@@ -176,6 +234,7 @@ private struct PrivilegedSamplingSection: View {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
         }
+        .controlSize(.small)
         .task { await controller.refresh() }
     }
 
@@ -221,29 +280,100 @@ private struct PrivilegedSamplingSection: View {
     }
 }
 
-private struct OptionalIntervalField: View {
+// MARK: Building blocks
+
+/// A titled card in the Summary style; the grid gives every card in a row the same height.
+private struct SettingsCard<Content: View>: View {
     let title: String
-    @Binding var seconds: TimeInterval?
-    let minimum: Double
+    let systemImage: String
+    @ViewBuilder let content: Content
+
     var body: some View {
-        HStack {
-            Toggle(title, isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, 5) : nil }))
-            Spacer()
-            if seconds != nil {
-                TextField("Seconds", value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), format: .number)
-                    .textFieldStyle(.roundedBorder).frame(width: 90)
-                Text("sec").foregroundStyle(.secondary)
-            }
+        MetricCard(title: title, systemImage: systemImage) {
+            VStack(alignment: .leading, spacing: 10) { content }
         }
     }
 }
 
-@MainActor
-private func intervalField(_ title: String, value: Binding<Double>, unit: String) -> some View {
-    HStack {
-        Text(title)
-        Spacer()
-        TextField(title, value: value, format: .number).textFieldStyle(.roundedBorder).frame(width: 90)
-        Text(unit).foregroundStyle(.secondary)
+/// Title on the left, control on the right.
+private struct SettingsRow<Control: View>: View {
+    let title: String
+    var help: String?
+    @ViewBuilder let control: Control
+
+    init(_ title: String, help: String? = nil, @ViewBuilder control: () -> Control) {
+        self.title = title
+        self.help = help
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+            if help != nil {
+                Image(systemName: "questionmark.circle").font(.caption).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 8)
+            control
+        }
+        .font(.callout)
+        .help(help ?? "")
+    }
+}
+
+private struct SettingsSwitch: View {
+    @Binding var isOn: Bool
+    var body: some View {
+        Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
+    }
+}
+
+private struct SettingsCaption: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct NumberField: View {
+    @Binding var value: Double
+    let unit: String
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField("", value: $value, format: .number)
+                .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width: 56)
+            Text(unit).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct StepperValue: View {
+    let text: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step = 1
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text).monospacedDigit()
+            Stepper("", value: $value, in: range, step: step).labelsHidden()
+        }
+    }
+}
+
+/// A switch that enables an interval, with the interval field shown only while enabled.
+private struct OptionalIntervalRow: View {
+    let title: String
+    @Binding var seconds: TimeInterval?
+    let minimum: Double
+
+    var body: some View {
+        SettingsRow(title) {
+            if seconds != nil {
+                NumberField(value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), unit: "s")
+            }
+            SettingsSwitch(isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, 5) : nil }))
+        }
     }
 }

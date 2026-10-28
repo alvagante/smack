@@ -16,6 +16,10 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var showBackgroundProcesses = false
     var showMenuBarItems = false
     var launchAtLogin = false
+    /// Translucent panel background: a behind-window blur shown at `glassOpacity`.
+    var glassMode = false
+    var glassOpacity = 0.5
+    static let glassOpacityRange: ClosedRange<Double> = 0.1...1
     var fullResolutionHours = 24
     var retentionDays = 7
     var historyStorageLimitMB = 250
@@ -48,6 +52,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         }
         fullResolutionHours = min(max(fullResolutionHours, 1), 168)
         retentionDays = min(max(retentionDays, 1), 365)
+        glassOpacity = min(max(glassOpacity, Self.glassOpacityRange.lowerBound), Self.glassOpacityRange.upperBound)
         historyStorageLimitMB = min(max(historyStorageLimitMB, 25), 10_000)
         if !Capabilities.supportsPrivilegedSampling {
             privilegedSampling = false
@@ -70,6 +75,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case showBackgroundProcesses
         case showMenuBarItems
         case launchAtLogin
+        case glassMode
+        case glassOpacity
         case fullResolutionHours
         case retentionDays
         case historyStorageLimitMB
@@ -93,6 +100,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         showBackgroundProcesses = try container.decodeIfPresent(Bool.self, forKey: .showBackgroundProcesses) ?? defaults.showBackgroundProcesses
         showMenuBarItems = try container.decodeIfPresent(Bool.self, forKey: .showMenuBarItems) ?? defaults.showMenuBarItems
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
+        glassMode = try container.decodeIfPresent(Bool.self, forKey: .glassMode) ?? defaults.glassMode
+        glassOpacity = try container.decodeIfPresent(Double.self, forKey: .glassOpacity) ?? defaults.glassOpacity
         fullResolutionHours = try container.decodeIfPresent(Int.self, forKey: .fullResolutionHours) ?? defaults.fullResolutionHours
         retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? defaults.retentionDays
         historyStorageLimitMB = try container.decodeIfPresent(Int.self, forKey: .historyStorageLimitMB) ?? defaults.historyStorageLimitMB
