@@ -6,6 +6,8 @@ All notable changes to Smack are documented in this file.
 
 ### Added
 
+- Add configurable panel opening sounds in Settings, allowing users to choose between the default synthesized Smack sound, silence (None), or native macOS system alert sounds (Pop, Tink, Ping, Bottle, Purr, Submarine, etc.) with dynamic preview playback.
+
 - Install the superuser helper in self-signed direct builds with a bundled script, run after an administrator password prompt (or by hand with `sudo`) only when the option is enabled. It copies the helper to a root-owned location, verifies its signature there, offers an update when the bundled helper changes, and removes it when the option is turned off.
 - Add optional superuser sampling in the notarized direct build: a `SMAppService` root helper with fixed, read-only XPC operations for process metrics, process inventory, and listening ports; approval in Login Items; team-scoped client validation; and automatic fallback to standard sampling.
 - Add an App Store build flavor with App Sandbox entitlements, an embedded provisioning profile option, and a compile-time capability layer.
