@@ -1,17 +1,55 @@
 import AppKit
 
+/// Audio playback controller handling panel presentation auditory feedback.
 @MainActor
 final class SmackSound {
-    private let sound: NSSound?
+    private let customSound: NSSound?
+    private var systemSounds: [PanelSound: NSSound] = [:]
+    private var currentPlayingSound: NSSound?
+    /// The last panel sound requested to be played.
+    private(set) var lastPlayedSound: PanelSound?
 
     init() {
-        sound = NSSound(data: Self.wavData())
-        sound?.volume = 0.55
+        customSound = NSSound(data: Self.wavData())
+        customSound?.volume = 0.55
     }
 
-    func play() {
-        sound?.stop()
-        sound?.play()
+    /// Plays the configured sound effect, stopping any currently playing audio.
+    ///
+    /// - Parameter sound: The selected panel sound effect to play.
+    /// - Returns: `true` if sound playback was successfully initiated; `false` if muted or the asset is unavailable.
+    @discardableResult
+    func play(sound: PanelSound = .smack) -> Bool {
+        lastPlayedSound = sound
+        currentPlayingSound?.stop()
+        currentPlayingSound = nil
+
+        switch sound {
+        case .none:
+            return false
+        case .smack:
+            guard let customSound else { return false }
+            customSound.stop()
+            customSound.play()
+            currentPlayingSound = customSound
+            return true
+        default:
+            let systemSound: NSSound?
+            if let cached = systemSounds[sound] {
+                systemSound = cached
+            } else if let loaded = NSSound(named: sound.rawValue) {
+                loaded.volume = 0.55
+                systemSounds[sound] = loaded
+                systemSound = loaded
+            } else {
+                systemSound = nil
+            }
+            guard let systemSound else { return false }
+            systemSound.stop()
+            systemSound.play()
+            currentPlayingSound = systemSound
+            return true
+        }
     }
 
     private static func wavData() -> Data {

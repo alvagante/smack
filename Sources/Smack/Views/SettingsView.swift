@@ -51,6 +51,15 @@ struct SettingsView: View {
             if settings.settings.trigger == .hover {
                 SettingsRow("Hover delay") { NumberField(value: binding(\.hoverDelay), unit: "s") }
             }
+            SettingsRow("Sound", help: "Auditory feedback played when opening the panel.") {
+                Picker("Sound", selection: soundSelectionBinding) {
+                    ForEach(PanelSound.allCases) { sound in
+                        Text(sound.displayName).tag(sound)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
             SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
             SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
         }
@@ -141,6 +150,18 @@ struct SettingsView: View {
             settings.update { $0[keyPath: keyPath] = value }
             store.settingsChanged()
         })
+    }
+
+    /// Two-way binding for panel sound selection that persists user choices and triggers preview playback.
+    var soundSelectionBinding: Binding<PanelSound> {
+        Binding(
+            get: { settings.settings.panelSound },
+            set: { sound in
+                settings.update { $0.panelSound = sound }
+                store.settingsChanged()
+                SmackSound().play(sound: sound)
+            }
+        )
     }
 
     /// Appearance changes only need saving; `settingsChanged()` would restart sampling on every slider tick.
