@@ -6,6 +6,7 @@ All notable changes to Smack are documented in this file.
 
 ### Added
 
+- Guarantee immediate disk synchronization of panel sound and preference changes across application terminations and restarts, and add prominent Quit application controls in both the main monitor navigation header (with power icon and ⌘Q) and the Settings Panel card.
 - Add configurable panel opening sounds in Settings, allowing users to choose between the default synthesized Smack sound, silence (None), or native macOS system alert sounds (Pop, Tink, Ping, Bottle, Purr, Submarine, etc.) with dynamic preview playback.
 
 - Install the superuser helper in self-signed direct builds with a bundled script, run after an administrator password prompt (or by hand with `sudo`) only when the option is enabled. It copies the helper to a root-owned location, verifies its signature there, offers an update when the bundled helper changes, and removes it when the option is turned off.
