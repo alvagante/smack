@@ -3,6 +3,12 @@
 # Planning skills MUST always read documents in `always_read` and consult `specs` first.
 always_read: []
 specs:
+  - id: "002-sound-persistence-and-quit-control"
+    status: "draft"
+    date: "2026-10-28"
+    capabilities: ["panel-sound-configuration"]
+    path: "openspec/changes/002-sound-persistence-and-quit-control"
+    summary: "Guaranteed sound persistence across app restarts, immediate disk sync, and prominent quit actions."
   - id: "001-configurable-panel-sounds"
     status: "implemented"
     date: "2026-10-28"
