@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
+    private(set) var didSynchronizeOnTeardown = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -129,7 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.togglePinned()
     }
 
+    /// Handles application termination by hiding the monitor panel and ensuring that all pending
+    /// preference updates in `UserDefaults` are synchronously committed to disk before process exit.
+    /// - Parameter notification: The termination notification posted by `NSApplication`.
     func applicationWillTerminate(_ notification: Notification) {
         store?.setVisible(false)
+        _ = UserDefaults.standard.synchronize()
+        didSynchronizeOnTeardown = true
     }
 }

@@ -1,13 +1,25 @@
 import SwiftUI
 
+/// Root host view for the Smack system monitor panel containing top-level navigation,
+/// route switching, glass background effects, and application lifecycle controls.
 struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
     @ObservedObject var settingsStore: SettingsStore
+    /// Closure invoked when the user activates the top navigation Quit button or presses ⌘Q.
+    var onQuit: () -> Void = { NSApplication.shared.terminate(nil) }
+    /// Indicates whether the header navigation bar includes a prominent Quit button.
+    var hasQuitButton: Bool { true }
 
-    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore) {
+    /// Initializes the root monitor view.
+    /// - Parameters:
+    ///   - store: Primary monitor store providing metrics and active navigation route.
+    ///   - nativeMenuBarStore: Store governing native menu bar icon status items.
+    ///   - onQuit: Termination callback invoked upon triggering application exit.
+    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, onQuit: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
         self.store = store
         self.nativeMenuBarStore = nativeMenuBarStore
+        self.onQuit = onQuit
         settingsStore = store.settingsStore
     }
 
@@ -30,6 +42,12 @@ struct MonitorRootView: View {
                 }
                 Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }.help("Historical Data")
                 Button { store.route = .settings } label: { Image(systemName: "gear") }.help("Settings")
+                Button(action: onQuit) {
+                    Image(systemName: "power")
+                }
+                .help("Quit Smack (⌘Q)")
+                .accessibilityLabel("Quit Smack")
+                .keyboardShortcut("q", modifiers: .command)
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
             Group {

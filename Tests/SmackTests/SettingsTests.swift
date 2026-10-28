@@ -148,3 +148,38 @@ import Testing
     let settings = try JSONDecoder().decode(CollectionSettings.self, from: corrupted)
     #expect(settings.panelSound == .smack)
 }
+
+final class SpyUserDefaults: UserDefaults {
+    var synchronizeCallCount = 0
+
+    override func synchronize() -> Bool {
+        synchronizeCallCount += 1
+        return super.synchronize()
+    }
+}
+
+@Test @MainActor func soundSettingPersistsAcrossStoreRestarts() throws {
+    let suiteName = "SoundPersistenceTests-\(UUID().uuidString)"
+    let defaults = try #require(SpyUserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let store1 = SettingsStore(defaults: defaults, legacyDefaults: nil)
+    #expect(store1.settings.panelSound == .smack)
+
+    store1.update { $0.panelSound = .submarine }
+    #expect(store1.settings.panelSound == .submarine)
+    #expect(defaults.synchronizeCallCount >= 1)
+
+    // Simulate app termination and restart with a fresh store instance
+    let store2 = SettingsStore(defaults: defaults, legacyDefaults: nil)
+    #expect(store2.settings.panelSound == .submarine)
+
+    store2.update { $0.panelSound = .none }
+    #expect(store2.settings.panelSound == .none)
+    #expect(defaults.synchronizeCallCount >= 2)
+
+    // Simulate second restart
+    let store3 = SettingsStore(defaults: defaults, legacyDefaults: nil)
+    #expect(store3.settings.panelSound == .none)
+}
+
