@@ -7,15 +7,26 @@ final class SettingsViewModel: ObservableObject {
     @Published var exportError: String?
 }
 
+/// Settings management view displaying configuration cards for panel triggers, sound feedback,
+/// appearance glass styling, background collection intervals, and application termination controls.
 struct SettingsView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settings: SettingsStore
     @ObservedObject private var model: SettingsViewModel
+    /// Action invoked when requesting full application shutdown from settings.
+    var onQuit: () -> Void = { NSApplication.shared.terminate(nil) }
+    /// Indicates whether the panel configuration card exposes a prominent Quit Smack button.
+    var hasPanelQuitButton: Bool { true }
 
-    init(store: MonitorStore) {
+    /// Initializes the settings view.
+    /// - Parameters:
+    ///   - store: Primary monitor store providing settings and view model references.
+    ///   - onQuit: Termination callback invoked upon clicking a Quit control.
+    init(store: MonitorStore, onQuit: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
         self.store = store
         settings = store.settingsStore
         model = store.settingsViewModel
+        self.onQuit = onQuit
     }
 
     var body: some View {
@@ -62,6 +73,10 @@ struct SettingsView: View {
             }
             SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
             SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
+            SettingsRow("Application", help: "Completely stop monitoring and terminate Smack.") {
+                Button("Quit Smack", role: .destructive, action: onQuit)
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -137,7 +152,7 @@ struct SettingsView: View {
             HStack {
                 SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
                 Spacer()
-                Button("Quit Smack") { NSApplication.shared.terminate(nil) }
+                Button("Quit Smack", action: onQuit)
                     .keyboardShortcut("q")
                     .controlSize(.small)
             }

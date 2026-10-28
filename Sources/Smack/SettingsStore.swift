@@ -24,17 +24,35 @@ final class SettingsStore: ObservableObject {
         settings.validate()
     }
 
+    /// Updates settings using the provided mutation closure, immediately validating,
+    /// persisting to `UserDefaults`, and flushing changes synchronously to disk.
+    /// - Parameter change: In-out mutation closure applying configuration changes.
     func update(_ change: (inout CollectionSettings) -> Void) {
         var updated = settings
         change(&updated)
         let oldLoginPreference = settings.launchAtLogin
         updated.validate()
         settings = updated
-        if let data = try? JSONEncoder().encode(updated) {
-            defaults.set(data, forKey: key)
-        }
+        persist(updated)
         if oldLoginPreference != updated.launchAtLogin {
             updateLoginItem(enabled: updated.launchAtLogin)
+        }
+    }
+
+    /// Explicitly flushes pending preference modifications to persistent disk storage.
+    func synchronize() {
+        _ = defaults.synchronize()
+    }
+
+    /// Serializes settings into JSON, commits to `UserDefaults`, and invokes `defaults.synchronize()`
+    /// to guarantee deterministic persistence across immediate application terminations and relaunches.
+    private func persist(_ settings: CollectionSettings) {
+        do {
+            let data = try JSONEncoder().encode(settings)
+            defaults.set(data, forKey: key)
+            _ = defaults.synchronize()
+        } catch {
+            errorMessage = "Failed to save settings: \(error.localizedDescription)"
         }
     }
 
