@@ -4,11 +4,11 @@
 always_read: []
 specs:
   - id: "002-sound-persistence-and-quit-control"
-    status: "draft"
+    status: "implemented"
     date: "2026-10-28"
     capabilities: ["panel-sound-configuration"]
-    path: "openspec/changes/002-sound-persistence-and-quit-control"
-    summary: "Guaranteed sound persistence across app restarts, immediate disk sync, and prominent quit actions."
+    path: "openspec/changes/archive/2026-10-28-002-sound-persistence-and-quit-control"
+    summary: "Sound Persistence and Quit Control"
   - id: "001-configurable-panel-sounds"
     status: "implemented"
     date: "2026-10-28"
