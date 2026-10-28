@@ -34,16 +34,69 @@ import Testing
     #expect(settings.warning != nil)
 }
 
+@Test func privilegedSamplingDefaultsOffAndPersists() throws {
+    #expect(CollectionSettings().privilegedSampling == false)
+    var settings = CollectionSettings()
+    settings.privilegedSampling = true
+    let data = try JSONEncoder().encode(settings)
+    #expect(try JSONDecoder().decode(CollectionSettings.self, from: data).privilegedSampling)
+}
+
+@Test func disabledIntervalsSurviveEncodingRoundTrip() throws {
+    var settings = CollectionSettings()
+    settings.backgroundSystemInterval = nil
+    settings.backgroundProcessInterval = nil
+    let data = try JSONEncoder().encode(settings)
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: data)
+    #expect(decoded.backgroundSystemInterval == nil)
+    #expect(decoded.backgroundProcessInterval == nil)
+}
+
+@Test @MainActor func settingsMigrateFromLegacyDefaultsDomain() throws {
+    let current = UserDefaults(suiteName: "smack-tests-current-\(UUID().uuidString)")!
+    let legacy = UserDefaults(suiteName: "smack-tests-legacy-\(UUID().uuidString)")!
+    var settings = CollectionSettings()
+    settings.retentionDays = 42
+    legacy.set(try JSONEncoder().encode(settings), forKey: "collection-settings-v1")
+    #expect(SettingsStore(defaults: current, legacyDefaults: legacy).settings.retentionDays == 42)
+}
+
+@Test func legacySettingsWithoutNewKeysKeepTheirValues() throws {
+    let legacy = """
+        {
+          "trigger": "Click",
+          "hoverDelay": 0.7,
+          "hoverGracePeriod": 1.5,
+          "backgroundSystemInterval": null,
+          "backgroundProcessInterval": 30,
+          "showBackgroundProcesses": true,
+          "launchAtLogin": true,
+          "fullResolutionHours": 48,
+          "retentionDays": 30,
+          "historyStorageLimitMB": 500
+        }
+        """.data(using: .utf8)!
+    let settings = try JSONDecoder().decode(CollectionSettings.self, from: legacy)
+    #expect(settings.trigger == .click)
+    #expect(settings.backgroundSystemInterval == nil)
+    #expect(settings.backgroundProcessInterval == 30)
+    #expect(settings.showBackgroundProcesses)
+    #expect(settings.launchAtLogin)
+    #expect(settings.retentionDays == 30)
+    #expect(settings.privilegedSampling == false)
+    #expect(settings.showMenuBarItems == false)
+}
+
 @Test @MainActor func menuBarItemsAreOptInAndPersist() throws {
     let suiteName = "MenuBarItemsSettingsTests-\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     #expect(CollectionSettings().showMenuBarItems == false)
-    #expect(SettingsStore(defaults: defaults).settings.showMenuBarItems == false)
+    #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.showMenuBarItems == false)
 
-    let store = SettingsStore(defaults: defaults)
+    let store = SettingsStore(defaults: defaults, legacyDefaults: nil)
     store.update { $0.showMenuBarItems = true }
 
-    #expect(SettingsStore(defaults: defaults).settings.showMenuBarItems == true)
+    #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.showMenuBarItems == true)
 }

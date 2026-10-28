@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -21,5 +21,11 @@ jobs:
       - name: Run tests
         run: swift test
 
-      - name: Build app bundle
+      - name: Compile the App Store flavor
+        run: swift build -Xswiftc -DSMACK_APP_STORE --product Smack
+
+      - name: Build direct app bundle
         run: Scripts/build-app.sh release
+
+      - name: Build App Store app bundle
+        run: SMACK_FLAVOR=app-store Scripts/build-app.sh release

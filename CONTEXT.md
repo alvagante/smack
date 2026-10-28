@@ -35,3 +35,19 @@ _Avoid_: Disk activity, disk usage
 **Thermal State**:
 The system's coarse thermal-pressure classification: nominal, fair, serious, or critical. It is not a temperature measurement.
 _Avoid_: Temperature, thermal level
+
+**Standard Sampling**:
+Process metrics collected by the app with the current user's visibility.
+_Avoid_: Normal mode, unprivileged mode
+
+**Superuser Sampling**:
+Process metrics collected through the optional root helper, which includes processes owned by other users.
+_Avoid_: Admin mode, root mode
+
+**Privileged Helper**:
+A separately signed root daemon that exposes one read-only sampling operation over XPC and is registered through `SMAppService`.
+_Avoid_: Root process, agent
+
+**Distribution Flavor**:
+A build variant with a fixed set of capabilities: the direct Developer ID build or the sandboxed App Store build.
+_Avoid_: Edition, version

@@ -1,3 +1,4 @@
+#if !SMACK_APP_STORE
 import AppKit
 import SwiftUI
 
@@ -196,3 +197,4 @@ private struct NativeMenuBarItemButton: NSViewRepresentable {
         func rightClick() { onRightClick() }
     }
 }
+#endif

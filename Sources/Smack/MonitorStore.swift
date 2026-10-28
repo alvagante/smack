@@ -42,6 +42,7 @@ final class MonitorStore: ObservableObject {
     private var scheduledInventories: [String: ProcessInventory] = [:]
 
     let settingsStore: SettingsStore
+    let privilegedSampling: PrivilegedSamplingController?
     let history: HistoryRepository
     let historyViewModel = HistoryViewModel()
     let applicationListViewModel = ApplicationListViewModel()
@@ -52,8 +53,14 @@ final class MonitorStore: ObservableObject {
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?
 
-    init(settingsStore: SettingsStore, history: HistoryRepository, scheduler: CollectionScheduler) {
+    init(
+        settingsStore: SettingsStore,
+        history: HistoryRepository,
+        scheduler: CollectionScheduler,
+        privilegedSampling: PrivilegedSamplingController? = nil
+    ) {
         self.settingsStore = settingsStore
+        self.privilegedSampling = privilegedSampling
         self.history = history
         self.scheduler = scheduler
     }

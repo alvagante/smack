@@ -1,3 +1,4 @@
+#if !SMACK_APP_STORE
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -382,3 +383,4 @@ private extension NSScreen {
         deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
     }
 }
+#endif

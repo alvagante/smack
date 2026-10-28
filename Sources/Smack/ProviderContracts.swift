@@ -1,19 +1,29 @@
 import Foundation
+import SmackIPC
 
 protocol SystemMetricsCollecting: AnyObject {
     func collectSystemSample() -> SystemSample
 }
 
-protocol ProcessMetricsCollecting: AnyObject {
-    func collectProcessSnapshot() -> ProcessSnapshot
+protocol ProcessMetricsCollecting: AnyObject, Sendable {
+    /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
+    /// Collectors fall back to the current user's visibility when privileged access is unavailable.
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot
 }
 
-protocol InventoryCollecting: AnyObject {
-    func collectInventory(for process: ProcessMetrics) -> ProcessInventory
+protocol InventoryCollecting: AnyObject, Sendable {
+    func collectInventory(for process: ProcessMetrics, includePrivileged: Bool) async -> ProcessInventory
 }
 
-protocol NetworkPortCollecting: AnyObject {
-    func collectNetworkPorts() -> NetworkPortSnapshot
+protocol NetworkPortCollecting: AnyObject, Sendable {
+    func collectNetworkPorts(includePrivileged: Bool) async -> NetworkPortSnapshot
+}
+
+protocol PrivilegedSamplingProviding: AnyObject, Sendable {
+    func setAvailable(_ value: Bool)
+    func collectSnapshot() async -> ProcessSnapshotPayload?
+    func collectInventory(pid: Int32, startTime: Date) async -> InventoryPayload?
+    func collectNetworkPorts() async -> SocketCollection?
 }
 
 struct MetricDelta {

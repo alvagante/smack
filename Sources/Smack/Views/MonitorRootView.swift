@@ -13,7 +13,9 @@ struct MonitorRootView: View {
                 } else {
                     Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
                 }
-                NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: store.settingsStore)
+                if Capabilities.supportsNativeMenuBarIcons {
+                    NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: store.settingsStore)
+                }
                 Spacer()
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)

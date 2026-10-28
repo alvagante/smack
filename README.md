@@ -8,20 +8,28 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 
 - **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
 - **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in).
-- **Network Ports:** listening TCP ports with the owning process, browser links, and active client connections.
+- **Network Ports:** listening TCP ports with the owning process, browser links, and active client connections (direct build).
 - **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
 - **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
+- **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.
 - **Advanced system details:** Mac hardware and software information.
 - **History:** persistent, searchable history with JSON/CSV export, configurable background collection, and launch at login.
 
-All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some other-user or protected processes remain unavailable because Smack runs without a privileged helper.
+All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some Apple system processes remain hidden even with the helper.
+
+Smack has two distribution flavors. The **direct build** has every feature and the optional
+superuser helper. The **App Store build** runs in App Sandbox, so it cannot include the
+helper, native menu-bar icons, click forwarding, or Network Ports, and memory, disk, and
+energy details are limited for other processes. See
+[docs/distribution.md](docs/distribution.md) for the full matrix.
 
 ## Requirements
 
 - macOS 15 or later
 - Apple-silicon Mac
 - Swift 6 toolchain for development
-- Optional: Screen Recording and Accessibility permissions for native menu-bar icons
+- Optional: Screen Recording and Accessibility permissions for native menu-bar icons (direct build)
+- Optional: administrator approval in Login Items for superuser sampling (direct Developer ID build)
 
 ## Install from a GitHub release
 
@@ -51,11 +59,25 @@ If you enable native menu-bar icons, grant Screen Recording and Accessibility wh
 ## Build and run
 
 ```bash
-Scripts/build-app.sh
+Scripts/build-app.sh          # direct build with the optional helper
+SMACK_FLAVOR=app-store Scripts/build-app.sh   # sandboxed build without the helper
 open dist/Smack.app
 ```
 
 Create a `Smack Local Dev` code-signing certificate (or set `SMACK_SIGN_IDENTITY`) to keep Screen Recording and Accessibility grants across rebuilds; see [docs/signing.md](docs/signing.md) for local and release signing.
+
+Superuser sampling is off by default and needs nothing until you enable **Sample
+processes owned by other users** in Settings. A notarized Developer ID build then asks you
+to approve Smack Helper in Login Items; a self-signed build asks for an administrator
+password and installs the helper in `/Library/PrivilegedHelperTools`. Ad-hoc builds cannot
+run the helper. It accepts only the app from its own signer, run by an administrator.
+Turning the option off removes it. If you delete Smack while the helper is installed:
+
+```bash
+sudo launchctl bootout system/it.lab42.smack.helper
+sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
+  /Library/PrivilegedHelperTools/it.lab42.smack.helper
+```
 
 Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use **Settings → Quit Smack** to exit completely.
 
@@ -63,9 +85,13 @@ Hover over or click the camera island to open the panel, depending on Settings. 
 
 ```bash
 swift test
+swift build -Xswiftc -DSMACK_APP_STORE --product Smack
 ```
 
-Pull requests run the test and build workflow. Pushing a Git tag builds `Smack-<tag>-macOS-arm64.zip` and publishes it with a SHA-256 checksum to the GitHub release.
+Pull requests run the test workflow and compile both flavors. Pushing a Git tag builds the
+direct `Smack-<tag>-macOS-arm64.zip` and publishes it with a SHA-256 checksum to the GitHub
+release. App Store packages are produced by the manual workflow; see
+[docs/distribution.md](docs/distribution.md).
 
 ## License
 

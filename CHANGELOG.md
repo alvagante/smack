@@ -2,6 +2,35 @@
 
 All notable changes to Smack are documented in this file.
 
+## [0.4.0] - 2026-10-27
+
+### Added
+
+- Install the superuser helper in self-signed direct builds with a bundled script, run after an administrator password prompt (or by hand with `sudo`) only when the option is enabled. It copies the helper to a root-owned location, verifies its signature there, offers an update when the bundled helper changes, and removes it when the option is turned off.
+- Add optional superuser sampling in the notarized direct build: a `SMAppService` root helper with fixed, read-only XPC operations for process metrics, process inventory, and listening ports; approval in Login Items; team-scoped client validation; and automatic fallback to standard sampling.
+- Add an App Store build flavor with App Sandbox entitlements, an embedded provisioning profile option, and a compile-time capability layer.
+- Document the two distribution flavors, their feature matrix, and the sandbox audit in `docs/distribution.md`.
+- Add App Store packaging and helper signing guidance to `docs/signing.md`.
+- Add a manual App Store workflow for signed archives.
+- Declare the User Defaults and system boot time required-reason APIs in the privacy manifest.
+
+### Changed
+
+- Replace the `lsof` process with an in-process libproc socket scan for Network Ports, removing an external executable from both builds.
+- Compile the native menu-bar feature out of the App Store build; it needs private window-server APIs and Accessibility event forwarding.
+- Hide Network Ports in the App Store build because App Sandbox denies descriptor inspection, and mark memory, disk, and energy values unavailable where `proc_pid_rusage` is denied.
+- Fall back to the sysctl process table when App Sandbox denies `proc_listallpids`.
+- Add superuser and distribution settings to the privileges section and keep legacy settings when new keys are absent.
+- Sign the helper before the app and apply the hardened runtime only to Developer ID direct builds.
+- Bump the bundle version to 0.4.0.
+- Change the bundle identifier from `com.smack.monitor` to `it.lab42.smack` and the helper to `it.lab42.smack.helper`. Settings migrate automatically in the direct build and history stays in place; Screen Recording and Accessibility must be granted again.
+
+### Security
+
+- The helper exposes fixed read-only operations, accepts only a PID plus start time for inventory, cannot read arbitrary paths or run commands, and validates the process identity before inspecting it. An accepted client can inspect metadata of any process, including root processes.
+- The helper derives its client requirement from its own signature (Team ID for Developer ID, leaf certificate hash for self-signed) and refuses to start when ad-hoc signed.
+- The helper accepts connections only from members of the `admin` group, checked on every connection.
+
 ## [0.3.0] - 2026-10-25
 
 ### Added

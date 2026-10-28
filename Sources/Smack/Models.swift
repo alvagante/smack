@@ -201,6 +201,7 @@ struct ProcessSnapshot: Sendable {
     var timestamp: Date
     var applications: [ApplicationMetrics]
     var backgroundProcesses: [ProcessMetrics]
+    var warning: String? = nil
 }
 
 struct HistoricalProcess: Identifiable, Sendable {

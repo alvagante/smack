@@ -47,6 +47,12 @@ struct ApplicationListView: View {
             TextField("Search applications and processes", text: $model.query)
                 .textFieldStyle(.roundedBorder)
                 .padding([.horizontal, .top])
+            if let warning = store.processes?.warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal)
+            }
 
             HStack(spacing: 12) {
                 sortHeader(.name)
@@ -75,8 +81,8 @@ struct ApplicationListView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 metric(Formatting.percent(application.cpuUsage), width: metricWidth)
-                                metric(Formatting.bytes(application.memoryBytes), width: metricWidth)
-                                metric(Formatting.rate(application.diskReadRate + application.diskWriteRate), width: diskWidth)
+                                metric(memory(application.memoryBytes), width: metricWidth)
+                                metric(disk(application.diskReadRate + application.diskWriteRate), width: diskWidth)
                                 metric(energy(application.energyImpact), width: metricWidth)
                             }
                         }
@@ -96,8 +102,8 @@ struct ApplicationListView: View {
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     metric(Formatting.percent(process.cpuUsage), width: metricWidth)
-                                    metric(Formatting.bytes(process.memoryBytes), width: metricWidth)
-                                    metric(Formatting.rate(process.diskReadRate + process.diskWriteRate), width: diskWidth)
+                                    metric(memory(process.memoryBytes), width: metricWidth)
+                                    metric(disk(process.diskReadRate + process.diskWriteRate), width: diskWidth)
                                     metric(energy(process.energyImpact), width: metricWidth)
                                 }
                             }
@@ -135,7 +141,18 @@ struct ApplicationListView: View {
     }
 
     private func energy(_ value: Double?) -> String {
-        value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
+        if Capabilities.isSandboxed, value == nil || value == 0 { return "—" }
+        return value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
+    }
+
+    private func memory(_ value: UInt64) -> String {
+        if Capabilities.isSandboxed, value == 0 { return "—" }
+        return Formatting.bytes(value)
+    }
+
+    private func disk(_ value: Double) -> String {
+        if Capabilities.isSandboxed, value == 0 { return "—" }
+        return Formatting.rate(value)
     }
 
     private func filtered(_ applications: [ApplicationMetrics]) -> [ApplicationMetrics] {
@@ -182,9 +199,24 @@ struct ApplicationDetailView: View {
                     }
                     KeyValueRow(key: "Bundle", value: app.bundleIdentifier ?? "Unavailable")
                     KeyValueRow(key: "CPU", value: Formatting.percent(app.cpuUsage))
-                    KeyValueRow(key: "Memory", value: Formatting.bytes(app.memoryBytes))
-                    KeyValueRow(key: "Disk Read / Write", value: "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))")
-                    KeyValueRow(key: "Energy Impact", value: app.energyImpact.map { $0.formatted() } ?? "Unavailable")
+                    KeyValueRow(
+                        key: "Memory",
+                        value: Capabilities.isSandboxed && app.memoryBytes == 0
+                            ? "Unavailable in App Sandbox"
+                            : Formatting.bytes(app.memoryBytes)
+                    )
+                    KeyValueRow(
+                        key: "Disk Read / Write",
+                        value: Capabilities.isSandboxed && app.diskReadRate == 0 && app.diskWriteRate == 0
+                            ? "Unavailable in App Sandbox"
+                            : "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"
+                    )
+                    KeyValueRow(
+                        key: "Energy Impact",
+                        value: Capabilities.isSandboxed && app.energyImpact == nil
+                            ? "Unavailable in App Sandbox"
+                            : app.energyImpact.map { $0.formatted() } ?? "Unavailable"
+                    )
                     if let path = app.executablePath {
                         KeyValueRow(key: "Executable", value: path)
                         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
@@ -221,9 +253,19 @@ struct ProcessDetailView: View {
                     KeyValueRow(key: "Parent PID", value: process.parentPID.map(String.init) ?? "Unavailable")
                     KeyValueRow(key: "User", value: process.userName ?? "Permission denied")
                     KeyValueRow(key: "CPU", value: Formatting.percent(process.cpuUsage))
-                    KeyValueRow(key: "Physical Footprint", value: Formatting.bytes(process.memoryBytes))
+                    KeyValueRow(
+                        key: "Physical Footprint",
+                        value: Capabilities.isSandboxed && process.memoryBytes == 0
+                            ? "Unavailable in App Sandbox"
+                            : Formatting.bytes(process.memoryBytes)
+                    )
                     KeyValueRow(key: "Threads", value: String(process.threadCount))
-                    KeyValueRow(key: "Disk Read / Write", value: "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))")
+                    KeyValueRow(
+                        key: "Disk Read / Write",
+                        value: Capabilities.isSandboxed && process.diskReadRate == 0 && process.diskWriteRate == 0
+                            ? "Unavailable in App Sandbox"
+                            : "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))"
+                    )
                     if let path = process.executablePath { KeyValueRow(key: "Executable", value: path) }
                     Button("Refresh Live Inventory") { store.loadInventory(for: process) }
                     if store.inventoryLoading { ProgressView("Inspecting process…") }

@@ -7,15 +7,21 @@ final class SettingsStore: ObservableObject {
     @Published var errorMessage: String?
     private let defaults: UserDefaults
     private let key = "collection-settings-v1"
+    /// Bundle identifier used up to 0.3.0. Its defaults domain is readable only outside the sandbox.
+    static let legacyDefaultsDomain = "com.smack.monitor"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, legacyDefaults: UserDefaults? = UserDefaults(suiteName: legacyDefaultsDomain)) {
         self.defaults = defaults
+        if defaults.data(forKey: key) == nil, let legacy = legacyDefaults?.data(forKey: key) {
+            defaults.set(legacy, forKey: key)
+        }
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(CollectionSettings.self, from: data) {
             settings = decoded
         } else {
             settings = CollectionSettings()
         }
+        settings.validate()
     }
 
     func update(_ change: (inout CollectionSettings) -> Void) {

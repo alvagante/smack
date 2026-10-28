@@ -5,8 +5,13 @@ Smack needs Screen Recording and Accessibility for the native menu-bar feature. 
 | Signing | DR | Grants survive rebuild/update | Opens on other Macs without warnings |
 |---|---|---|---|
 | Ad hoc (`-`) | `cdhash H"..."` | No, every build is a new identity | No |
-| Self-signed certificate | `identifier "com.smack.monitor" and certificate ... = H"..."` | Yes | No |
+| Self-signed certificate | `identifier "it.lab42.smack" and certificate ... = H"..."` | Yes | No |
 | Developer ID + notarization | Developer ID chain + Team ID | Yes | Yes |
+| Apple Distribution + App Store profile | Apple Distribution chain + Team ID | Yes | App Store only |
+
+Smack has two flavors. The direct build uses Developer ID, is not sandboxed, and embeds a
+root sampling helper. The App Store build uses Apple Distribution, is sandboxed, and has
+no helper. See [distribution.md](distribution.md) for the feature matrix.
 
 `Scripts/build-app.sh` picks the identity in this order and prints the one it used:
 
@@ -47,8 +52,8 @@ Launch with `open`, not by executing `Contents/MacOS/Smack` from a terminal; oth
 If grants were given to an earlier ad-hoc build, clear them once and grant again:
 
 ```bash
-tccutil reset ScreenCapture com.smack.monitor
-tccutil reset Accessibility com.smack.monitor
+tccutil reset ScreenCapture it.lab42.smack
+tccutil reset Accessibility it.lab42.smack
 ```
 
 Screen Recording is only re-evaluated at launch: after granting it, use **Reopen** in the panel.
@@ -70,15 +75,15 @@ Distributing outside the Mac App Store still requires the paid Apple Developer P
      --key AuthKey_XXXXXXXXXX.p8 --key-id XXXXXXXXXX --issuer <issuer-uuid>
    ```
 
-### Build script changes required
+### Hardened runtime, helper signing, and Team ID
 
-Notarization requires the hardened runtime and a secure timestamp. `build-app.sh` does not pass them yet; when signing with Developer ID the call must become:
+`build-app.sh` adds `--options runtime --timestamp` when the identity starts with
+`Developer ID Application:` and the flavor is `direct`. It signs `SmackHelper` before the
+app so the nested executable is sealed correctly. The direct build uses no entitlements.
 
-```bash
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
-```
-
-Smack uses no entitlements today. If a future feature fails under the hardened runtime, add an entitlements file with only the exception it needs (`--entitlements`).
+The helper needs no build-time configuration: at launch it reads the Team ID (or, for a
+self-signed build, the leaf certificate hash) from its own signature and accepts only the
+app with identifier `it.lab42.smack` from the same signer.
 
 ### Release by hand
 
@@ -104,36 +109,82 @@ xcrun notarytool log <submission-id> --keychain-profile smack-notary
 
 ### Release in CI (`.github/workflows/release.yml`)
 
-The release workflow currently builds an ad-hoc app. To sign and notarize there:
+The release workflow imports the certificate and notarizes automatically when these
+repository secrets are configured; without them it falls back to an ad-hoc build:
 
-1. Export the Developer ID certificate with its private key as `.p12`, then add repository secrets:
-   - `DEVELOPER_ID_P12` (base64 of the `.p12`), `DEVELOPER_ID_P12_PASSWORD`
-   - `SMACK_SIGN_IDENTITY`
-   - `NOTARY_KEY_P8` (base64 of the `.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`
-2. Before `Scripts/build-app.sh release`, import the certificate into a temporary keychain:
-   ```bash
-   KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-   KEYCHAIN_PASSWORD="$(uuidgen)"
-   echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-   security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-   security set-keychain-settings -lut 21600 "$KEYCHAIN"
-   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-   security import "$RUNNER_TEMP/cert.p12" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
-   security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-   security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-   ```
-3. After the build, notarize with the API key and staple, before the existing `ditto` packaging step:
-   ```bash
-   echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-   ditto -c -k --keepParent dist/Smack.app "$RUNNER_TEMP/notarize.zip"
-   xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-     --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
-   xcrun stapler staple dist/Smack.app
-   ```
+- `DEVELOPER_ID_P12` (base64 of the `.p12`), `DEVELOPER_ID_P12_PASSWORD`
+- `SMACK_SIGN_IDENTITY`
+- `NOTARY_KEY_P8` (base64 of the `.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`
+
+The workflow creates a temporary keychain, imports the certificate, signs the app and
+helper, submits a zip to `notarytool`, and staples the result before packaging. The
+helper only works in this signed and notarized variant.
+
+### Privileged helper
+
+`SmackHelper` is signed with the same identity as the app and sealed inside the bundle.
+Registration through `SMAppService.daemon` requires a notarized Developer ID build:
+the `SMAppService.h` header states that apps containing LaunchDaemons must be notarized.
+Self-signed builds install the helper as a classic launch daemon after an administrator
+password prompt instead; see [distribution.md](distribution.md#installing-the-helper).
+An ad-hoc helper refuses to start because it has no stable signer to pin. Install the app in `/Applications` before enabling superuser sampling.
+
+When the user enables superuser sampling the app calls `SMAppService.daemon` and macOS
+puts the helper in Login Items & Extensions for approval. Uninstalling a Developer ID app removes
+its helper; a classic daemon from a self-signed build stays. To remove either by hand:
+
+```bash
+sudo launchctl bootout system/it.lab42.smack.helper
+sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
+  /Library/PrivilegedHelperTools/it.lab42.smack.helper
+```
+
+The helper exposes fixed read-only XPC methods for process records, process inventory
+(PID plus start time only), and socket records. It cannot read arbitrary files or run
+commands.
 
 ### Switching identities
 
 Grants follow the certificate. Moving from the self-signed certificate to Developer ID resets Screen Recording and Accessibility once on your own Mac. After that, users keep their grants across updates as long as every release is signed with the same Team ID.
+
+The App Store build has no Screen Recording, Accessibility, or privileged helper, so its
+only persistent state is the app container.
+
+## Mac App Store
+
+The App Store build uses Apple Distribution signing, the App Sandbox, and an embedded
+provisioning profile. It is a separate workflow from the Developer ID release.
+
+Required secrets or local files:
+
+- Apple Distribution certificate and private key
+- `3rd Party Mac Developer Installer` certificate for the `.pkg`
+- App Store provisioning profile for `it.lab42.smack`
+
+Build and package:
+
+```bash
+export SMACK_FLAVOR=app-store
+export SMACK_SIGN_IDENTITY="Apple Distribution: Alessandro Franceschi (TEAMID)"
+export SMACK_PROVISIONING_PROFILE="$PWD/Smack_AppStore.provisionprofile"
+Scripts/build-app.sh release
+
+productbuild --component dist/Smack.app /Applications \
+  --sign "3rd Party Mac Developer Installer: Alessandro Franceschi (TEAMID)" \
+  dist/Smack.pkg
+```
+
+Verify the sandbox entitlement and the absence of the helper before uploading:
+
+```bash
+codesign -d --entitlements :- dist/Smack.app | grep com.apple.security.app-sandbox
+test ! -e dist/Smack.app/Contents/MacOS/SmackHelper
+test ! -e dist/Smack.app/Contents/Library/LaunchDaemons
+```
+
+App Review must be told why Smack reads process information. It uses public libproc APIs
+only, requests no TCC permissions, and runs no external tools. The full matrix is in
+[distribution.md](distribution.md).
 
 ## Releasing without Developer ID
 

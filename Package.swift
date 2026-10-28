@@ -12,8 +12,15 @@ let package = Package(
     name: "Smack",
     platforms: [.macOS(.v15)],
     targets: [
+        .target(name: "SmackIPC"),
+        .executableTarget(
+            name: "SmackHelper",
+            dependencies: ["SmackIPC"],
+            exclude: ["Resources"]
+        ),
         .executableTarget(
             name: "Smack",
+            dependencies: ["SmackIPC"],
             exclude: ["Resources"],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
@@ -21,6 +28,10 @@ let package = Package(
                 .linkedFramework("IOKit")
             ]
         ),
-        .testTarget(name: "SmackTests", dependencies: ["Smack"], swiftSettings: testSettings)
+        .testTarget(
+            name: "SmackTests",
+            dependencies: ["Smack", "SmackIPC"],
+            swiftSettings: testSettings
+        )
     ]
 )

@@ -25,7 +25,9 @@ struct SummaryView: View {
                         batteryCard(battery)
                     }
                     thermalCard
-                    networkPortsCard
+                    if Capabilities.supportsNetworkPortInspection {
+                        networkPortsCard
+                    }
                     applicationsCard
                     systemDetailsCard
                 }

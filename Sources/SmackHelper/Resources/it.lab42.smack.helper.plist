@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>it.lab42.smack.helper</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/SmackHelper</string>
+    <key>MachServices</key>
+    <dict>
+        <key>it.lab42.smack.helper</key>
+        <true/>
+    </dict>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>it.lab42.smack</string>
+    </array>
+</dict>
+</plist>

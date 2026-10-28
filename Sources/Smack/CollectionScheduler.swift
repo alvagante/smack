@@ -52,12 +52,17 @@ actor CollectionScheduler {
         restartSampling()
     }
 
-    func inventory(for process: ProcessMetrics) -> ProcessInventory {
-        inventoryCollector.collectInventory(for: process)
+    func inventory(for process: ProcessMetrics) async -> ProcessInventory {
+        await inventoryCollector.collectInventory(
+            for: process,
+            includePrivileged: settings.privilegedSampling
+        )
     }
 
-    func networkPorts() -> NetworkPortSnapshot {
-        networkPortCollector.collectNetworkPorts()
+    func networkPorts() async -> NetworkPortSnapshot {
+        await networkPortCollector.collectNetworkPorts(
+            includePrivileged: settings.privilegedSampling
+        )
     }
 
     private func restartSampling() {
@@ -101,7 +106,7 @@ actor CollectionScheduler {
 
     private func runProcessLoop() async {
         while !Task.isCancelled {
-            let snapshot = processCollector.collectProcessSnapshot()
+            let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
             onProcesses(snapshot)
             try? await history.save(processes: snapshot)
             let interval = visible ? 1.0 : settings.backgroundProcessInterval
@@ -111,19 +116,27 @@ actor CollectionScheduler {
     }
 
     private func runNetworkPortLoop() async {
+        guard Capabilities.supportsNetworkPortInspection else { return }
         while !Task.isCancelled {
-            onNetworkPorts(networkPortCollector.collectNetworkPorts())
+            let snapshot = await networkPortCollector.collectNetworkPorts(
+                includePrivileged: settings.privilegedSampling
+            )
+            onNetworkPorts(snapshot)
             try? await Task.sleep(for: .seconds(visible ? 5 : 60))
         }
     }
 
-    private func runScheduledInventory() {
-        guard !visible else { return }
-        let snapshot = processCollector.collectProcessSnapshot()
+    private func runScheduledInventory() async {
+        guard !visible, !Capabilities.isSandboxed else { return }
+        let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
         let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         for process in processes {
             guard !Task.isCancelled else { return }
-            onInventory(process.id, inventoryCollector.collectInventory(for: process))
+            let inventory = await inventoryCollector.collectInventory(
+                for: process,
+                includePrivileged: settings.privilegedSampling
+            )
+            onInventory(process.id, inventory)
         }
     }
 
