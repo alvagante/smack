@@ -1,0 +1,11 @@
+# MySpec AI-Oriented Specification Index
+# Order: PREPEND (newest created/implemented at top, oldest at bottom)
+# Planning skills MUST always read documents in `always_read` and consult `specs` first.
+always_read: []
+specs:
+  - id: 001-configurable-panel-sounds
+    status: draft
+    date: 2026-10-28
+    capabilities: [panel-sound-configuration]
+    path: openspec/changes/001-configurable-panel-sounds
+    summary: Configure panel opening sounds with mute, default smack, and macOS system sounds.
