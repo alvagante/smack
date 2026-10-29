@@ -50,6 +50,15 @@ energy details are limited for other processes. See
 - Optional: Screen Recording and Accessibility permissions for native menu-bar icons (direct build)
 - Optional: administrator approval in Login Items for superuser sampling (direct Developer ID build)
 
+## Install with Homebrew
+
+```bash
+brew tap alvagante/tap
+brew install --cask smack
+```
+
+Update with `brew upgrade --cask smack`. The cask removes the quarantine flag, so the manual steps below are not needed.
+
 ## Install from a GitHub release
 
 Release builds are not notarized by Apple, so macOS blocks the first launch.
