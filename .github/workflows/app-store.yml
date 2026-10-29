@@ -8,13 +8,15 @@ permissions:
 
 jobs:
   package:
+    if: vars.APP_STORE_ENABLED == 'true'
     runs-on: macos-15
     timeout-minutes: 30
-    env:
-      KEYCHAIN: ${{ runner.temp }}/app-store.keychain-db
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set keychain path
+        run: echo "KEYCHAIN=$RUNNER_TEMP/app-store.keychain-db" >> "$GITHUB_ENV"
 
       - name: Run tests
         run: swift test
