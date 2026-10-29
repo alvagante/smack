@@ -51,6 +51,9 @@ struct MonitorRootView: View {
                 Button { store.route = .settings } label: { Image(systemName: "gear") }
                     .hoverHint("Settings")
                     .accessibilityLabel("Settings")
+                Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
+                    .hoverHint("System Details")
+                    .accessibilityLabel("System Details")
                 exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
@@ -63,6 +66,7 @@ struct MonitorRootView: View {
                 case .application(let id): ApplicationDetailView(store: store, id: id)
                 case .process(let id): ProcessDetailView(store: store, id: id)
                 case .networkPorts: NetworkPortsView(store: store)
+                case .startupItems: StartupItemsView(model: store.startupItemsModel)
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
@@ -114,7 +118,6 @@ struct MonitorRootView: View {
             }
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: exitControlsState.isExpanded)
     }
 }

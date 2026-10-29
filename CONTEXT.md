@@ -52,6 +52,10 @@ _Avoid_: Admin mode, root mode
 A separately signed root daemon that exposes one read-only sampling operation over XPC and is registered through `SMAppService`.
 _Avoid_: Root process, agent
 
+**Startup Item**:
+Anything macOS starts without the user opening it: Open at Login apps, app-registered background items, launch agents and daemons, and cron jobs. Disabling one changes only the next login or boot.
+_Avoid_: Login item (which is one kind), autorun
+
 **Distribution Flavor**:
 A build variant with a fixed set of capabilities: the direct Developer ID build or the sandboxed App Store build.
 _Avoid_: Edition, version

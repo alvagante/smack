@@ -13,7 +13,8 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 - **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
 - **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
 - **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.
-- **Advanced system details:** Mac hardware and software information.
+- **Startup items:** every Open at Login app, app-registered background item, launch agent and daemon, and user cron job, with running state and an enable/disable switch for each (direct build). Open at Login apps and app background items appear after Scan for All Items, which asks for an administrator password; daemon changes ask for one too; Apple items are listed read-only.
+- **Advanced system details:** Mac hardware and software information, from the info button in the header.
 - **History:** persistent history of system metrics and programs, with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, JSON/CSV export, configurable background collection, and launch at login.
 - **Glass mode:** optional translucent panel with adjustable opacity.
 
@@ -21,7 +22,7 @@ All data stays on your Mac: lookups send only an address, file name, or hash, an
 
 Smack has two distribution flavors. The **direct build** has every feature and the optional
 superuser helper. The **App Store build** runs in App Sandbox, so it cannot include the
-helper, native menu-bar icons, click forwarding, or Network Ports, and memory, disk, and
+helper, native menu-bar icons, click forwarding, Network Ports, or Startup, and memory, disk, and
 energy details are limited for other processes. See
 [docs/distribution.md](docs/distribution.md) for the full matrix.
 

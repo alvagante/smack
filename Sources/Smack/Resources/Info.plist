@@ -17,6 +17,7 @@
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>Smack asks System Events to add or remove apps that open at login, only when you change one in Startup.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSScreenCaptureUsageDescription</key><string>Smack shows your native Mac menu-bar icons, including items hidden by limited menu-bar space, only when you enable this feature.</string>
 </dict>

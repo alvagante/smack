@@ -18,6 +18,7 @@ enum AppRoute: Hashable {
     case application(String)
     case process(String)
     case networkPorts
+    case startupItems
     case history
     case settings
     case systemDetails
@@ -50,6 +51,7 @@ final class MonitorStore: ObservableObject {
     let networkPortsViewModel = NetworkPortsViewModel()
     let settingsViewModel = SettingsViewModel()
     let storageScanModel: StorageScanModel
+    let startupItemsModel = StartupItemsModel()
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?

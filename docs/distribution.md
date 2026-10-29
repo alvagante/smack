@@ -12,6 +12,7 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
+| Startup items | `launchctl`, `sfltool dumpbtm`, `crontab`, System Events; daemons need an administrator password | unavailable: sandbox denies launching these tools |
 | Launch at login | `SMAppService.mainApp` | `SMAppService.mainApp` |
 | Update channel | GitHub release zip | App Store |
 

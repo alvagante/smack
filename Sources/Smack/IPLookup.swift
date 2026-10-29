@@ -90,8 +90,12 @@ enum FileLookup {
     }
 
     static func googleURL(for path: String) -> URL? {
+        googleURL(searching: searchTerm(for: path))
+    }
+
+    static func googleURL(searching term: String) -> URL? {
         var components = URLComponents(string: "https://www.google.com/search")
-        components?.queryItems = [URLQueryItem(name: "q", value: "\"\(searchTerm(for: path))\" macOS")]
+        components?.queryItems = [URLQueryItem(name: "q", value: "\"\(term)\" macOS")]
         return components?.url
     }
 

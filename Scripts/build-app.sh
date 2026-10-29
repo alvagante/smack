@@ -22,6 +22,7 @@ BUILD_DIR="$ROOT/.build/$CONFIGURATION"
 APP_DIR="$ROOT/dist/Smack.app"
 CONTENTS="$APP_DIR/Contents"
 ENTITLEMENTS="$ROOT/Sources/Smack/Resources/Smack.entitlements"
+DIRECT_ENTITLEMENTS="$ROOT/Sources/Smack/Resources/Smack-direct.entitlements"
 HELPER_PLIST="$ROOT/Sources/SmackHelper/Resources/it.lab42.smack.helper.plist"
 
 cd "$ROOT"
@@ -39,6 +40,7 @@ if [ "$FLAVOR" = "app-store" ]; then
     # The App Store build has no native menu-bar capture, so it must not request
     # Screen Recording. Leaving an unused usage description invites review questions.
     /usr/libexec/PlistBuddy -c "Delete :NSScreenCaptureUsageDescription" "$CONTENTS/Info.plist" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Delete :NSAppleEventsUsageDescription" "$CONTENTS/Info.plist" >/dev/null 2>&1 || true
     if [ -n "${SMACK_PROVISIONING_PROFILE:-}" ]; then
         cp "$SMACK_PROVISIONING_PROFILE" "$CONTENTS/embedded.provisionprofile"
     fi
@@ -81,6 +83,8 @@ if command -v codesign >/dev/null; then
     if [ "$FLAVOR" = "direct" ]; then
         # The helper derives its client requirement from this signature at launch.
         codesign "${SIGN_ARGS[@]}" --identifier it.lab42.smack.helper "$CONTENTS/MacOS/SmackHelper" >/dev/null
+        # The hardened runtime blocks Apple Events (System Events login items) without this entitlement.
+        SIGN_ARGS+=(--entitlements "$DIRECT_ENTITLEMENTS")
     fi
     codesign "${SIGN_ARGS[@]}" "$APP_DIR" >/dev/null
     echo "signed with: $SIGN_IDENTITY ($FLAVOR)" >&2

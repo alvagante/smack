@@ -29,7 +29,9 @@ struct SummaryView: View {
                         networkPortsCard
                     }
                     applicationsCard
-                    systemDetailsCard
+                    if Capabilities.supportsStartupItems {
+                        StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems }
+                    }
                 }
                 .frame(height: 120)
             }
@@ -86,24 +88,6 @@ struct SummaryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var systemDetailsCard: some View {
-        Button { store.route = .systemDetails } label: {
-            MetricCard(title: "System Details", systemImage: "desktopcomputer") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(SystemInformation.modelIdentifier)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Text("macOS \(SystemInformation.macOSVersion)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
             }
         }
         .buttonStyle(.plain)

@@ -8,16 +8,20 @@ All notable changes to Smack are documented in this file.
 
 - Fix a storage-page rendering feedback loop that blocked the main thread, grew memory without bound, and prevented normal quit. Observe helper availability once in the model, and exercise the real event loop in regression tests.
 
+### Changed
+
+- Replace the System Details summary card with a Startup card; System Details moves to an info button in the header. The power button now matches the size of the other header buttons.
+
 ### Added
 
+- Add a Startup page (direct build) listing Open at Login apps, app-registered background items, launch agents and daemons, user cron jobs, and read-only Apple items, with running PIDs, Background Task Management blocks, search, Google lookups, and per-item enable switches. The page opens with items visible without a password; Scan for All Items adds Open at Login apps and app background items from `sfltool dumpbtm`, which asks for an administrator password. Launchd items toggle with `launchctl enable`/`disable` (an administrator password for system daemons), Open at Login apps through System Events, and cron jobs by commenting the line; running processes are not stopped. Direct builds are signed with the Apple Events entitlement.
 - Add a storage explorer with a proportional directory map, folder drilldown, breadcrumbs, allocated sizes and recursive file counts. Scans default to home, run on demand with progress and cancellation, and offer startup-disk scanning with optional signed-helper administrator access and Full Disk Access guidance. The sandboxed build uses a folder picker.
+- Guarantee immediate disk synchronization of panel sound and preference changes across application terminations and restarts, and add prominent Quit application controls in both the main monitor navigation header (with power icon and ⌘Q) and the Settings Panel card.
+- Add configurable panel opening sounds in Settings, allowing users to choose between the default synthesized Smack sound, silence (None), or native macOS system alert sounds (Pop, Tink, Ping, Bottle, Purr, Submarine, etc.) with dynamic preview playback.
 
 ## [0.4.0] - 2026-10-28
 
 ### Added
-
-- Guarantee immediate disk synchronization of panel sound and preference changes across application terminations and restarts, and add prominent Quit application controls in both the main monitor navigation header (with power icon and ⌘Q) and the Settings Panel card.
-- Add configurable panel opening sounds in Settings, allowing users to choose between the default synthesized Smack sound, silence (None), or native macOS system alert sounds (Pop, Tink, Ping, Bottle, Purr, Submarine, etc.) with dynamic preview playback.
 
 - Install the superuser helper in self-signed direct builds with a bundled script, run after an administrator password prompt (or by hand with `sudo`) only when the option is enabled. It copies the helper to a root-owned location, verifies its signature there, offers an update when the bundled helper changes, and removes it when the option is turned off.
 - Add optional superuser sampling in the notarized direct build: a `SMAppService` root helper with fixed, read-only XPC operations for process metrics, process inventory, and listening ports; approval in Login Items; team-scoped client validation; and automatic fallback to standard sampling.

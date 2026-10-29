@@ -15,11 +15,6 @@ struct SystemInformationSection: Identifiable {
 }
 
 enum SystemInformation {
-    static var macOSVersion: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
-        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
-    }
-
     static var macOSDescription: String {
         ProcessInfo.processInfo.operatingSystemVersionString
     }
