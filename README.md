@@ -1,6 +1,10 @@
 # Smack
 
-**Your Mac's vital signs, one hover away.** Smack lives in the camera island (notch) and menu bar: move the pointer up and a panel shows what your Mac is doing right now, who is doing it, and lets you act on it. No windows to manage, no third-party dependencies, no data leaving the machine.
+### **What a Pro user wants to know about a Mac.**
+
+  
+Smack lives in the camera island (notch) and menu bar: move the pointer up and a panel shows what your Mac is doing right now, who is doing it, and lets you act on it.  
+No windows to manage, no third-party dependencies, no data leaving the machine.
 
 ![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
 
@@ -8,6 +12,7 @@
 
 What you can **see** and **monitor**:
 
+- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
 - **Live dashboard:** CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state, on hover or click of the notch or menu-bar icon.
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
 - **Network:** listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
@@ -22,7 +27,6 @@ What you can **change**:
 
 ## Additional features
 
-- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
 - **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
 - **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection; it also enables administrator storage scans (direct build).
 - **Panel sounds:** the synthesized Smack sound, silence, or any macOS system alert, with preview; preferences are written to disk immediately and survive quitting.
@@ -53,12 +57,12 @@ Release builds are not notarized by Apple, so macOS blocks the first launch.
 1. Download `Smack-<version>-macOS-arm64.zip` from the GitHub release, optionally check it against the `.sha256` file (`shasum -a 256 -c Smack-<version>-macOS-arm64.zip.sha256`), unzip it, and move `Smack.app` to `/Applications`.
 2. Try to open the app normally. macOS blocks it and shows a warning that it cannot be opened.
 3. Click **OK** to close the warning.
-4. Go to **Apple menu > System Settings > Privacy & Security**.
+4. Go to **Apple menu &gt; System Settings &gt; Privacy &amp; Security**.
 5. Scroll down to the **Security** section. You will see a message saying Smack was blocked.
 6. Click **Open Anyway** and enter your Mac's administrator password.
 7. Click **Open** on the final confirmation prompt.
 
-The **Open Anyway** button is only available for about one hour after your first attempt to open the app. Control-click > Open no longer bypasses this check on macOS 15 and later.
+The **Open Anyway** button is only available for about one hour after your first attempt to open the app. Control-click &gt; Open no longer bypasses this check on macOS 15 and later.
 
 Alternatively, from Terminal, remove the quarantine flag and open the app:
 
