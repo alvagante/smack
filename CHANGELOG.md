@@ -4,12 +4,17 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-29
+
 ### Fixed
 
+- Show zero byte values as "0 bytes" instead of "Zero bytes" in memory, disk, and rate readouts.
 - Fix a storage-page rendering feedback loop that blocked the main thread, grew memory without bound, and prevented normal quit. Observe helper availability once in the model, and exercise the real event loop in regression tests.
 
 ### Changed
 
+- Size the panel to its content: the Summary page uses a compact height (380 pt) and every other page the full height, with an animated resize that respects Reduce Motion. The minimum panel height drops from 390 to 340 pt.
+- Bump the bundle version to 0.5.0 (build 5).
 - Replace the System Details summary card with a Startup card; System Details moves to an info button in the header. The power button now matches the size of the other header buttons.
 
 ### Added

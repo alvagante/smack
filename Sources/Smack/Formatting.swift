@@ -5,12 +5,20 @@ enum Formatting {
         "\(max(0, value).formatted(.number.precision(.fractionLength(value < 10 ? 2 : 1))))%"
     }
 
+    /// Numeric output only, so zero renders as "0 bytes" instead of "Zero bytes".
+    private static func byteString(_ count: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: count)
+    }
+
     static func bytes(_ value: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .memory)
+        byteString(Int64(clamping: value))
     }
 
     static func rate(_ value: Double) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory) + "/s"
+        byteString(Int64(max(0, value))) + "/s"
     }
 
     static func duration(_ value: TimeInterval?) -> String {

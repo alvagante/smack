@@ -23,6 +23,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
     private var hotZoneSuppressedUntil = Date.distantPast
     private var glassModeSubscription: AnyCancellable?
+    private var routeSubscription: AnyCancellable?
 
     /// Initializes the panel controller with the necessary stores and audio player.
     ///
@@ -53,7 +54,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.titleVisibility = .hidden
         panel.isFloatingPanel = true
         panel.level = .statusBar
-        panel.minSize = NSSize(width: 720, height: 390)
+        panel.minSize = NSSize(width: 720, height: 340)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.contentViewController = NSHostingController(rootView: MonitorRootView(
@@ -65,6 +66,12 @@ final class PanelController: NSObject, NSWindowDelegate {
             .map(\.glassMode)
             .removeDuplicates()
             .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
+        routeSubscription = store.$route
+            .map { $0 == .summary }
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] summary in self?.resizeForRoute(summary: summary) }
         installMonitors()
         nativeMenuBarStore.onItemActivated = { [weak self] in
             guard let self else { return }
@@ -126,11 +133,38 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.close()
     }
 
+    /// Summary uses a compact height that fits its cards; every other route gets the full height.
+    private func resizeForRoute(summary: Bool) {
+        guard panel.isVisible else { return }
+        let screen = panel.screen ?? screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
+        let height = panelHeight(summary: summary, screen: screen)
+        var frame = panel.frame
+        guard abs(frame.height - height) > 0.5 else { return }
+        frame.origin.y = frame.maxY - height
+        frame.size.height = height
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrame(frame, display: true)
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().setFrame(frame, display: true)
+            }
+        }
+    }
+
+    private func panelHeight(summary: Bool, screen: NSScreen) -> CGFloat {
+        let full = min(600, screen.visibleFrame.height - 40)
+        return summary ? min(Self.summaryHeight, full) : full
+    }
+
+    private static let summaryHeight: CGFloat = 380
+
     private func targetFrame() -> NSRect {
         let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
         let frame = screen.visibleFrame
         let width = frame.width * 0.92
-        let height = min(430, frame.height * 0.55)
+        let height = panelHeight(summary: store.route == .summary, screen: screen)
         let x = frame.midX - width / 2
         let y = screen.frame.maxY - max(screen.safeAreaInsets.top, 24) - height - 6
         return NSRect(x: x, y: y, width: width, height: height)

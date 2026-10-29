@@ -77,7 +77,7 @@ struct MonitorRootView: View {
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
             .clipped()
         }
-        .frame(minWidth: 400, minHeight: 420)
+        .frame(minWidth: 400, minHeight: 340)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
             exitControlsState.isExpanded = false
         }

@@ -1,22 +1,34 @@
 # Smack
 
-Smack is a lightweight macOS system monitor that opens from the camera island or menu bar. It presents live metrics in a compact, visual dashboard without third-party dependencies.
+**Your Mac's vital signs, one hover away.** Smack lives in the camera island (notch) and menu bar: move the pointer up and a panel shows what your Mac is doing right now, who is doing it, and lets you act on it. No windows to manage, no third-party dependencies, no data leaving the machine.
 
 ![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
 
-## Features
+## Core features: see, change, monitor
 
-- **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
-- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in).
-- **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress and cancellation. Optional administrator scans reuse the signed helper; Full Disk Access setup is available on the page. The App Store build scans a folder selected by the user.
+What you can **see** and **monitor**:
+
+- **Live dashboard:** CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state, on hover or click of the notch or menu-bar icon.
+- **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
 - **Network:** listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
-- **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
-- **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
-- **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.
+- **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
+- **History:** persistent system and per-program history with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, and JSON/CSV export.
+- **System details:** Mac hardware and software information, from the info button in the header.
+
+What you can **change**:
+
 - **Startup items:** every Open at Login app, app-registered background item, launch agent and daemon, and user cron job, with running state and an enable/disable switch for each (direct build). Open at Login apps and app background items appear after Scan for All Items, which asks for an administrator password; daemon changes ask for one too; Apple items are listed read-only.
-- **Advanced system details:** Mac hardware and software information, from the info button in the header.
-- **History:** persistent history of system metrics and programs, with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, JSON/CSV export, configurable background collection, and launch at login.
+- **Settings:** sampling and background collection, launch at login, panel behavior, and what Smack stores and shows.
+
+## Additional features
+
+- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
+- **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
+- **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection; it also enables administrator storage scans (direct build).
+- **Panel sounds:** the synthesized Smack sound, silence, or any macOS system alert, with preview; preferences are written to disk immediately and survive quitting.
 - **Glass mode:** optional translucent panel with adjustable opacity.
+- **Adaptive panel size:** a compact height for the Summary, full height for every other page.
+- **Quit control:** a Quit button in the header (⌘Q) and in Settings.
 
 All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some Apple system processes remain hidden even with the helper.
 
@@ -82,7 +94,7 @@ sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
   /Library/PrivilegedHelperTools/it.lab42.smack.helper
 ```
 
-Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use **Settings → Quit Smack** to exit completely.
+Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use the power button in the header (⌘Q) or **Settings → Quit** to exit completely.
 
 ## Test
 
