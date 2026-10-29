@@ -16,6 +16,7 @@ enum SmackMain {
         application.setActivationPolicy(.accessory)
         let delegate = AppDelegate()
         application.delegate = delegate
+        delegate.configureMainMenu()
         application.run()
     }
 
@@ -60,7 +61,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
+    private let terminateApplication: () -> Void
     private(set) var didSynchronizeOnTeardown = false
+
+    init(terminateApplication: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
+        self.terminateApplication = terminateApplication
+    }
+
+    func configureMainMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        let quitItem = NSMenuItem(
+            title: "Quit Smack",
+            action: #selector(requestQuit(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.keyEquivalentModifierMask = .command
+        quitItem.target = self
+        appMenu.addItem(quitItem)
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+        NSApplication.shared.mainMenu = mainMenu
+    }
+
+    @objc func requestQuit(_ sender: Any?) {
+        terminateApplication()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {

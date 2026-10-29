@@ -38,6 +38,18 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Se
         }
     }
 
+    func startStorageScan() async -> Bool? {
+        await request(timeout: 6) { proxy, reply in proxy.startStorageScan(reply: reply) }
+    }
+
+    func storageScanStatus() async -> StorageScanSnapshot? {
+        await request(timeout: 30) { proxy, reply in proxy.storageScanStatus(reply: reply) }
+    }
+
+    func cancelStorageScan() async {
+        let _: Bool? = await request(timeout: 6) { proxy, reply in proxy.cancelStorageScan(reply: reply) }
+    }
+
     private func request<T: Decodable & Sendable>(
         timeout: TimeInterval,
         _ start: (SmackPrivilegedSampling, @escaping (Data?, String?) -> Void) -> Void

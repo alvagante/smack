@@ -6,19 +6,24 @@ struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
     @ObservedObject var settingsStore: SettingsStore
-    /// Closure invoked when the user activates the top navigation Quit button or presses ⌘Q.
-    var onQuit: () -> Void = { NSApplication.shared.terminate(nil) }
-    /// Indicates whether the header navigation bar includes a prominent Quit button.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var exitControlsState = ExitControlsState()
+    var onClose: () -> Void
+    /// Closure invoked when the user chooses Quit from the top navigation controls.
+    var onQuit: () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }
+    /// Indicates whether the header navigation bar includes the expandable Quit control.
     var hasQuitButton: Bool { true }
 
     /// Initializes the root monitor view.
     /// - Parameters:
     ///   - store: Primary monitor store providing metrics and active navigation route.
     ///   - nativeMenuBarStore: Store governing native menu bar icon status items.
+    ///   - onClose: Hides the panel while preserving background collection.
     ///   - onQuit: Termination callback invoked upon triggering application exit.
-    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, onQuit: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
+    init(store: MonitorStore, nativeMenuBarStore: NativeMenuBarStore, onClose: @escaping () -> Void, onQuit: @escaping () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }) {
         self.store = store
         self.nativeMenuBarStore = nativeMenuBarStore
+        self.onClose = onClose
         self.onQuit = onQuit
         settingsStore = store.settingsStore
     }
@@ -40,19 +45,19 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
-                Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }.help("Historical Data")
-                Button { store.route = .settings } label: { Image(systemName: "gear") }.help("Settings")
-                Button(action: onQuit) {
-                    Image(systemName: "power")
-                }
-                .help("Quit Smack (⌘Q)")
-                .accessibilityLabel("Quit Smack")
-                .keyboardShortcut("q", modifiers: .command)
+                Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .hoverHint("Historical Data")
+                    .accessibilityLabel("Historical Data")
+                Button { store.route = .settings } label: { Image(systemName: "gear") }
+                    .hoverHint("Settings")
+                    .accessibilityLabel("Settings")
+                exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
             Group {
                 switch store.route {
                 case .summary: SummaryView(store: store)
+                case .resource(.storage): StorageView(store: store)
                 case .resource(let resource): ResourceDetailView(store: store, resource: resource)
                 case .applications: ApplicationListView(store: store)
                 case .application(let id): ApplicationDetailView(store: store, id: id)
@@ -69,6 +74,10 @@ struct MonitorRootView: View {
             .clipped()
         }
         .frame(minWidth: 400, minHeight: 420)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            exitControlsState.isExpanded = false
+        }
+        .onChange(of: store.route) { exitControlsState.isExpanded = false }
         // Lists draw opaque backgrounds that would hide the glass.
         .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
         .background { if settingsStore.settings.glassMode { GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea() } }
@@ -76,4 +85,41 @@ struct MonitorRootView: View {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
     }
+
+    private var exitControls: some View {
+        HStack(spacing: 6) {
+            if exitControlsState.isExpanded {
+                Button {
+                    exitControlsState.isExpanded = false
+                    onClose()
+                } label: {
+                    Label("Close", systemImage: "xmark")
+                }
+                .tint(.accentColor)
+                .hoverHint("Hide the panel. Smack keeps collecting data using your background settings.\nReopen it from the menu bar.")
+                .accessibilityHint("Hides the panel and keeps collecting in the background")
+
+                Button(role: .destructive, action: onQuit) {
+                    Label("Quit", systemImage: "power")
+                }
+                .tint(.red)
+                .hoverHint("Quit Smack and stop all data collection until you launch it again.\nSaved history is kept. (⌘Q)")
+                .accessibilityHint("Quits Smack and stops collecting data")
+            } else {
+                Button { exitControlsState.isExpanded = true } label: {
+                    Image(systemName: "power")
+                }
+                .hoverHint("Show options to quit Smack or close the panel and keep collecting in the background")
+                .accessibilityLabel("Close or quit Smack")
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: exitControlsState.isExpanded)
+    }
+}
+
+@MainActor
+private final class ExitControlsState: ObservableObject {
+    @Published var isExpanded = false
 }

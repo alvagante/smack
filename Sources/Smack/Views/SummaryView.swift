@@ -39,7 +39,7 @@ struct SummaryView: View {
 
     private var networkPortsCard: some View {
         Button { store.route = .networkPorts } label: {
-            MetricCard(title: "Network Ports", systemImage: "cable.connector") {
+            MetricCard(title: "Network", systemImage: "cable.connector") {
                 if let ports = store.networkPorts {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(ports.ports.count) listening")
@@ -47,19 +47,15 @@ struct SummaryView: View {
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        HStack(spacing: 8) {
-                            Label("\(ports.externalCount) external", systemImage: "globe")
-                                .foregroundStyle(.orange)
-                            Label("\(ports.localhostCount) local", systemImage: "house")
-                                .foregroundStyle(.green)
-                        }
-                        .font(.caption2.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        Label("\(ports.totalConnectionCount) total", systemImage: "point.3.connected.trianglepath.dotted")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                     .frame(maxHeight: .infinity, alignment: .center)
                 } else {
-                    Text("Inspecting listening ports…")
+                    Text("Inspecting network connections…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

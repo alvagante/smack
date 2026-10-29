@@ -7,6 +7,7 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 |---|---|---|
 | Sandbox | no | `com.apple.security.app-sandbox` |
 | Signing | Developer ID Application, notarized | Apple Distribution, provisioning profile |
+| Directory usage scans | home or startup disk, optional root access | user-selected folder |
 | Superuser sampling | opt-in root helper | unavailable |
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
@@ -53,8 +54,10 @@ The helper is a separate executable, `SmackHelper`, embedded at
 - The app registers it with `SMAppService.daemon(plistName:)`.
 - The user must approve it in System Settings > General > Login Items & Extensions.
 - The app talks to it over the Mach service `it.lab42.smack.helper`.
-- The helper exposes three read-only methods: process snapshot (no arguments), inventory
-  for a PID and start time, and socket collection (no arguments).
+- The helper exposes read-only process snapshots, inventory for a PID and start time,
+  socket collection, and storage scan start/status/cancel operations. Storage scans have
+  a fixed root (`/`), return directory sizes and file counts, and accept no paths. Each
+  connection owns one cancellable scan; disconnecting cancels it.
 - It cannot read file contents or process memory, execute commands, or accept a path. The
   PID is client-supplied: an accepted client can inspect the open files, sockets, threads,
   and loaded images of any process, root processes included. The start-time check only
@@ -76,7 +79,11 @@ logic. The snapshot has no paths beyond the executable path. The inventory conta
 of open files and loaded libraries, socket addresses, thread names, and warnings, which
 is the same information the unprivileged app already shows for permitted processes. It
 returns no file contents, environment, or process memory. Superuser sampling therefore
-covers process metrics, process inventory, and Network Ports.
+covers process metrics, process inventory, Network Ports, and optional startup-disk
+directory scans. Root access does not bypass TCC: storage scans may require Full Disk
+Access for Smack and its helper. Unreadable items are reported and skipped. External
+volumes, device nodes, and duplicate APFS mounts under /System/Volumes are excluded.
+Only directory metadata is retained in memory, until the next completed scan or exit.
 
 ### Installing the helper
 

@@ -56,7 +56,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.minSize = NSSize(width: 720, height: 390)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.contentViewController = NSHostingController(rootView: MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore))
+        panel.contentViewController = NSHostingController(rootView: MonitorRootView(
+            store: store,
+            nativeMenuBarStore: nativeMenuBarStore,
+            onClose: { [weak self] in self?.close() }
+        ))
         glassModeSubscription = store.settingsStore.$settings
             .map(\.glassMode)
             .removeDuplicates()

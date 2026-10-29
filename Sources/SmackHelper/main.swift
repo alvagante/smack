@@ -4,11 +4,47 @@ import os
 
 private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sampling")
 
-/// The daemon has one job: return read-only process metadata. It never accepts a path or a
+/// The daemon returns read-only process and directory metadata. It never accepts a path or a
 /// command. `collectInventory` accepts a PID plus start time, so an accepted client can list
 /// open files, sockets, threads, and loaded images of any process, root processes included.
 /// That is why connections are restricted to the signed Smack app run by an administrator.
-final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
+final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, @unchecked Sendable {
+    private let scanLock = NSLock()
+    private var scan: StorageScanJob?
+
+    func stopScan() {
+        scanLock.lock()
+        scan?.cancel()
+        scanLock.unlock()
+    }
+
+    func startStorageScan(reply: @escaping (Data?, String?) -> Void) {
+        scanLock.lock()
+        if let scan, !scan.status().finished {
+            scanLock.unlock()
+            encode(false, reply: reply)
+            return
+        }
+        let job = StorageScanJob(root: "/")
+        scan = job
+        scanLock.unlock()
+        DispatchQueue.global(qos: .utility).async { job.run() }
+        encode(true, reply: reply)
+    }
+
+    func storageScanStatus(reply: @escaping (Data?, String?) -> Void) {
+        scanLock.lock()
+        let status = scan?.status()
+        scanLock.unlock()
+        if let status { encode(status, reply: reply) }
+        else { reply(nil, "No storage scan is active.") }
+    }
+
+    func cancelStorageScan(reply: @escaping (Data?, String?) -> Void) {
+        stopScan()
+        encode(true, reply: reply)
+    }
+
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void) {
         encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records()), reply: reply)
     }
@@ -36,7 +72,6 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
-    private let service = PrivilegedSamplingService()
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         // Checked per connection, so users created or demoted after the admin approved the
@@ -47,7 +82,9 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             return false
         }
         newConnection.exportedInterface = NSXPCInterface(with: SmackPrivilegedSampling.self)
+        let service = PrivilegedSamplingService()
         newConnection.exportedObject = service
+        newConnection.invalidationHandler = { service.stopScan() }
         newConnection.resume()
         return true
     }

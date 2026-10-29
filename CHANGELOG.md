@@ -2,6 +2,16 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Fix a storage-page rendering feedback loop that blocked the main thread, grew memory without bound, and prevented normal quit. Observe helper availability once in the model, and exercise the real event loop in regression tests.
+
+### Added
+
+- Add a storage explorer with a proportional directory map, folder drilldown, breadcrumbs, allocated sizes and recursive file counts. Scans default to home, run on demand with progress and cancellation, and offer startup-disk scanning with optional signed-helper administrator access and Full Disk Access guidance. The sandboxed build uses a folder picker.
+
 ## [0.4.0] - 2026-10-28
 
 ### Added
@@ -23,6 +33,8 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- Keep a single Settings Quit button at the top of Privacy & Visibility, alongside the Panel card in the first row.
+- Show hover popups for the header History, Settings, and Quit buttons, and omit the system clock from captured menu-bar icons to avoid stale time displays.
 - Replace the `lsof` process with an in-process libproc socket scan for Network Ports, removing an external executable from both builds.
 - Compile the native menu-bar feature out of the App Store build; it needs private window-server APIs and Accessibility event forwarding.
 - Hide Network Ports in the App Store build because App Sandbox denies descriptor inspection, and mark memory, disk, and energy values unavailable where `proc_pid_rusage` is denied.

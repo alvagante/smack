@@ -170,13 +170,70 @@ struct ListeningPort: Identifiable, Sendable, Equatable {
     }
 }
 
+struct NetworkConnectionDetail: Identifiable, Sendable, Equatable {
+    var id: String
+    var pid: Int32
+    var descriptor: Int32
+    var processName: String
+    var userName: String?
+    var protocolName: String
+    var localAddress: String
+    var remoteAddress: String
+    var state: String
+}
+
+struct ApplicationNetworkConnections: Identifiable, Sendable {
+    var id: String
+    var name: String
+    var application: ApplicationMetrics?
+    var connections: [NetworkConnectionDetail]
+}
+
 struct NetworkPortSnapshot: Sendable {
     var timestamp: Date
     var ports: [ListeningPort]
+    var connections: [NetworkConnectionDetail]
     var warning: String?
 
     var externalCount: Int { ports.count { $0.scope == .external } }
     var localhostCount: Int { ports.count { $0.scope == .localhost } }
+    var totalConnectionCount: Int { connections.count }
+
+    func connectionGroups(applications: [ApplicationMetrics]) -> [ApplicationNetworkConnections] {
+        var applicationsByPID: [Int32: ApplicationMetrics] = [:]
+        for application in applications {
+            for process in application.processes {
+                applicationsByPID[process.identity.pid] = application
+            }
+        }
+
+        var groups: [String: ApplicationNetworkConnections] = [:]
+        for connection in connections {
+            let application = applicationsByPID[connection.pid]
+            let id = application.map { "application-\($0.id)" } ?? "process-\(connection.processName)"
+            if groups[id] == nil {
+                groups[id] = ApplicationNetworkConnections(
+                    id: id,
+                    name: application?.name ?? connection.processName,
+                    application: application,
+                    connections: []
+                )
+            }
+            groups[id]?.connections.append(connection)
+        }
+
+        return groups.values.map { group in
+            var group = group
+            group.connections.sort {
+                if $0.localAddress != $1.localAddress { return $0.localAddress < $1.localAddress }
+                if $0.remoteAddress != $1.remoteAddress { return $0.remoteAddress < $1.remoteAddress }
+                return $0.id < $1.id
+            }
+            return group
+        }.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
 }
 
 struct ThreadInfo: Identifiable, Sendable {

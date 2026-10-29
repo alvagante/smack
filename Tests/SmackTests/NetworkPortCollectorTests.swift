@@ -77,3 +77,53 @@ import Testing
     #expect(snapshot.timestamp <= Date())
     #expect(snapshot.warning?.contains("lsof") != true)
 }
+
+@Test func capturesAllConnectionsAndGroupsThemByApplication() {
+    let browser = SocketOwnerRecord(pid: 100, name: "Browser", userName: "al")
+    let helper = SocketOwnerRecord(pid: 101, name: "Browser Helper", userName: "al")
+    let other = SocketOwnerRecord(pid: 200, name: "Other", userName: "al")
+    let snapshot = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: browser, descriptor: 3, localAddress: "127.0.0.1:8080", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: helper, descriptor: 4, localAddress: "192.0.2.10:53000", remoteAddress: "203.0.113.8:443", state: "ESTABLISHED"),
+        SocketRecord(owner: other, descriptor: 5, localAddress: "192.0.2.10:53001", remoteAddress: "203.0.113.9:443", state: "SYN_SENT"),
+        SocketRecord(owner: other, descriptor: 6, localAddress: "not-an-endpoint", remoteAddress: "—", state: "LISTEN")
+    ])
+
+    #expect(snapshot.totalConnectionCount == 3)
+    #expect(snapshot.connections.map(\.state) == ["LISTEN", "ESTABLISHED", "SYN_SENT"])
+
+    func process(pid: Int32, name: String) -> ProcessMetrics {
+        ProcessMetrics(
+            identity: ProcessIdentity(pid: pid, startTime: Date(timeIntervalSince1970: 1)),
+            name: name,
+            parentPID: nil,
+            bundleIdentifier: "example.browser",
+            executablePath: "/Applications/Browser.app/Contents/MacOS/\(name)",
+            userName: "al",
+            cpuUsage: 0,
+            memoryBytes: 0,
+            diskReadRate: 0,
+            diskWriteRate: 0,
+            energyImpact: nil,
+            threadCount: 1,
+            isApplication: true
+        )
+    }
+    let application = ApplicationMetrics(
+        id: "example.browser",
+        name: "Browser",
+        bundleIdentifier: "example.browser",
+        executablePath: "/Applications/Browser.app/Contents/MacOS/Browser",
+        processes: [process(pid: 100, name: "Browser"), process(pid: 101, name: "Browser Helper")]
+    )
+
+    let groups = snapshot.connectionGroups(applications: [application])
+    #expect(groups.map(\.name) == ["Browser", "Other"])
+    #expect(groups[0].id == "application-example.browser")
+    #expect(groups[0].connections.count == 2)
+    #expect(groups[1].connections.map(\.state) == ["SYN_SENT"])
+}
+
+@Test @MainActor func networkViewDefaultsToListeningPorts() {
+    #expect(NetworkPortsViewModel().mode == .listening)
+}

@@ -14,15 +14,13 @@ struct SettingsView: View {
     @ObservedObject private var settings: SettingsStore
     @ObservedObject private var model: SettingsViewModel
     /// Action invoked when requesting full application shutdown from settings.
-    var onQuit: () -> Void = { NSApplication.shared.terminate(nil) }
-    /// Indicates whether the panel configuration card exposes a prominent Quit Smack button.
-    var hasPanelQuitButton: Bool { true }
+    var onQuit: () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }
 
     /// Initializes the settings view.
     /// - Parameters:
     ///   - store: Primary monitor store providing settings and view model references.
-    ///   - onQuit: Termination callback invoked upon clicking a Quit control.
-    init(store: MonitorStore, onQuit: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
+    ///   - onQuit: Callback invoked upon clicking a Quit control.
+    init(store: MonitorStore, onQuit: @escaping () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }) {
         self.store = store
         settings = store.settingsStore
         model = store.settingsViewModel
@@ -33,6 +31,7 @@ struct SettingsView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 560), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                 panelCard
+                aboutCard
                 appearanceCard
                 collectionCard
                 historyCard
@@ -41,7 +40,6 @@ struct SettingsView: View {
                         PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
                     }
                 }
-                aboutCard
             }
             .padding()
         }
@@ -73,10 +71,6 @@ struct SettingsView: View {
             }
             SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
             SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
-            SettingsRow("Application", help: "Completely stop monitoring and terminate Smack.") {
-                Button("Quit Smack", role: .destructive, action: onQuit)
-                    .controlSize(.small)
-            }
         }
     }
 
@@ -141,6 +135,13 @@ struct SettingsView: View {
 
     private var aboutCard: some View {
         SettingsCard(title: "Privacy & Visibility", systemImage: "hand.raised") {
+            HStack {
+                SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
+                Spacer()
+                Button("Quit Smack", action: onQuit)
+                    .keyboardShortcut("q")
+                    .controlSize(.small)
+            }
             Label {
                 SettingsCaption("All metrics and settings stay on this Mac; no analytics. Exports contain metrics only, never file paths or connection inventories.")
             } icon: { Image(systemName: "lock").foregroundStyle(.secondary).frame(width: 18) }
@@ -149,14 +150,6 @@ struct SettingsView: View {
                     ? "Smack runs in the App Sandbox. Network Ports, native menu-bar icons, and click forwarding are unavailable, and memory, disk, and energy details are limited for other processes."
                     : "Standard sampling limits open-file and port inspection to your own processes. Superuser sampling extends metrics, inventory, and ports to other users; some Apple system processes remain hidden.")
             } icon: { Image(systemName: "eye").foregroundStyle(.secondary).frame(width: 18) }
-            HStack {
-                SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
-                Spacer()
-                Button("Quit Smack", action: onQuit)
-                    .keyboardShortcut("q")
-                    .controlSize(.small)
-            }
-            .padding(.top, 2)
         }
     }
 
@@ -202,10 +195,11 @@ struct SettingsView: View {
     }
 }
 
-private struct PrivilegedSamplingSection: View {
+struct PrivilegedSamplingSection: View {
     @ObservedObject var controller: PrivilegedSamplingController
     @ObservedObject var settings: SettingsStore
     let onChange: () -> Void
+    var toggleTitle = "Sample other users' processes"
 
     private var isEnabled: Binding<Bool> {
         Binding(
@@ -220,10 +214,10 @@ private struct PrivilegedSamplingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsRow("Sample other users' processes") {
+            SettingsRow(toggleTitle) {
                 SettingsSwitch(isOn: isEnabled).disabled(controller.isWorking)
             }
-            SettingsCaption("Uses a root helper for process metrics, open-file and connection inventory, and listening ports. It cannot read file contents or run commands. \(setupHint)")
+            SettingsCaption("Uses a root helper for process metrics, open-file and connection inventory, listening ports, and optional full-disk directory size scans. It cannot read file contents or run commands. \(setupHint)")
             if settings.settings.privilegedSampling {
                 HStack(spacing: 8) {
                     Image(systemName: statusImage)

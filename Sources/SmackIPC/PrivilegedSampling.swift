@@ -12,11 +12,12 @@ public enum SmackIPC {
 }
 
 /// The operations the helper exposes. Each returns encoded JSON data, or an error
-/// description. The only client-supplied input is a PID plus its start time for
-/// `collectInventory`, so the caller can inspect the metadata of any process, including
-/// root processes, but cannot read file contents or process memory, pass a path, or run
-/// a command.
+/// description. Storage scans use a fixed root (/), expose metadata only, and never
+/// accept a client-supplied path or command. Process inspection accepts a PID and start time.
 @objc public protocol SmackPrivilegedSampling {
+    func startStorageScan(reply: @escaping (Data?, String?) -> Void)
+    func storageScanStatus(reply: @escaping (Data?, String?) -> Void)
+    func cancelStorageScan(reply: @escaping (Data?, String?) -> Void)
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void)
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void)

@@ -31,6 +31,21 @@ import Testing
     #expect(NativeMenuBarDiscovery.acceptsLayout([2, 3], current: [1, 2, 3], pending: [2, 3]))
 }
 
+@Test func nativeMenuBarDiscoveryExcludesOnlySystemClockItems() {
+    let windows = [
+        menuBarWindow(id: 1, x: 100, ownerName: "Control Center", title: "Clock"),
+        menuBarWindow(id: 2, x: 200, ownerName: "SystemUIServer", title: "com.apple.menuextra.clock"),
+        menuBarWindow(id: 3, x: 300, ownerName: "Control Center", title: "WiFi"),
+        menuBarWindow(id: 4, x: 400, ownerName: "Example", title: "Clock"),
+        menuBarWindow(id: 5, x: 500, ownerName: "SystemUIServer", title: "Clock"),
+        menuBarWindow(id: 6, x: 600, ownerName: "Control Center", title: nil)
+    ]
+
+    let items = NativeMenuBarDiscovery.items(from: windows, currentPID: -1, menuBarMinY: 0)
+
+    #expect(items.map(\.id) == [3, 4, 6])
+}
+
 @Test func nativeMenuBarTreatsTransparentCapturesAsBlank() {
     func image(drawing: Bool) -> CGImage {
         let context = CGContext(
@@ -63,15 +78,17 @@ private func menuBarWindow(
     width: CGFloat = 32,
     layer: Int = Int(kCGStatusWindowLevel),
     pid: pid_t = 123,
-    onScreen: Bool = true
+    onScreen: Bool = true,
+    ownerName: String? = "Example",
+    title: String? = "Item"
 ) -> NativeMenuBarWindow {
     NativeMenuBarWindow(
         id: id,
         frame: CGRect(x: x, y: y, width: width, height: 24),
         layer: layer,
         ownerPID: pid,
-        ownerName: "Example",
-        title: "Item \(id)",
+        ownerName: ownerName,
+        title: title,
         isOnScreen: onScreen
     )
 }

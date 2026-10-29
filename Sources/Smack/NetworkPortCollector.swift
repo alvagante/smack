@@ -6,8 +6,8 @@ struct NetworkEndpoint: Equatable, Sendable {
     var port: UInt16
 }
 
-/// Builds listening-port inventory without spawning `lsof`. The app uses the unprivileged
-/// path; the root helper supplies all-users records when superuser sampling is enabled.
+/// Builds TCP socket and listening-port inventory without spawning `lsof`. The app uses the
+/// unprivileged path; the root helper supplies all-users records when superuser sampling is enabled.
 final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
     private let privileged: PrivilegedSamplingProviding?
 
@@ -37,9 +37,21 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
     ) -> NetworkPortSnapshot {
         var listeners: [(record: SocketRecord, local: NetworkEndpoint)] = []
         var clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)] = []
+        var connections: [NetworkConnectionDetail] = []
 
         for record in records {
             guard let local = endpoint(record.localAddress) else { continue }
+            connections.append(NetworkConnectionDetail(
+                id: "\(record.owner.pid)-\(record.descriptor)",
+                pid: record.owner.pid,
+                descriptor: record.descriptor,
+                processName: record.owner.name,
+                userName: record.owner.userName,
+                protocolName: "TCP",
+                localAddress: record.localAddress,
+                remoteAddress: record.remoteAddress,
+                state: record.state
+            ))
             switch record.state {
             case "LISTEN":
                 listeners.append((record, local))
@@ -62,12 +74,12 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
             return $0.id < $1.id
         }
 
-        var snapshot = NetworkPortSnapshot(timestamp: timestamp, ports: ports, warning: nil)
+        var snapshot = NetworkPortSnapshot(timestamp: timestamp, ports: ports, connections: connections, warning: nil)
         if deniedProcessCount > 0 {
-            if Capabilities.isSandboxed && ports.isEmpty {
-                snapshot.warning = "Port inspection is limited by the App Sandbox; processes owned by other users are unavailable."
-            } else if ports.isEmpty {
-                snapshot.warning = "Port inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
+            if Capabilities.isSandboxed && connections.isEmpty {
+                snapshot.warning = "Network inspection is limited by the App Sandbox; processes owned by other users are unavailable."
+            } else if connections.isEmpty {
+                snapshot.warning = "Network inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
             }
         }
         return snapshot

@@ -32,12 +32,7 @@ struct ResourceDetailView: View {
                     }
                     MetricTable(applications: sorted { $0.diskReadRate + $0.diskWriteRate > $1.diskReadRate + $1.diskWriteRate }, value: { Formatting.rate($0.diskReadRate + $0.diskWriteRate) }) { store.route = .application($0.id) }
                 case .storage:
-                    ForEach(store.system?.volumes ?? []) { volume in
-                        VStack {
-                            KeyValueRow(key: volume.name, value: "\(Formatting.bytes(volume.usedBytes)) of \(Formatting.bytes(volume.totalBytes))")
-                            Text(volume.mountPath).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
+                    StorageView(store: store)
                 case .battery:
                     if let battery = store.system?.battery {
                         KeyValueRow(key: "Charge", value: battery.chargePercent.map { Formatting.percent($0) } ?? "Unavailable")

@@ -8,7 +8,8 @@ Smack is a lightweight macOS system monitor that opens from the camera island or
 
 - **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
 - **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in).
-- **Network Ports:** listening TCP ports with the owning process, browser links, and active client connections (direct build).
+- **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress and cancellation. Optional administrator scans reuse the signed helper; Full Disk Access setup is available on the page. The App Store build scans a folder selected by the user.
+- **Network:** listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
 - **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
 - **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
 - **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.

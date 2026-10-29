@@ -34,7 +34,7 @@ import Testing
         let nativeMenuBarStore = NativeMenuBarStore()
 
         var quitTriggered = false
-        var view = MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore)
+        var view = MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore, onClose: {})
         view.onQuit = { quitTriggered = true }
 
         let controller = NSHostingController(rootView: view)
@@ -44,5 +44,15 @@ import Testing
         view.onQuit()
         #expect(quitTriggered == true)
         #expect(view.hasQuitButton == true)
+
+        var terminationRequests = 0
+        let delegate = AppDelegate(terminateApplication: { terminationRequests += 1 })
+        let previousDelegate = NSApplication.shared.delegate
+        NSApplication.shared.delegate = delegate
+        defer { NSApplication.shared.delegate = previousDelegate }
+
+        MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBarStore, onClose: {}).onQuit()
+
+        #expect(terminationRequests == 1)
     }
 }

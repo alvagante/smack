@@ -99,12 +99,18 @@ enum NativeMenuBarDiscovery {
             .filter {
                 $0.layer == kCGStatusWindowLevel &&
                 $0.ownerPID != currentPID &&
+                !isSystemClock($0) &&
                 $0.frame.minY == menuBarMinY &&
                 $0.frame.width > 0 &&
                 $0.frame.height > 0
             }
             .filter { seen.insert($0.id).inserted }
             .sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    private static func isSystemClock(_ window: NativeMenuBarWindow) -> Bool {
+        guard window.ownerName == "Control Center" || window.ownerName == "SystemUIServer" else { return false }
+        return window.title == "Clock" || window.title == "com.apple.menuextra.clock"
     }
 
     static func hasVisiblePixels(_ image: CGImage) -> Bool {

@@ -49,6 +49,7 @@ final class MonitorStore: ObservableObject {
     let processDetailViewModel = ProcessDetailViewModel()
     let networkPortsViewModel = NetworkPortsViewModel()
     let settingsViewModel = SettingsViewModel()
+    let storageScanModel: StorageScanModel
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?
@@ -61,6 +62,7 @@ final class MonitorStore: ObservableObject {
     ) {
         self.settingsStore = settingsStore
         self.privilegedSampling = privilegedSampling
+        storageScanModel = StorageScanModel(helper: privilegedSampling)
         self.history = history
         self.scheduler = scheduler
     }
