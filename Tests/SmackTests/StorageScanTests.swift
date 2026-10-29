@@ -56,8 +56,10 @@ import SmackIPC
 }
 
 @Test func storageTreemapPreservesAreaAndFitsBothOrientations() {
-    let entries = (1...15).map { index in
-        StorageMapEntry(id: String(index), name: String(index), bytes: UInt64(index * 10), files: UInt64(index), colorIndex: index)
+    let entries: [StorageMapEntry] = (1...15).map { (index: Int) -> StorageMapEntry in
+        let label = String(index)
+        let bytes = UInt64(index) * 10
+        return StorageMapEntry(id: label, name: label, bytes: bytes, files: UInt64(index), colorIndex: index)
     }
     for size in [CGSize(width: 600, height: 230), CGSize(width: 230, height: 600)] {
         let bounds = CGRect(origin: .zero, size: size)
