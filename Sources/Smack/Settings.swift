@@ -59,7 +59,13 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var retentionDays = 7
     var historyStorageLimitMB = 250
     var privilegedSampling = false
+    /// Days of Activity Events kept; clamped to `eventRetentionRange`.
+    var eventRetentionDays = 7
+    /// Outbound connection churn is noisy, so connection events are opt-in.
+    var recordConnectionEvents = false
+    var showEventsOnCharts = true
 
+    static let eventRetentionRange: ClosedRange<Int> = 1...30
     static let backgroundIntervalRange: ClosedRange<TimeInterval> = 1...86_400
     static let inventoryIntervalRange: ClosedRange<TimeInterval> = 10...86_400
 
@@ -89,6 +95,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         retentionDays = min(max(retentionDays, 1), 365)
         glassOpacity = min(max(glassOpacity, Self.glassOpacityRange.lowerBound), Self.glassOpacityRange.upperBound)
         historyStorageLimitMB = min(max(historyStorageLimitMB, 25), 10_000)
+        eventRetentionDays = min(max(eventRetentionDays, Self.eventRetentionRange.lowerBound), Self.eventRetentionRange.upperBound)
         if !Capabilities.supportsPrivilegedSampling {
             privilegedSampling = false
         }
@@ -117,6 +124,9 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case historyStorageLimitMB
         case privilegedSampling
         case panelSound
+        case eventRetentionDays
+        case recordConnectionEvents
+        case showEventsOnCharts
     }
 
     /// Settings written before superuser sampling existed must keep their values instead of
@@ -148,5 +158,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? defaults.retentionDays
         historyStorageLimitMB = try container.decodeIfPresent(Int.self, forKey: .historyStorageLimitMB) ?? defaults.historyStorageLimitMB
         privilegedSampling = try container.decodeIfPresent(Bool.self, forKey: .privilegedSampling) ?? defaults.privilegedSampling
+        eventRetentionDays = try container.decodeIfPresent(Int.self, forKey: .eventRetentionDays) ?? defaults.eventRetentionDays
+        recordConnectionEvents = try container.decodeIfPresent(Bool.self, forKey: .recordConnectionEvents) ?? defaults.recordConnectionEvents
+        showEventsOnCharts = try container.decodeIfPresent(Bool.self, forKey: .showEventsOnCharts) ?? defaults.showEventsOnCharts
     }
 }

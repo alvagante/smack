@@ -12,6 +12,7 @@ private actor FailingHistoryWriter: HistoryWriting {
     }
     func save(system: SystemSample) throws { try check(.system) }
     func save(processes: ProcessSnapshot) throws { try check(.processes) }
+    func save(events: [ActivityEvent]) throws { try check(.events) }
     func maintain(settings: CollectionSettings) throws { try check(.maintenance) }
 }
 

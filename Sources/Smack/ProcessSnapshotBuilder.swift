@@ -12,6 +12,8 @@ final class ProcessSnapshotBuilder {
         var bytesRead: UInt64
         var bytesWritten: UInt64
         var energyNanojoules: UInt64?
+        var interruptWakeups: UInt64?
+        var packageIdleWakeups: UInt64?
     }
 
     private var previousCounters: [ProcessIdentity: Counters] = [:]
@@ -30,6 +32,8 @@ final class ProcessSnapshotBuilder {
             var diskReadRate = 0.0
             var diskWriteRate = 0.0
             var energyImpact: Double?
+            var interruptWakeupRate = 0.0
+            var packageIdleWakeupRate = 0.0
 
             if let previous = previousCounters[identity] {
                 let elapsed = timestamp.timeIntervalSince(previous.timestamp)
@@ -51,6 +55,13 @@ final class ProcessSnapshotBuilder {
                        let delta = MetricDelta.difference(current: energy, previous: previousEnergy) {
                         energyImpact = Double(delta) / elapsed / 1_000_000_000
                     }
+                    // A missing or reset counter yields 0, never a spike.
+                    if let current = record.interruptWakeups, let before = previous.interruptWakeups {
+                        interruptWakeupRate = MetricDelta.rate(current: current, previous: before, elapsed: elapsed) ?? 0
+                    }
+                    if let current = record.packageIdleWakeups, let before = previous.packageIdleWakeups {
+                        packageIdleWakeupRate = MetricDelta.rate(current: current, previous: before, elapsed: elapsed) ?? 0
+                    }
                 }
             }
 
@@ -68,14 +79,18 @@ final class ProcessSnapshotBuilder {
                 diskWriteRate: diskWriteRate,
                 energyImpact: energyImpact,
                 threadCount: record.threadCount,
-                isApplication: application != nil
+                isApplication: application != nil,
+                interruptWakeupsPerSecond: interruptWakeupRate,
+                packageIdleWakeupsPerSecond: packageIdleWakeupRate
             ))
             currentCounters[identity] = Counters(
                 timestamp: timestamp,
                 cpuTime: record.cpuTimeNanoseconds,
                 bytesRead: record.bytesRead,
                 bytesWritten: record.bytesWritten,
-                energyNanojoules: record.energyNanojoules
+                energyNanojoules: record.energyNanojoules,
+                interruptWakeups: record.interruptWakeups,
+                packageIdleWakeups: record.packageIdleWakeups
             )
         }
 

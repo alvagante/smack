@@ -14,6 +14,15 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
 | Startup items | `launchctl`, `sfltool dumpbtm`, `crontab`, System Events; daemons need an administrator password | unavailable: sandbox denies launching these tools |
 | Launch at login | `SMAppService.mainApp` | `SMAppService.mainApp` |
+| Activity Timeline: process, volume, sleep, power, thermal and pressure events | yes | yes |
+| Listener events | yes | unavailable: Network Ports is direct-only |
+| Startup item change events | yes | unavailable: the startup page is direct-only |
+| GPU, memory pressure, swap | yes | yes |
+| Per-process wakeups | yes | current process only; others read "Unavailable" |
+| Process ancestry and knowledge base | yes | yes |
+| Signature, architecture, quarantine | yes | where the executable is readable; otherwise partial |
+| Launchd job label from the startup inventory | yes | unavailable: the inventory is direct-only |
+| Gatekeeper check (`spctl`) | on demand | unavailable: the sandbox denies launching it |
 | Update channel | GitHub release zip | App Store |
 
 ## Why superuser cannot be in the App Store build

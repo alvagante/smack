@@ -241,7 +241,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     var statement: OpaquePointer?
     #expect(sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
-    #expect(sqlite3_column_int(statement, 0) == 3)
+    #expect(sqlite3_column_int(statement, 0) == 4)
     sqlite3_finalize(statement)
     #expect(sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM pragma_table_info('process_samples') WHERE name = 'name'", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
@@ -251,7 +251,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
 
 @Test func summingInstancesCarriesValuesForwardAndStopsAtExitsAndGaps() {
     func row(_ id: String, _ time: Double, memory: Double, cpu: Double = 0) -> ProcessHistoryRow {
-        ProcessHistoryRow(processID: id, timestamp: time, averages: SIMD4(cpu, memory, 0, 0), peaks: SIMD4(cpu, memory, 0, 0))
+        ProcessHistoryRow(processID: id, timestamp: time, averages: SIMD8(cpu, memory, 0, 0, 0, 0, 0, 0), peaks: SIMD8(cpu, memory, 0, 0, 0, 0, 0, 0))
     }
     let rows = [
         // "a" is idle: rows only at heartbeats, but its memory still counts in between.

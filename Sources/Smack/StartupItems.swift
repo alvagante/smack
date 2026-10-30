@@ -58,6 +58,11 @@ struct StartupInventory: Sendable {
     var warnings: [String]
     /// Open at Login apps and app background items come only from the password-gated BTM dump.
     var includesBackgroundTasks: Bool
+    /// Categories this scan actually covered. A partial scan leaves out the categories that come only from the
+    /// background task dump, so change detection must not read their absence as removal.
+    var includedCategories: Set<StartupCategory> = Set(StartupCategory.allCases)
+
+    static let backgroundTaskCategories: Set<StartupCategory> = [.loginItems, .backgroundItems]
 }
 
 /// One `sfltool dumpbtm` record: the Background Task Management view of login items,
@@ -326,7 +331,10 @@ enum StartupItemCollector {
             timestamp: Date(),
             items: items(from: sources),
             warnings: warnings,
-            includesBackgroundTasks: includesBackgroundTasks
+            includesBackgroundTasks: includesBackgroundTasks,
+            includedCategories: includesBackgroundTasks
+                ? Set(StartupCategory.allCases)
+                : Set(StartupCategory.allCases).subtracting(StartupInventory.backgroundTaskCategories)
         )
     }
 
@@ -571,6 +579,8 @@ final class StartupItemsModel: ObservableObject {
     @Published var query = ""
     @Published var showApple = false
     @Published var error: String?
+    /// Called after every successful scan, including partial ones.
+    var onInventory: ((StartupInventory) -> Void)?
     private let defaults: UserDefaults
     private var loadTask: Task<Void, Never>?
     static let removedLoginItemsKey = "startupItems.removedLoginItems"
@@ -594,6 +604,7 @@ final class StartupItemsModel: ObservableObject {
             guard !Task.isCancelled else { return }
             inventory = result
             isLoading = false
+            onInventory?(result)
         }
     }
 

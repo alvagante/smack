@@ -17,6 +17,9 @@ What you can **see** and **monitor**:
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
 - **Network:** listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
 - **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
+- **Activity Timeline:** a persisted, filterable record of process starts and exits, new listeners, startup changes, mounts, sleep and wake, power, thermal and memory pressure, and network changes, plus a "What changed" strip on Summary and event markers on History charts. Smack records events only while it runs.
+- **GPU, memory pressure, swap, and wakeups:** live and in history, with per-process wakeup rates.
+- **Process provenance and tree:** ancestry, code signature, architecture, Rosetta, quarantine, launchd job, and plain-language notes on well-known processes, plus a process tree rooted at launchd.
 - **History:** persistent system and per-program history with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, and JSON/CSV export.
 - **System details:** Mac hardware and software information, from the info button in the header.
 

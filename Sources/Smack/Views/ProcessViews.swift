@@ -6,6 +6,7 @@ enum ProcessSort: String, CaseIterable, Identifiable {
     case memory = "Memory"
     case disk = "Disk Activity"
     case energy = "Energy Impact"
+    case wakeups = "Wakeups"
     case name = "Application"
     var id: String { rawValue }
 }
@@ -15,6 +16,9 @@ final class ApplicationListViewModel: ObservableObject {
     @Published var query = ""
     @Published var sort = ProcessSort.cpu
     @Published var ascending = false
+    @Published var mode = ProcessListMode.flat
+    /// Collapsed tree nodes; everything starts expanded.
+    @Published var collapsed: Set<String> = []
 
     func toggleSort(_ newSort: ProcessSort) {
         if sort == newSort {
@@ -36,6 +40,7 @@ struct ApplicationListView: View {
     @ObservedObject var model: ApplicationListViewModel
     private let metricWidth: CGFloat = 130
     private let diskWidth: CGFloat = 160
+    private let wakeupsWidth: CGFloat = 100
 
     init(store: MonitorStore) {
         self.store = store
@@ -44,9 +49,16 @@ struct ApplicationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search applications and processes", text: $model.query)
-                .textFieldStyle(.roundedBorder)
-                .padding([.horizontal, .top])
+            HStack(spacing: 10) {
+                TextField("Search applications and processes", text: $model.query)
+                    .textFieldStyle(.roundedBorder)
+                Picker("View", selection: $model.mode) {
+                    ForEach(ProcessListMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .help("Flat list or process tree rooted at launchd")
+            }
+            .padding([.horizontal, .top])
             if let warning = store.processes?.warning {
                 Label(warning, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -61,11 +73,15 @@ struct ApplicationListView: View {
                 sortHeader(.memory).frame(width: metricWidth, alignment: .trailing)
                 sortHeader(.disk).frame(width: diskWidth, alignment: .trailing)
                 sortHeader(.energy).frame(width: metricWidth, alignment: .trailing)
+                sortHeader(.wakeups).frame(width: wakeupsWidth, alignment: .trailing)
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
             Divider()
 
+            if model.mode == .tree {
+                ProcessTreeList(store: store, model: model, metricWidth: metricWidth, diskWidth: diskWidth, wakeupsWidth: wakeupsWidth)
+            } else {
             List {
                 Section("Applications") {
                     ForEach(filtered(store.processes?.applications ?? [])) { application in
@@ -84,6 +100,7 @@ struct ApplicationListView: View {
                                 metric(memory(application.memoryBytes), width: metricWidth)
                                 metric(disk(application.diskReadRate + application.diskWriteRate), width: diskWidth)
                                 metric(energy(application.energyImpact), width: metricWidth)
+                                metric(Self.wakeups(application.wakeupsPerSecond), width: wakeupsWidth)
                             }
                         }
                         .buttonStyle(.plain)
@@ -105,6 +122,7 @@ struct ApplicationListView: View {
                                     metric(memory(process.memoryBytes), width: metricWidth)
                                     metric(disk(process.diskReadRate + process.diskWriteRate), width: diskWidth)
                                     metric(energy(process.energyImpact), width: metricWidth)
+                                    metric(Self.wakeups(process.wakeupsPerSecond), width: wakeupsWidth)
                                 }
                             }
                             .buttonStyle(.plain)
@@ -113,7 +131,14 @@ struct ApplicationListView: View {
                 }
             }
             .listStyle(.plain)
+            }
         }
+    }
+
+    /// Sandbox builds cannot read other processes' counters, so zero reads as unavailable.
+    static func wakeups(_ value: Double) -> String {
+        if Capabilities.isSandboxed, value == 0 { return "—" }
+        return Formatting.wakeups(value)
     }
 
     private func sortHeader(_ sort: ProcessSort) -> some View {
@@ -163,6 +188,7 @@ struct ApplicationListView: View {
             case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
             case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
             case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
+            case .wakeups: ordered(lhs.wakeupsPerSecond, rhs.wakeupsPerSecond)
             case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
             }
         }
@@ -176,6 +202,7 @@ struct ApplicationListView: View {
             case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
             case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
             case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
+            case .wakeups: ordered(lhs.wakeupsPerSecond, rhs.wakeupsPerSecond)
             case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
             }
         }
@@ -217,6 +244,15 @@ struct ApplicationDetailView: View {
                             ? "Unavailable in App Sandbox"
                             : app.energyImpact.map { $0.formatted() } ?? "Unavailable"
                     )
+                    KeyValueRow(
+                        key: "Wakeups",
+                        value: Capabilities.isSandboxed && app.wakeupsPerSecond == 0
+                            ? "Unavailable in App Sandbox"
+                            : Formatting.wakeups(app.wakeupsPerSecond)
+                    )
+                    if let main = app.processes.first(where: { $0.executablePath == app.executablePath }) ?? app.processes.first {
+                        ProvenanceSummaryRow(store: store, process: main)
+                    }
                     if let path = app.executablePath {
                         KeyValueRow(key: "Executable", value: path)
                         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
@@ -261,12 +297,25 @@ struct ProcessDetailView: View {
                     )
                     KeyValueRow(key: "Threads", value: String(process.threadCount))
                     KeyValueRow(
+                        key: "Interrupt wakeups",
+                        value: Capabilities.isSandboxed && process.wakeupsPerSecond == 0
+                            ? "Unavailable in App Sandbox"
+                            : Formatting.wakeups(process.interruptWakeupsPerSecond)
+                    )
+                    KeyValueRow(
+                        key: "Package idle wakeups",
+                        value: Capabilities.isSandboxed && process.wakeupsPerSecond == 0
+                            ? "Unavailable in App Sandbox"
+                            : Formatting.wakeups(process.packageIdleWakeupsPerSecond)
+                    )
+                    KeyValueRow(
                         key: "Disk Read / Write",
                         value: Capabilities.isSandboxed && process.diskReadRate == 0 && process.diskWriteRate == 0
                             ? "Unavailable in App Sandbox"
                             : "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))"
                     )
                     if let path = process.executablePath { KeyValueRow(key: "Executable", value: path) }
+                    ProvenanceSection(store: store, process: process)
                     Button("Refresh Live Inventory") { store.loadInventory(for: process) }
                     if store.inventoryLoading { ProgressView("Inspecting process…") }
                     if let inventory = store.inventory {
@@ -308,7 +357,12 @@ struct ProcessDetailView: View {
                     }
                 }.padding()
             } else { ContentUnavailableView("Process Exited", systemImage: "terminal", description: Text("Its historical metrics remain available until retention expires.")) }
-        }.onAppear { if let process = store.process(id: id) { store.loadInventory(for: process) } }
+        }.onAppear {
+            if let process = store.process(id: id) {
+                store.loadProvenance(for: process)
+                store.loadInventory(for: process)
+            }
+        }
     }
 
     private func inventorySection<Content: View>(_ title: String, count: Int, @ViewBuilder content: () -> Content) -> some View {

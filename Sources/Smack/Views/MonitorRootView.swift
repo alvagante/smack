@@ -45,6 +45,9 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
+                Button { store.timelineViewModel.select(range: .hour1); store.route = .timeline } label: { Image(systemName: "list.bullet.rectangle") }
+                    .hoverHint("Activity Timeline")
+                    .accessibilityLabel("Activity Timeline")
                 Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }
                     .hoverHint("Historical Data")
                     .accessibilityLabel("Historical Data")
@@ -76,6 +79,7 @@ struct MonitorRootView: View {
                 case .process(let id): ProcessDetailView(store: store, id: id)
                 case .networkPorts: NetworkPortsView(store: store)
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
+                case .timeline: TimelineView(store: store)
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)

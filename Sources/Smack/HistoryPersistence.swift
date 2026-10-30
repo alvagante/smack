@@ -4,14 +4,24 @@ import os
 protocol HistoryWriting: Sendable {
     func save(system: SystemSample) async throws
     func save(processes: ProcessSnapshot) async throws
+    func save(events: [ActivityEvent]) async throws
     func maintain(settings: CollectionSettings) async throws
 }
 
 extension HistoryRepository: HistoryWriting {}
 
+/// Small key-value storage for state that must survive restarts, such as the startup item snapshot.
+protocol ActivityMetadataStoring: Sendable {
+    func metadata(_ key: String) async throws -> String?
+    func setMetadata(_ key: String, value: String) async throws
+}
+
+extension HistoryRepository: ActivityMetadataStoring {}
+
 enum HistoryOperation: String, CaseIterable, Sendable {
     case system = "System history"
     case processes = "Process history"
+    case events = "Activity events"
     case maintenance = "History maintenance"
 }
 
@@ -56,6 +66,16 @@ actor HistoryPersistence {
             try await writer.save(processes: processes)
             report(.processes, error: nil)
         } catch { report(.processes, error: error) }
+    }
+
+    /// Persistence is attempted first; callers still deliver the events to the UI when this fails, so the current
+    /// session shows them and the health banner reports that history may be incomplete.
+    func save(events: [ActivityEvent]) async {
+        guard !events.isEmpty else { return }
+        do {
+            try await writer.save(events: events)
+            report(.events, error: nil)
+        } catch { report(.events, error: error) }
     }
 
     func maintain(settings: CollectionSettings) async {

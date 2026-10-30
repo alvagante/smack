@@ -59,3 +59,23 @@ _Avoid_: Login item (which is one kind), autorun
 **Distribution Flavor**:
 A build variant with a fixed set of capabilities: the direct Developer ID build or the sandboxed App Store build.
 _Avoid_: Edition, version
+
+**Activity Event**:
+A timestamped, persisted fact about a change in the system, as opposed to a metric sample.
+_Avoid_: Log entry, alert
+
+**Timeline**:
+The chronological view of Activity Events.
+_Avoid_: Log, feed
+
+**Change Window**:
+The interval since the user last hid the panel, used by What changed. It falls back to the last hour when unknown or out of range.
+_Avoid_: Session
+
+**Provenance**:
+The origin and signing identity of a process: ancestry, launchd job, signature, architecture, and quarantine state.
+_Avoid_: Trust, reputation
+
+**Wakeup Rate**:
+CPU wakeups per second caused by a process: interrupt wakeups plus package-idle wakeups.
+_Avoid_: Energy impact (a separate derived metric)

@@ -5,6 +5,28 @@ struct CPUSample: Sendable, Equatable {
     var coreUsage: [Double]
 }
 
+enum MemoryPressure: String, Sendable, Codable {
+    case normal, warning, critical, unavailable
+
+    /// History stores pressure as 0, 1 or 2; unavailable is not stored as a value.
+    var historyValue: Double? {
+        switch self {
+        case .normal: 0
+        case .warning: 1
+        case .critical: 2
+        case .unavailable: nil
+        }
+    }
+}
+
+/// GPU statistics from `IOAccelerator`. Every field is nil when the machine does not expose it.
+struct GPUSample: Sendable, Equatable {
+    var utilizationPercent: Double?
+    var rendererUtilizationPercent: Double?
+    var tilerUtilizationPercent: Double?
+    var inUseMemoryBytes: UInt64?
+}
+
 struct MemorySample: Sendable, Equatable {
     var totalBytes: UInt64
     var usedBytes: UInt64
@@ -12,6 +34,8 @@ struct MemorySample: Sendable, Equatable {
     var wiredBytes: UInt64
     var compressedBytes: UInt64
     var swapUsedBytes: UInt64
+    var swapTotalBytes: UInt64 = 0
+    var pressure: MemoryPressure = .unavailable
 }
 
 struct InterfaceSample: Identifiable, Sendable, Equatable {
@@ -21,6 +45,8 @@ struct InterfaceSample: Identifiable, Sendable, Equatable {
     var bytesSent: UInt64
     var receiveRate: Double
     var sendRate: Double
+    /// Non-loopback IPv4 and IPv6 addresses, sorted, without IPv6 scope suffixes.
+    var addresses: [String] = []
 }
 
 struct DiskSample: Identifiable, Sendable, Equatable {
@@ -64,6 +90,7 @@ struct SystemSample: Sendable {
     var battery: BatterySample?
     var thermalCondition: ThermalCondition
     var gpuName: String
+    var gpu = GPUSample()
 
     var receiveRate: Double { interfaces.reduce(0) { $0 + $1.receiveRate } }
     var sendRate: Double { interfaces.reduce(0) { $0 + $1.sendRate } }
@@ -93,6 +120,10 @@ struct ProcessMetrics: Identifiable, Sendable {
     var energyImpact: Double?
     var threadCount: Int
     var isApplication: Bool
+    var interruptWakeupsPerSecond: Double = 0
+    var packageIdleWakeupsPerSecond: Double = 0
+
+    var wakeupsPerSecond: Double { interruptWakeupsPerSecond + packageIdleWakeupsPerSecond }
 }
 
 struct ApplicationMetrics: Identifiable, Sendable {
@@ -106,6 +137,7 @@ struct ApplicationMetrics: Identifiable, Sendable {
     var memoryBytes: UInt64 { processes.reduce(UInt64(0)) { $0 &+ $1.memoryBytes } }
     var diskReadRate: Double { processes.reduce(0) { $0 + $1.diskReadRate } }
     var diskWriteRate: Double { processes.reduce(0) { $0 + $1.diskWriteRate } }
+    var wakeupsPerSecond: Double { processes.reduce(0) { $0 + $1.wakeupsPerSecond } }
     var energyImpact: Double? {
         let values = processes.compactMap(\.energyImpact)
         return values.isEmpty ? nil : values.reduce(0, +)
@@ -283,14 +315,18 @@ struct HistoricalProgram: Identifiable, Sendable {
     /// Bytes read and written.
     var diskBytes: Double
     var diskPeak: Double
+    /// Wakeups per second times minutes.
+    var wakeupsTotal: Double = 0
+    var wakeupsPeak: Double = 0
 }
 
 /// One stored process row with every metric, in `ProcessMetric.allCases` order.
 struct ProcessHistoryRow: Sendable {
     var processID: String
     var timestamp: Double
-    var averages: SIMD4<Double>
-    var peaks: SIMD4<Double>
+    /// Index mapping is fixed: 0 cpu, 1 memory, 2 disk read, 3 disk write, 4 wakeups. Indices 5 to 7 stay zero.
+    var averages: SIMD8<Double>
+    var peaks: SIMD8<Double>
 
     /// Sums instances over time. A skipped row means "unchanged", so each instance's value carries forward until its
     /// next row; after its last row, or more than `gap` without one, the instance stops counting.
@@ -304,9 +340,9 @@ struct ProcessHistoryRow: Sendable {
             previousIndex[row.processID] = index
         }
 
-        var current: [String: (averages: SIMD4<Double>, peaks: SIMD4<Double>)] = [:]
-        var total = SIMD4<Double>(), totalPeak = SIMD4<Double>()
-        var series = [[HistoricalPoint]](repeating: [], count: 4)
+        var current: [String: (averages: SIMD8<Double>, peaks: SIMD8<Double>)] = [:]
+        var total = SIMD8<Double>(), totalPeak = SIMD8<Double>()
+        var series = [[HistoricalPoint]](repeating: [], count: ProcessMetric.allCases.count)
         var start = 0
         while start < rows.count {
             let timestamp = rows[start].timestamp
@@ -323,7 +359,7 @@ struct ProcessHistoryRow: Sendable {
                 end += 1
             }
             let date = Date(timeIntervalSince1970: timestamp)
-            for metric in 0..<4 {
+            for metric in 0..<ProcessMetric.allCases.count {
                 let average = max(0, total[metric])
                 series[metric].append(HistoricalPoint(timestamp: date, average: average, peak: max(average, totalPeak[metric])))
             }

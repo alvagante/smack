@@ -2,6 +2,24 @@
 
 All notable changes to Smack are documented in this file.
 
+## [0.6.0] - Unreleased
+
+### Added
+
+- Add an Activity Timeline: persisted events for process starts and exits, new and closed listening ports, startup item changes, volume mounts, sleep and wake, power source, thermal and memory pressure changes, and network interface and address changes. Filter by range (15 minutes to 7 days), kind, or text; rows link to the live process. Optional outbound connection events are off by default.
+- Add a "What changed" strip to Summary: events and peaks since the panel was last hidden (last hour as fallback), with a link to the timeline at that window.
+- Add event markers to History charts (up to 50, with an Events toggle) and an "Include activity events" export option: an `events` array in JSON, or an extra `-events.csv` file.
+- Show GPU utilization, memory pressure and swap on Summary and in System Details, and keep all three in history. Unavailable values read "Unavailable", never 0.
+- Collect per-process interrupt and package-idle wakeups: a sortable Wakeups column, separate rates in process detail, and a Wakeups metric in history. Wakeups count as activity for idle-row skipping.
+- Add process provenance: ancestry from launchd, origin, launchd job label (direct build), architecture, Rosetta translation, code signature (identifier, Team ID, certificate, hardened runtime, entitlements), quarantine, a bundled knowledge base of 37 well-known processes with safe-to-quit guidance, and an on-demand Gatekeeper check (direct build). Signature, architecture and quarantine reads happen on demand and are cached for 5 minutes (200 entries).
+- Add a Flat/Tree toggle to the process list: a tree rooted at launchd, with synthetic nodes for exited parents and broken cycles.
+- Add Activity settings: event retention (1 to 30 days, default 7), outbound connection events, and chart markers.
+
+### Changed
+
+- History schema moves to version 4 (additive, migrated in place): an `events` table, a `metadata` table, and wakeup, GPU, pressure and swap columns. Process history vectors grow from four to eight lanes. Older builds ignore the new tables.
+- Events are pruned by retention and capped at 100,000 rows, in batches.
+
 ## [0.5.0] - 2026-10-29
 
 ### Fixed

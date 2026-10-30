@@ -5,6 +5,7 @@ import AppKit
 final class SettingsViewModel: ObservableObject {
     @Published var confirmDelete = false
     @Published var exportError: String?
+    @Published var includeEvents = false
 }
 
 /// Settings management view displaying configuration cards for panel triggers, sound feedback,
@@ -35,6 +36,7 @@ struct SettingsView: View {
                 appearanceCard
                 collectionCard
                 historyCard
+                activityCard
                 if Capabilities.supportsPrivilegedSampling, let controller = store.privilegedSampling {
                     SettingsCard(title: "Superuser Sampling", systemImage: "lock.shield") {
                         PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
@@ -116,6 +118,9 @@ struct SettingsView: View {
             SettingsRow("Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.") {
                 StepperValue(text: "\(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), range: 25...10_000, step: 25)
             }
+            SettingsRow("Include activity events in export", help: "Adds events to the JSON export, or an extra -events.csv file. Default exports contain metrics only.") {
+                SettingsSwitch(isOn: $model.includeEvents)
+            }
             HStack {
                 Button("Export JSON") { export(.json) }
                 Button("Export CSV") { export(.csv) }
@@ -130,6 +135,24 @@ struct SettingsView: View {
             if let error = settings.errorMessage ?? model.exportError {
                 Text(error).foregroundStyle(.red).font(.caption)
             }
+        }
+    }
+
+    private var activityCard: some View {
+        SettingsCard(title: "Activity", systemImage: "list.bullet.rectangle") {
+            SettingsRow("Event retention", help: "How long Activity Timeline events are kept. Events are also capped in number.") {
+                StepperValue(text: "\(settings.settings.eventRetentionDays) days", value: binding(\.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
+            }
+            SettingsRow("Record outbound connections", help: "Adds an event for each new outbound connection. Can be noisy and grows the event store faster.") {
+                SettingsSwitch(isOn: binding(\.recordConnectionEvents))
+            }
+            if settings.settings.recordConnectionEvents {
+                Label {
+                    SettingsCaption("Outbound connection events can be very frequent on busy machines. Event rows are capped, so older events drop sooner.")
+                } icon: { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).frame(width: 18) }
+            }
+            SettingsRow("Show events on charts") { SettingsSwitch(isOn: binding(\.showEventsOnCharts)) }
+            SettingsCaption("Smack records events only while it is running.")
         }
     }
 
@@ -188,8 +211,9 @@ struct SettingsView: View {
         panel.nameFieldStringValue = "Smack-history.\(format == .json ? "json" : "csv")"
         panel.allowedContentTypes = []
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let includeEvents = model.includeEvents
         Task {
-            do { try await store.history.export(to: url, format: format) }
+            do { try await store.history.export(to: url, format: format, includeEvents: includeEvents) }
             catch { model.exportError = error.localizedDescription }
         }
     }

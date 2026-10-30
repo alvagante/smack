@@ -21,4 +21,5 @@ enum Capabilities {
     static var supportsMenuBarClickForwarding: Bool { flavor == .direct }
     static var supportsNetworkPortInspection: Bool { flavor == .direct }
     static var supportsStartupItems: Bool { flavor == .direct }
+    static var supportsGatekeeperCheck: Bool { flavor == .direct }
 }

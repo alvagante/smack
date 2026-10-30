@@ -35,6 +35,7 @@ cp "$BINARY" "$CONTENTS/MacOS/Smack"
 cp "$ROOT/Sources/Smack/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$ROOT/Sources/Smack/Resources/PrivacyInfo.xcprivacy" "$CONTENTS/Resources/PrivacyInfo.xcprivacy"
 cp "$ROOT/Sources/Smack/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
+cp "$ROOT/Sources/Smack/Resources/process-knowledge.json" "$CONTENTS/Resources/process-knowledge.json"
 
 if [ "$FLAVOR" = "app-store" ]; then
     # The App Store build has no native menu-bar capture, so it must not request
