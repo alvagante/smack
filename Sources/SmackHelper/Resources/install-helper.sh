@@ -79,6 +79,8 @@ install_helper() {
 EOF
     chown root:wheel "$PLIST"
     chmod 644 "$PLIST"
+    # Disabled overrides survive reinstalls and reboots; bootstrap cannot clear them.
+    launchctl enable "system/$LABEL"
     # A bootout can still be finishing; bootstrap fails with EIO until it does.
     launchctl bootstrap system "$PLIST" || { sleep 1; launchctl bootstrap system "$PLIST"; }
     echo "installed $HELPER"

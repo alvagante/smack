@@ -42,17 +42,48 @@ struct NativeMenuBarWindow: Equatable {
     var isOnScreen = true
 }
 
-struct NativeMenuBarItem: Identifiable {
-    let id: CGWindowID
+enum NativeMenuBarItemID: Hashable {
+    case window(CGWindowID)
+    case hosted(CGWindowID, CFHashCode)
+}
+
+struct NativeMenuBarItemSource {
+    let window: NativeMenuBarWindow
+    let element: AXUIElement?
+    let activationElement: AXUIElement?
+    let frame: CGRect
     let ownerPID: pid_t
-    let ownerName: String?
     let title: String?
-    let image: CGImage?
+    let identifier: String?
+
+    init(window: NativeMenuBarWindow, element: AXUIElement? = nil, activationElement: AXUIElement? = nil, frame: CGRect? = nil,
+         ownerPID: pid_t? = nil, title: String? = nil, identifier: String? = nil) {
+        self.window = window
+        self.element = element
+        self.activationElement = activationElement
+        self.frame = frame ?? window.frame
+        self.ownerPID = ownerPID ?? window.ownerPID
+        self.title = title ?? window.title
+        self.identifier = identifier
+    }
+
+    var id: NativeMenuBarItemID {
+        if let element { return .hosted(window.id, CFHash(element)) }
+        return .window(window.id)
+    }
+}
+
+struct NativeMenuBarItem: Identifiable {
+    let source: NativeMenuBarItemSource
+    var image: CGImage?
     let scale: CGFloat
 
+    var id: NativeMenuBarItemID { source.id }
+
     var displayName: String {
-        let applicationName = NSRunningApplication(processIdentifier: ownerPID)?.localizedName
-        return Self.displayName(ownerName: ownerName, applicationName: applicationName, title: title)
+        if source.element != nil, let title = source.title { return title }
+        let applicationName = NSRunningApplication(processIdentifier: source.ownerPID)?.localizedName
+        return Self.displayName(ownerName: source.window.ownerName, applicationName: applicationName, title: source.title)
     }
 
     var pointSize: NSSize {
@@ -85,6 +116,30 @@ struct NativeMenuBarItem: Identifiable {
             }
         }
         return fallback
+    }
+}
+
+enum NativeMenuBarClick {
+    static func events(target: NativeMenuBarItemSource, frame: CGRect, button: CGMouseButton,
+                       source: CGEventSource) -> [CGEvent] {
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        let types: [CGEventType] = button == .left ? [.leftMouseDown, .leftMouseUp] : [.rightMouseDown, .rightMouseUp]
+        return types.compactMap { type in
+            guard let event = CGEvent(mouseEventSource: source, mouseType: type,
+                                      mouseCursorPosition: point, mouseButton: button) else { return nil }
+            // Hosted controls are routed by hit testing. Targeting the shared window bypasses
+            // the native item's event delivery and silently drops the click on macOS 27.
+            if target.element == nil {
+                event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(target.window.ownerPID))
+                event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.window.id))
+                event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.window.id))
+                if let windowField = CGEventField(rawValue: 0x33) {
+                    event.setIntegerValueField(windowField, value: Int64(target.window.id))
+                }
+            }
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+            return event
+        }
     }
 }
 
@@ -134,8 +189,19 @@ enum NativeMenuBarDiscovery {
 
     /// A layout is trusted when it matches the snapshot or repeats the previous observation, so a menu bar
     /// caught mid-animation, with only some items at rest, never replaces a complete snapshot.
-    static func acceptsLayout(_ ids: [CGWindowID], current: [CGWindowID], pending: [CGWindowID]?) -> Bool {
+    static func acceptsLayout<ID: Equatable>(_ ids: [ID], current: [ID], pending: [ID]?) -> Bool {
         current.isEmpty || ids == current || ids == pending
+    }
+
+    static func cropRect(item: CGRect, window: CGRect, imageSize: CGSize) -> CGRect? {
+        guard item.width > 0, item.height > 0, window.width > 0, window.height > 0,
+              window.contains(item), imageSize.width > 0, imageSize.height > 0 else { return nil }
+        let scaleX = imageSize.width / window.width
+        let scaleY = imageSize.height / window.height
+        return CGRect(x: (item.minX - window.minX) * scaleX,
+                      y: (item.minY - window.minY) * scaleY,
+                      width: item.width * scaleX, height: item.height * scaleY).integral
+            .intersection(CGRect(origin: .zero, size: imageSize))
     }
 }
 
@@ -144,6 +210,7 @@ final class NativeMenuBarStore: ObservableObject {
     @Published private(set) var items: [NativeMenuBarItem] = []
     @Published private(set) var screenCaptureAllowed = false
     @Published private(set) var accessibilityAllowed = false
+    @Published private(set) var accessibilityRequiredForIcons = false
     @Published private(set) var loadAttempted = false
     /// Called before a click is forwarded, so the panel can get out of the way of the item's menu or window.
     var onItemActivated: (() -> Void)?
@@ -154,7 +221,7 @@ final class NativeMenuBarStore: ObservableObject {
     private var backingScaleFactor: CGFloat = 2
     /// Each display has its own copy of every status item; keep the last good capture per display.
     private var snapshots: [CGDirectDisplayID: [NativeMenuBarItem]] = [:]
-    private var pendingLayout: [CGWindowID]?
+    private var pendingLayout: [NativeMenuBarItemID]?
     private var refreshTimer: Timer?
     private var requestingPermissions = false
     private var captureInProgress = false
@@ -205,12 +272,22 @@ final class NativeMenuBarStore: ObservableObject {
         accessibilityAllowed = AXIsProcessTrusted()
         guard isActive else { return }
 
-        let discovered = NativeMenuBarDiscovery.items(
-            from: menuBarWindows(),
-            currentPID: ProcessInfo.processInfo.processIdentifier,
-            menuBarMinY: CGDisplayBounds(displayID).minY
-        )
-        screenCaptureAllowed = CGPreflightScreenCaptureAccess() || discovered.contains { $0.title != nil }
+        let host = HostedMenuBarDiscovery.application
+        accessibilityRequiredForIcons = host != nil
+        let discovered: [NativeMenuBarItemSource]
+        if let host {
+            discovered = accessibilityAllowed ? HostedMenuBarDiscovery.items(
+                application: host, displayBounds: CGDisplayBounds(displayID),
+                currentPID: ProcessInfo.processInfo.processIdentifier, windowInfo: window
+            ) : []
+        } else {
+            discovered = NativeMenuBarDiscovery.items(
+                from: menuBarWindows(),
+                currentPID: ProcessInfo.processInfo.processIdentifier,
+                menuBarMinY: CGDisplayBounds(displayID).minY
+            ).map { NativeMenuBarItemSource(window: $0) }
+        }
+        screenCaptureAllowed = CGPreflightScreenCaptureAccess() || discovered.contains { $0.window.title != nil }
         guard screenCaptureAllowed, !captureInProgress else {
             if !screenCaptureAllowed {
                 items = []
@@ -219,7 +296,7 @@ final class NativeMenuBarStore: ObservableObject {
             return
         }
         // A hidden menu bar has nothing to capture: keep the last snapshot instead of blanking it.
-        guard discovered.contains(where: \.isOnScreen) else { return }
+        guard discovered.contains(where: { $0.element != nil || $0.window.isOnScreen }) else { return }
         let ids = discovered.map(\.id)
         let previous = snapshots[displayID] ?? []
         guard NativeMenuBarDiscovery.acceptsLayout(ids, current: previous.map(\.id), pending: pendingLayout) else {
@@ -240,23 +317,22 @@ final class NativeMenuBarStore: ObservableObject {
                 return
             }
             var captured: [NativeMenuBarItem] = []
-            for window in discovered {
-                var image = previous.first { $0.id == window.id }?.image
+            var windowImages: [CGWindowID: CGImage] = [:]
+            var attemptedWindows = Set<CGWindowID>()
+            for source in discovered {
+                let window = source.window
+                var image = previous.first { $0.id == source.id }?.image
                 // Off-screen copies (behind the notch, or a hidden menu bar) may still render; only a blank
                 // capture is discarded in favour of the last good image.
-                let captureWindow = content.windows.first { $0.windowID == window.id }
-                if let fresh = await capture(window, from: captureWindow, scale: scale),
+                if attemptedWindows.insert(window.id).inserted {
+                    let captureWindow = content.windows.first { $0.windowID == window.id }
+                    windowImages[window.id] = await capture(window, from: captureWindow, scale: scale)
+                }
+                if let raw = windowImages[window.id], let fresh = croppedImage(raw, for: source, scale: scale),
                    NativeMenuBarDiscovery.hasVisiblePixels(fresh) {
                     image = fresh
                 }
-                captured.append(NativeMenuBarItem(
-                    id: window.id,
-                    ownerPID: window.ownerPID,
-                    ownerName: window.ownerName,
-                    title: window.title,
-                    image: image,
-                    scale: scale
-                ))
+                captured.append(NativeMenuBarItem(source: source, image: image, scale: scale))
             }
             guard featureEnabled else { return }
             snapshots[display] = captured
@@ -267,30 +343,23 @@ final class NativeMenuBarStore: ObservableObject {
     }
 
     func click(_ item: NativeMenuBarItem, button: CGMouseButton) {
-        guard AXIsProcessTrusted(), let frame = currentFrame(for: item.id) else {
+        guard AXIsProcessTrusted() else {
             accessibilityAllowed = AXIsProcessTrusted()
             return
         }
+        let target = item.source
+        let frame: CGRect?
+        if let element = target.element {
+            frame = HostedMenuBarDiscovery.frame(of: element)
+        } else {
+            frame = currentFrame(for: target.window.id)
+        }
+        guard let frame, frame.width > 0, frame.height > 0 else { return }
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
         onItemActivated?()
-        let point = CGPoint(x: frame.midX, y: frame.midY)
-        let downType: CGEventType = button == .left ? .leftMouseDown : .rightMouseDown
-        let upType: CGEventType = button == .left ? .leftMouseUp : .rightMouseUp
-
-        for type in [downType, upType] {
-            guard let event = CGEvent(
-                mouseEventSource: source,
-                mouseType: type,
-                mouseCursorPosition: point,
-                mouseButton: button
-            ) else { continue }
-            event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(item.ownerPID))
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(item.id))
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(item.id))
-            if let windowField = CGEventField(rawValue: 0x33) {
-                event.setIntegerValueField(windowField, value: Int64(item.id))
-            }
-            event.setIntegerValueField(.mouseEventClickState, value: 1)
+        if button == .left, let element = target.activationElement,
+           AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
+        for event in NativeMenuBarClick.events(target: target, frame: frame, button: button, source: source) {
             event.post(tap: .cghidEventTap)
         }
     }
@@ -366,8 +435,19 @@ final class NativeMenuBarStore: ObservableObject {
         configuration.width = max(1, Int((window.frame.width * scale).rounded()))
         configuration.height = max(1, Int((window.frame.height * scale).rounded()))
         configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
         let filter = SCContentFilter(desktopIndependentWindow: captureWindow)
-        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) else { return nil }
+        return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+
+    private func croppedImage(_ image: CGImage, for source: NativeMenuBarItemSource, scale: CGFloat) -> CGImage? {
+        if source.element != nil {
+            guard let rect = NativeMenuBarDiscovery.cropRect(
+                item: source.frame, window: source.window.frame,
+                imageSize: CGSize(width: image.width, height: image.height)
+            ) else { return nil }
+            return image.cropping(to: rect)
+        }
         let thickness = min(CGFloat(image.height), NSStatusBar.system.thickness * scale)
         let crop = CGRect(
             x: 0,

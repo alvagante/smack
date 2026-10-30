@@ -91,6 +91,8 @@ Only do this for a download you trust and have verified against its checksum.
 
 If you enable native menu-bar icons, grant Screen Recording and Accessibility when asked, then reopen Smack. Release builds are not signed with a stable identity yet, so each update may ask for these permissions again; see [docs/signing.md](docs/signing.md).
 
+On macOS 27, Accessibility is also required to discover the icons. Use the copied overflow button to open macOS's hidden menu-bar items. Earlier macOS versions retain individual icon capture, including icons behind the notch.
+
 ## Build and run
 
 ```bash

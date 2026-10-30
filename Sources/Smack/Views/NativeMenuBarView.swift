@@ -28,7 +28,7 @@ struct NativeMenuBarView: View {
             } else {
                 Toggle("Show menu-bar icons", isOn: isEnabled)
                     .toggleStyle(.switch)
-                Text("Uses Screen Recording to show icons and Accessibility for their click actions.")
+                Text("Uses Screen Recording and Accessibility to show and activate icons.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -54,6 +54,14 @@ struct NativeMenuBarView: View {
                     Button("Open Settings") { menuBarStore.openScreenCaptureSettings() }
                     Button("Reopen") { menuBarStore.relaunch() }
                 }
+            } else if menuBarStore.accessibilityRequiredForIcons && !menuBarStore.accessibilityAllowed {
+                HStack(spacing: 8) {
+                    Text("Accessibility is required to show and activate native icons.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Open Settings") { menuBarStore.openAccessibilitySettings() }
+                    Button("Retry") { menuBarStore.refresh() }
+                }
             } else if visibleItems.isEmpty {
                 if menuBarStore.loadAttempted {
                     Text("No native menu-bar icons found. Move up your mouse to show the menu-bar")
@@ -74,7 +82,7 @@ struct NativeMenuBarView: View {
                     }
                 }
             }
-            if !menuBarStore.accessibilityAllowed {
+            if !menuBarStore.accessibilityAllowed && !menuBarStore.accessibilityRequiredForIcons {
                 HStack(spacing: 8) {
                     Text("Accessibility is required for native click actions.")
                         .font(.caption2)
