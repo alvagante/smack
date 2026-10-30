@@ -24,7 +24,7 @@ struct SummaryView: View {
                     if let battery = store.system?.battery, battery.isPresent {
                         batteryCard(battery)
                     }
-                    thermalCard
+                    ActivityDiffCard(store: store)
                     if Capabilities.supportsNetworkPortInspection {
                         networkPortsCard
                     }
@@ -100,9 +100,14 @@ struct SummaryView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .monospacedDigit()
                 Spacer()
-                Text("\(store.system?.cpu.coreUsage.count ?? 0) cores")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("\(store.system?.cpu.coreUsage.count ?? 0) cores")
+                    Text(gpuText)
+                        .foregroundStyle(store.system?.gpu.utilizationPercent == nil ? .tertiary : .secondary)
+                        .help("GPU utilization from the system accelerator")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.cpuUsage), color: .blue)], domain: 0...100)
         }
@@ -117,11 +122,39 @@ struct SummaryView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Spacer()
-                Text("of \(Formatting.bytes(store.system?.memory.totalBytes ?? 0))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("of \(Formatting.bytes(store.system?.memory.totalBytes ?? 0))")
+                    pressureBadge
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.memoryUsage), color: .purple)], domain: 0...100)
+        }
+    }
+
+    /// Unavailable GPU statistics read "Unavailable", never 0%.
+    private var gpuText: String {
+        guard let value = store.system?.gpu.utilizationPercent else { return "GPU Unavailable" }
+        return "GPU \(Formatting.percent(value))"
+    }
+
+    private var pressureBadge: some View {
+        let pressure = store.system?.memory.pressure ?? .unavailable
+        return HStack(spacing: 4) {
+            Circle().fill(pressureColor(pressure)).frame(width: 6, height: 6)
+            Text(pressure == .unavailable ? "Pressure Unavailable" : "Pressure \(Formatting.pressure(pressure))")
+        }
+        .help("Memory pressure from the kernel. Swap used: \(Formatting.bytes(store.system?.memory.swapUsedBytes ?? 0)) of \(Formatting.bytes(store.system?.memory.swapTotalBytes ?? 0))")
+        .accessibilityElement(children: .combine)
+    }
+
+    private func pressureColor(_ pressure: MemoryPressure) -> Color {
+        switch pressure {
+        case .normal: .green
+        case .warning: .yellow
+        case .critical: .red
+        case .unavailable: .secondary
         }
     }
 
@@ -187,18 +220,6 @@ struct SummaryView: View {
                 }
                 Spacer(minLength: 0)
             }
-        }
-    }
-
-    private var thermalCard: some View {
-        card(.thermal, image: "thermometer.medium") {
-            VStack(alignment: .leading, spacing: 10) {
-                ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
-                Text("System thermal pressure")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxHeight: .infinity, alignment: .center)
         }
     }
 

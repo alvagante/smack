@@ -38,6 +38,9 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
     public var bytesWritten: UInt64
     public var energyNanojoules: UInt64?
     public var threadCount: Int
+    /// Cumulative wakeup counters; nil when `rusage_info_v6` is unavailable. Optional, so payloads from an older helper still decode.
+    public var interruptWakeups: UInt64?
+    public var packageIdleWakeups: UInt64?
 
     public init(
         pid: Int32,
@@ -51,7 +54,9 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
         bytesRead: UInt64,
         bytesWritten: UInt64,
         energyNanojoules: UInt64?,
-        threadCount: Int
+        threadCount: Int,
+        interruptWakeups: UInt64? = nil,
+        packageIdleWakeups: UInt64? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -65,6 +70,8 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
         self.bytesWritten = bytesWritten
         self.energyNanojoules = energyNanojoules
         self.threadCount = threadCount
+        self.interruptWakeups = interruptWakeups
+        self.packageIdleWakeups = packageIdleWakeups
     }
 }
 

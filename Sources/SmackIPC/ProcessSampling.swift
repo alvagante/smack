@@ -80,7 +80,9 @@ public enum ProcessSampling {
             bytesRead: usage?.bytesRead ?? 0,
             bytesWritten: usage?.bytesWritten ?? 0,
             energyNanojoules: usage?.energyNanojoules,
-            threadCount: Int(max(0, information.ptinfo.pti_threadnum))
+            threadCount: Int(max(0, information.ptinfo.pti_threadnum)),
+            interruptWakeups: usage?.interruptWakeups,
+            packageIdleWakeups: usage?.packageIdleWakeups
         )
     }
 
@@ -89,6 +91,9 @@ public enum ProcessSampling {
         var bytesRead: UInt64
         var bytesWritten: UInt64
         var energyNanojoules: UInt64?
+        /// Nil when only `rusage_info_v2` is available, which has no wakeup counters.
+        var interruptWakeups: UInt64?
+        var packageIdleWakeups: UInt64?
     }
 
     private static func resourceUsage(for pid: pid_t) -> Usage? {
@@ -103,7 +108,9 @@ public enum ProcessSampling {
                 physicalFootprint: current.ri_phys_footprint,
                 bytesRead: current.ri_diskio_bytesread,
                 bytesWritten: current.ri_diskio_byteswritten,
-                energyNanojoules: current.ri_energy_nj
+                energyNanojoules: current.ri_energy_nj,
+                interruptWakeups: current.ri_interrupt_wkups,
+                packageIdleWakeups: current.ri_pkg_idle_wkups
             )
         }
 
@@ -118,7 +125,9 @@ public enum ProcessSampling {
             physicalFootprint: fallback.ri_phys_footprint,
             bytesRead: fallback.ri_diskio_bytesread,
             bytesWritten: fallback.ri_diskio_byteswritten,
-            energyNanojoules: nil
+            energyNanojoules: nil,
+            interruptWakeups: nil,
+            packageIdleWakeups: nil
         )
     }
 

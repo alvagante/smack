@@ -9,9 +9,9 @@ Smack needs Screen Recording and Accessibility for the native menu-bar feature. 
 | Developer ID + notarization | Developer ID chain + Team ID | Yes | Yes |
 | Apple Distribution + App Store profile | Apple Distribution chain + Team ID | Yes | App Store only |
 
-Smack has two flavors. The direct build uses Developer ID, is not sandboxed, and embeds a
-root sampling helper. The App Store build uses Apple Distribution, is sandboxed, and has
-no helper. See [distribution.md](distribution.md) for the feature matrix.
+Smack ships through Homebrew using the direct build, which is not sandboxed and embeds
+a root sampling helper. App Store distribution is not planned. The repository still
+contains an App Store build variant; see [distribution.md](distribution.md) for its matrix.
 
 `Scripts/build-app.sh` picks the identity in this order and prints the one it used:
 
@@ -62,7 +62,40 @@ A self-signed build is fine for your own Mac. Do not ship it: Gatekeeper blocks 
 
 ## Public release: Developer ID and notarization
 
-Distributing outside the Mac App Store still requires the paid Apple Developer Program, which provides the Developer ID certificate and notarization.
+Developer ID signing and notarization require Apple Developer Program membership.
+They are not prerequisites for publishing an archive or hosting a Homebrew cask, but
+they are needed for the recommended notarized release path. Apple states that apps
+submitted for notarization must be signed with a Developer ID certificate:
+[notarization requirements](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).
+
+For Smack's zipped app, use **Developer ID Application** for both app and helper.
+**Developer ID Installer** is for signed installer packages and is not needed for the
+current ZIP-based cask:
+[certificate types](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/).
+
+### Homebrew and the legacy installer
+
+Homebrew changes delivery, not the app's signer or the privileges of its helper.
+Removing quarantine is not notarization and does not strengthen the legacy script's
+trust boundary.
+
+A Developer ID-signed, notarized direct build already selects Smack's SMAppService
+installation path. This replaces manually installing daemon plists with registration
+of the signed bundled helper, still subject to administrator approval:
+[Apple's ServiceManagement guidance](https://developer.apple.com/documentation/servicemanagement/updating-your-app-package-installer-to-use-the-new-service-management-api).
+The installed SDK's SMAppService.h explicitly requires notarization for apps containing
+LaunchDaemons.
+
+Recommendation: use this path for public Homebrew releases; reserve the legacy installer
+for self-signed development builds. Existing legacy installations require an explicit
+migration/removal path. Notarization does not repair the legacy script itself, and does
+not replace XPC client authorization.
+
+The release workflow already supports Developer ID signing and notarization, but currently
+permits ad-hoc fallback when secrets are missing. Once notarized releases become
+policy, make missing signing/notarization credentials fail the release and stop stripping
+quarantine in the cask. These release-policy changes are not part of the error-reporting
+and stale-reply fixes.
 
 ### One-time setup
 
@@ -79,7 +112,8 @@ Distributing outside the Mac App Store still requires the paid Apple Developer P
 
 `build-app.sh` adds `--options runtime --timestamp` when the identity starts with
 `Developer ID Application:` and the flavor is `direct`. It signs `SmackHelper` before the
-app so the nested executable is sealed correctly. The direct build uses no entitlements.
+app so the nested executable is sealed correctly. The direct app includes the Apple Events
+entitlement from Smack-direct.entitlements.
 
 The helper needs no build-time configuration: at launch it reads the Team ID (or, for a
 self-signed build, the leaf certificate hash) from its own signature and accepts only the

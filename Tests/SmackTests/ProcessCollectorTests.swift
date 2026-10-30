@@ -33,7 +33,7 @@ import Testing
     // GPU discovery can return "Unknown" when the environment exposes no accelerator.
     #expect(!sample.gpuName.isEmpty)
 
-    let processes = await ProcessCollector().collectProcessSnapshot(includePrivileged: false)
+    let processes = try #require(await ProcessCollector().collectProcessSnapshot(includePrivileged: false))
     let all = processes.applications.flatMap(\.processes) + processes.backgroundProcesses
     #expect(!all.isEmpty)
     if let current = all.first(where: { $0.identity.pid == getpid() }) {

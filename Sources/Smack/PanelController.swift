@@ -20,6 +20,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var hoverTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private var pinned = false
+    /// User-chosen "keep in foreground": ignores mouse-away dismissal and outside clicks until unstuck or closed.
+    private var stuck = false
+    private var stickButton: NSButton?
     /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
     private var hotZoneSuppressedUntil = Date.distantPast
     private var glassModeSubscription: AnyCancellable?
@@ -72,9 +75,10 @@ final class PanelController: NSObject, NSWindowDelegate {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in self?.resizeForRoute(summary: summary) }
+        installStickButton()
         installMonitors()
         nativeMenuBarStore.onItemActivated = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.stuck else { return }
             self.hotZoneSuppressedUntil = Date().addingTimeInterval(1)
             self.hoverTask?.cancel()
             self.close()
@@ -86,6 +90,36 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.isOpaque = !enabled
         panel.backgroundColor = enabled ? .clear : .windowBackgroundColor
         panel.invalidateShadow()
+    }
+
+    /// A pin button next to the traffic lights; lives in the titlebar view so it follows the window chrome.
+    private func installStickButton() {
+        guard let zoom = panel.standardWindowButton(.zoomButton), let container = zoom.superview else { return }
+        let button = NSButton(frame: NSRect(x: zoom.frame.maxX + 8, y: zoom.frame.midY - 8, width: 16, height: 16))
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.target = self
+        button.action = #selector(toggleStuck)
+        container.addSubview(button)
+        stickButton = button
+        updateStickButton()
+    }
+
+    @objc private func toggleStuck() {
+        stuck.toggle()
+        updateStickButton()
+    }
+
+    private func updateStickButton() {
+        let name = stuck ? "pin.fill" : "pin"
+        let label = stuck ? "Unstick window" : "Keep window in foreground"
+        stickButton?.image = NSImage(systemSymbolName: name, accessibilityDescription: label)
+        stickButton?.contentTintColor = stuck ? .controlAccentColor : .secondaryLabelColor
+        stickButton?.toolTip = stuck
+            ? "Stuck: the window stays open when the mouse moves away or you click elsewhere.\nClick to unstick. Closing the window also unsticks it."
+            : "Keep this window in the foreground, even when the mouse moves away or you click elsewhere.\nClick to stick it."
+        stickButton?.setAccessibilityLabel(label)
     }
 
     func togglePinned() {
@@ -216,7 +250,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         } else if !inHotZone {
             hoverTask?.cancel()
         }
-        guard panel.isVisible, !pinned else { return }
+        guard panel.isVisible, !pinned, !stuck else { return }
         let inPanel = panel.frame.contains(location)
         if inHotZone || inPanel {
             dismissTask?.cancel()
@@ -234,13 +268,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.trigger == .click {
             pinned = true
             panel.isVisible ? close() : open()
-        } else if panel.isVisible, pinned, !panel.frame.contains(location), statusItem.button?.window?.frame.contains(location) != true {
+        } else if panel.isVisible, pinned, !stuck, !panel.frame.contains(location), statusItem.button?.window?.frame.contains(location) != true {
             close()
         }
     }
 
     func windowWillClose(_ notification: Notification) {
         pinned = false
+        stuck = false
+        updateStickButton()
         hoverTask?.cancel()
         dismissTask?.cancel()
         dismissTask = nil

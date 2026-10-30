@@ -27,6 +27,12 @@ struct ApplicationIcon: View {
     let executablePath: String?
     let size: CGFloat
 
+    init(bundleIdentifier: String?, executablePath: String?, size: CGFloat = 24) {
+        self.bundleIdentifier = bundleIdentifier
+        self.executablePath = executablePath
+        self.size = size
+    }
+
     init(application: ApplicationMetrics, size: CGFloat = 24) {
         bundleIdentifier = application.bundleIdentifier
         executablePath = application.executablePath

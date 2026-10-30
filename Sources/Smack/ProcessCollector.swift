@@ -8,21 +8,22 @@ struct VisibleApplicationMetadata: Sendable {
     var executablePath: String?
 }
 
-final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
+actor ProcessCollector: ProcessMetricsCollecting {
     private let builder = ProcessSnapshotBuilder()
 
     init() {}
 
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         // App Sandbox denies proc_pid_rusage for other processes; skip the failing calls
         // instead of generating a denied syscall for every process on every sample.
-        builder.build(
+        guard !Task.isCancelled else { return nil }
+        return builder.build(
             records: ProcessSampling.records(restrictUsageToCurrentProcess: Capabilities.isSandboxed),
             timestamp: Date()
         )
     }
 
-    static func groupApplications(
+    nonisolated static func groupApplications(
         _ processes: [ProcessMetrics],
         metadata: [Int32: VisibleApplicationMetadata]
     ) -> (applications: [ApplicationMetrics], background: [ProcessMetrics]) {

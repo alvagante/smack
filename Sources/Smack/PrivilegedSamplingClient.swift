@@ -1,9 +1,12 @@
 import Foundation
+import Synchronization
 import SmackIPC
 
 /// Talks to the root daemon over XPC. Any failure (helper not installed, not approved,
 /// connection dropped, malformed reply, timeout) returns nil so callers fall back to the
 /// unprivileged collectors instead of showing an error.
+/// `@unchecked`: `NSXPCConnection` is not Sendable, so the connection lives behind `lock`, which guards every
+/// access to the mutable state below.
 final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var connection: NSXPCConnection?
@@ -121,19 +124,18 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Se
     }
 
     /// A continuation can be resumed only once, but the reply and the timeout race.
-    private final class Completion<T: Sendable>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<T?, Never>?
+    private final class Completion<T: Sendable>: Sendable {
+        private let continuation: Mutex<CheckedContinuation<T?, Never>?>
 
         init(continuation: CheckedContinuation<T?, Never>) {
-            self.continuation = continuation
+            self.continuation = Mutex(continuation)
         }
 
         func finish(_ value: T?) {
-            lock.lock()
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
+            let continuation = self.continuation.withLock { stored in
+                defer { stored = nil }
+                return stored
+            }
             continuation?.resume(returning: value)
         }
     }

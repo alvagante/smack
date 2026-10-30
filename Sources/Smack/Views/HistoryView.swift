@@ -6,6 +6,7 @@ enum ProgramSort: String, CaseIterable {
     case cpu = "CPU"
     case memory = "Memory"
     case disk = "Disk"
+    case wakeups = "Wakeups"
 }
 
 @MainActor
@@ -18,6 +19,10 @@ final class HistoryViewModel: ObservableObject {
     @Published var enabledProcessMetrics: Set<ProcessMetric> = [.cpuUsage]
     @Published var hours = 1.0
     @Published var showPeaks = true
+    /// Whether event markers are drawn; mirrors `CollectionSettings.showEventsOnCharts`.
+    @Published var showEvents = true
+    /// At most `markerLimit` events for the selected range, already prioritized.
+    @Published var markers: [ActivityEvent] = []
     @Published var systemPoints: [SystemMetric: [HistoricalPoint]] = [:]
     @Published var processPoints: [ProcessMetric: [HistoricalPoint]] = [:]
     @Published var loading = false
@@ -42,8 +47,28 @@ final class HistoryViewModel: ObservableObject {
             case .cpu: $0.cpuTotal > $1.cpuTotal
             case .memory: $0.memoryTotal > $1.memoryTotal
             case .disk: $0.diskBytes > $1.diskBytes
+            case .wakeups: $0.wakeupsTotal > $1.wakeupsTotal
             }
         }
+    }
+
+    static let markerLimit = 50
+
+    /// Warnings first, then listeners, startup items, processes and everything else; newest first within a class.
+    static func selectMarkers(_ events: [ActivityEvent], limit: Int = markerLimit) -> [ActivityEvent] {
+        func priority(_ event: ActivityEvent) -> Int {
+            if event.severity == .warning { return 0 }
+            switch event.kind.group {
+            case .network where event.kind == .listenerOpened || event.kind == .listenerClosed: return 1
+            case .startup: return 2
+            case .processes: return 3
+            default: return 4
+            }
+        }
+        return events
+            .sorted { priority($0) == priority($1) ? $0.timestamp > $1.timestamp : priority($0) < priority($1) }
+            .prefix(limit)
+            .sorted { $0.timestamp < $1.timestamp }
     }
 
     func select(program: String?) {
@@ -76,6 +101,12 @@ protocol HistoryChartMetric: Hashable, CaseIterable where AllCases == [Self] {
     func scale(for points: [HistoricalPoint], peaks: Bool) -> Double
     /// Shortest spacing drawn as a break in the line.
     static var minimumGap: TimeInterval { get }
+    /// Fixed y-axis ticks for metrics with a few discrete levels; nil for continuous metrics.
+    var axisTicks: [Double]? { get }
+}
+
+extension HistoryChartMetric {
+    var axisTicks: [Double]? { nil }
 }
 
 /// Scales to the range maximum of averages so one spike does not flatten the line, or of peaks when they are drawn.
@@ -95,6 +126,9 @@ extension SystemMetric: HistoryChartMetric {
         case .networkSendRate: "Net Out"
         case .diskReadRate: "Disk Read"
         case .diskWriteRate: "Disk Write"
+        case .gpuUtilization: "GPU"
+        case .memoryPressure: "Pressure"
+        case .swapUsedBytes: "Swap"
         }
     }
 
@@ -106,22 +140,30 @@ extension SystemMetric: HistoryChartMetric {
         case .networkSendRate: .mint
         case .diskReadRate: .orange
         case .diskWriteRate: .pink
+        case .gpuUtilization: .green
+        case .memoryPressure: .red
+        case .swapUsedBytes: .indigo
         }
     }
 
     func format(_ value: Double) -> String {
         switch self {
-        case .cpu: Formatting.percent(value)
-        case .memoryUsedBytes: Formatting.bytes(UInt64(max(0, value)))
+        case .cpu, .gpuUtilization: Formatting.percent(value)
+        case .memoryUsedBytes, .swapUsedBytes: Formatting.bytes(UInt64(max(0, value)))
+        case .memoryPressure: Formatting.pressure(historyValue: value)
         default: Formatting.rate(value)
         }
     }
 
-    /// CPU stays absolute and memory is a share of physical memory; rates use the range maximum.
+    var axisTicks: [Double]? { self == .memoryPressure ? [0, 1, 2] : nil }
+
+    /// CPU and GPU stay absolute, memory is a share of physical memory and pressure spans its three levels;
+    /// rates and swap use the range maximum.
     func scale(for points: [HistoricalPoint], peaks: Bool) -> Double {
         switch self {
-        case .cpu: 1
+        case .cpu, .gpuUtilization: 1
         case .memoryUsedBytes: 100 / Double(max(1, ProcessInfo.processInfo.physicalMemory))
+        case .memoryPressure: 50
         default: rangeMaximumScale(points, peaks: peaks)
         }
     }
@@ -137,6 +179,7 @@ extension ProcessMetric: HistoryChartMetric {
         case .memoryBytes: "Memory"
         case .diskReadRate: "Disk Read"
         case .diskWriteRate: "Disk Write"
+        case .wakeups: "Wakeups"
         }
     }
 
@@ -146,6 +189,7 @@ extension ProcessMetric: HistoryChartMetric {
         case .memoryBytes: .purple
         case .diskReadRate: .orange
         case .diskWriteRate: .pink
+        case .wakeups: .yellow
         }
     }
 
@@ -153,6 +197,7 @@ extension ProcessMetric: HistoryChartMetric {
         switch self {
         case .cpuUsage: Formatting.percent(value)
         case .memoryBytes: Formatting.bytes(UInt64(max(0, value)))
+        case .wakeups: Formatting.wakeups(value)
         default: Formatting.rate(value)
         }
     }
@@ -180,12 +225,15 @@ private struct HistorySeries: Identifiable {
     /// Readout shows nothing when the cursor is farther than this from a sample, i.e. inside a gap.
     let gapThreshold: TimeInterval?
     let format: (Double) -> String
+    /// Plotted positions of fixed axis ticks, labeled through `format` with their actual values.
+    let ticks: [Double]?
 
-    init(id: String, color: Color, points: [HistoricalPoint], minimumGap: TimeInterval, format: @escaping (Double) -> String, plot: (Double) -> Double) {
+    init(id: String, color: Color, points: [HistoricalPoint], minimumGap: TimeInterval, ticks: [Double]? = nil, format: @escaping (Double) -> String, plot: (Double) -> Double) {
         let segments = HistoricalPoint.segments(points, minimumGap: minimumGap)
         self.id = id
         self.color = color
         self.format = format
+        self.ticks = ticks
         gapThreshold = HistoricalPoint.gapThreshold(points, minimum: minimumGap)
         samples = points.indices.map { index in
             let point = points[index]
@@ -228,18 +276,27 @@ struct HistoryView: View {
                 Button { model.select(program: nil) } label: { Label("All History", systemImage: "chevron.left") }
                 Text(program).font(.headline).lineLimit(1)
                 instancePicker
-                ForEach(ProcessMetric.allCases, id: \.self) { metric in
-                    metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
-                }
-            } else {
-                ForEach(SystemMetric.allCases) { metric in
-                    metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
+            }
+            // Nine system metrics do not fit next to the toggles at the minimum panel width, so the chips scroll.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if model.selectedProgram != nil {
+                        ForEach(ProcessMetric.allCases, id: \.self) { metric in
+                            metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
+                        }
+                    } else {
+                        ForEach(SystemMetric.allCases) { metric in
+                            metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
+                        }
+                    }
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if model.loading { ProgressView().controlSize(.small) }
             Toggle("Peaks", isOn: $model.showPeaks).toggleStyle(.checkbox).controlSize(.small)
                 .help("Draw dashed peak lines; the hover readout always shows average and peak.")
+            Toggle("Events", isOn: eventsBinding).toggleStyle(.checkbox).controlSize(.small)
+                .help("Draw vertical markers for activity events such as listeners, startup changes and pressure warnings. At most \(HistoryViewModel.markerLimit) are shown, preferring warnings.")
             Picker("Range", selection: $model.hours) {
                 Text("1h").tag(1.0)
                 Text("24h").tag(24.0)
@@ -248,6 +305,16 @@ struct HistoryView: View {
             Image(systemName: "info.circle").foregroundStyle(.secondary)
                 .help("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound.")
         }
+    }
+
+    private var eventsBinding: Binding<Bool> {
+        Binding(
+            get: { model.showEvents },
+            set: { value in
+                model.showEvents = value
+                store.settingsStore.update { $0.showEventsOnCharts = value }
+            }
+        )
     }
 
     private var instancePicker: some View {
@@ -309,16 +376,38 @@ struct HistoryView: View {
         return metrics.map { metric in
             let points = points[metric] ?? []
             let scale = metric.scale(for: points, peaks: model.showPeaks)
-            return HistorySeries(id: metric.title, color: metric.color, points: points, minimumGap: M.minimumGap, format: metric.format) {
+            return HistorySeries(id: metric.title, color: metric.color, points: points, minimumGap: M.minimumGap, ticks: metric.axisTicks, format: metric.format) {
                 normalized ? min(100, $0 * scale) : $0
             }
         }
     }
 
+    /// Markers inside the plotted time span only, so events outside the range never stretch the chart domain.
+    private func visibleMarkers(_ series: [HistorySeries]) -> [ActivityEvent] {
+        guard model.showEvents, !model.markers.isEmpty else { return [] }
+        let times = series.flatMap { [$0.samples.first?.timestamp, $0.samples.last?.timestamp] }.compactMap { $0 }
+        guard let first = times.min(), let last = times.max() else { return [] }
+        return model.markers.filter { $0.timestamp >= first && $0.timestamp <= last }
+    }
+
+    private func markerColor(_ event: ActivityEvent) -> Color {
+        switch event.severity {
+        case .warning: .red
+        case .notice: .orange
+        case .info: .secondary
+        }
+    }
+
     private var chart: some View {
         let series = series
+        let markers = visibleMarkers(series)
         let format = series.first?.format ?? { Formatting.percent($0) }
         return Chart {
+            ForEach(markers) { event in
+                RuleMark(x: .value("Event", event.timestamp))
+                    .foregroundStyle(markerColor(event).opacity(0.45))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            }
             ForEach(series) { line in
                 ForEach(line.samples) { sample in
                     LineMark(x: .value("Time", sample.timestamp), y: .value("Value", sample.plotted), series: .value("Series", "\(line.id)#\(sample.segment)"))
@@ -337,17 +426,26 @@ struct HistoryView: View {
                 RuleMark(x: .value("Selected", selectedDate))
                     .foregroundStyle(.secondary.opacity(0.5))
                     .annotation(position: .top, alignment: .center, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        readout(at: selectedDate, series: series)
+                        readout(at: selectedDate, series: series, markers: markers)
                     }
             }
         }
         .chartXSelection(value: $model.selectedDate)
         .chartYScale(domain: 0...yUpperBound(series))
         .chartYAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let number = value.as(Double.self) { Text(normalized ? "\(Int(number))%" : format(number)) }
+            if !normalized, let ticks = series.first?.ticks {
+                AxisMarks(values: ticks) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let number = value.as(Double.self) { Text(format(number)) }
+                    }
+                }
+            } else {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let number = value.as(Double.self) { Text(normalized ? "\(Int(number))%" : format(number)) }
+                    }
                 }
             }
         }
@@ -361,13 +459,27 @@ struct HistoryView: View {
     private func yUpperBound(_ series: [HistorySeries]) -> Double {
         if normalized { return 100 }
         let maximum = series.flatMap(\.samples).map { model.showPeaks ? max($0.plotted, $0.plottedPeak) : $0.plotted }.max() ?? 0
+        if let top = series.first?.ticks?.max() { return max(top, maximum * 1.05) }
         return maximum > 0 ? maximum * 1.05 : 1
     }
 
-    private func readout(at date: Date, series: [HistorySeries]) -> some View {
+    /// The marker closest to the cursor, if it is within a few percent of the visible range.
+    private func nearestMarker(to date: Date, in markers: [ActivityEvent]) -> ActivityEvent? {
+        let tolerance = model.hours * 3_600 / 60
+        return markers
+            .min { abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date)) }
+            .flatMap { abs($0.timestamp.timeIntervalSince(date)) <= tolerance ? $0 : nil }
+    }
+
+    private func readout(at date: Date, series: [HistorySeries], markers: [ActivityEvent]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(date, format: model.hours > 24 ? .dateTime.weekday().hour().minute() : .dateTime.hour().minute().second())
                 .foregroundStyle(.secondary)
+            if let event = nearestMarker(to: date, in: markers) {
+                Label("\(event.kind.title): \(event.subject) at \(event.timestamp.formatted(date: .omitted, time: .standard))", systemImage: event.kind.systemImage)
+                    .foregroundStyle(markerColor(event))
+                    .lineLimit(1)
+            }
             ForEach(series) { line in
                 HStack(spacing: 4) {
                     Circle().fill(line.color).frame(width: 6, height: 6)
@@ -413,7 +525,7 @@ struct HistoryView: View {
                 }
                 .labelsHidden()
                 .fixedSize()
-                .help("Recent: last seen. CPU, Memory, Disk: total in the selected range, summed over instances.")
+                .help("Recent: last seen. CPU, Memory, Disk, Wakeups: total in the selected range, summed over instances.")
             }
             List(model.visiblePrograms) { program in
                 Button { model.select(program: program.name) } label: {
@@ -443,6 +555,7 @@ struct HistoryView: View {
         case .cpu: return Text("avg \(Formatting.percent(program.cpuTotal / minutes))")
         case .memory: return Text("avg \(Formatting.bytes(UInt64(max(0, program.memoryTotal / minutes))))")
         case .disk: return Text(Formatting.bytes(UInt64(max(0, program.diskBytes))))
+        case .wakeups: return Text("avg \(Formatting.wakeups(program.wakeupsTotal / minutes))")
         }
     }
 
@@ -453,6 +566,7 @@ struct HistoryView: View {
             "CPU avg \(Formatting.percent(program.cpuTotal / minutes)), peak \(Formatting.percent(program.cpuPeak))",
             "Memory avg \(Formatting.bytes(UInt64(max(0, program.memoryTotal / minutes)))), peak \(Formatting.bytes(UInt64(max(0, program.memoryPeak))))",
             "Disk \(Formatting.bytes(UInt64(max(0, program.diskBytes)))) read and written, peak \(Formatting.rate(program.diskPeak))",
+            "Wakeups avg \(Formatting.wakeups(program.wakeupsTotal / minutes)), peak \(Formatting.wakeups(program.wakeupsPeak))",
         ].joined(separator: "\n")
     }
 
@@ -462,6 +576,10 @@ struct HistoryView: View {
         model.loading = true
         defer { model.loading = false }
         let limit = HistoryViewModel.pointLimit
+        let now = Date()
+        // Markers load once per request, so toggling them never reloads history.
+        let events = await store.events(from: now.addingTimeInterval(-model.hours * 3_600), to: now, kinds: nil, search: "", limit: 500)
+        model.markers = HistoryViewModel.selectMarkers(events)
         if let program = model.selectedProgram {
             model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance, hours: model.hours, limit: limit)
         } else {

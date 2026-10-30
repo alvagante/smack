@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// Third-party pages that describe a remote address. Each one answers a different question,
@@ -112,11 +113,21 @@ enum FileLookup {
     }
 
     static func sha256(ofFileAt path: String) -> String? {
-        guard isRegularFile(path), let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        // Validate the opened descriptor, since the path can change between checking and opening.
+        // Nonblocking open prevents a substituted FIFO from waiting for a writer.
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
         var hasher = SHA256()
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
+        do {
+            while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+        } catch {
+            return nil
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }

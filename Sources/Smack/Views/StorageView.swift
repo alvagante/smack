@@ -89,6 +89,9 @@ struct StorageView: View {
             if model.isScanning {
                 Button("Cancel") { model.cancel() }
             } else {
+                if model.result != nil {
+                    Button("Clear Results") { model.clearResults() }
+                }
                 Button(action: startScan) {
                     Label(model.result == nil ? "Scan" : "Rescan", systemImage: "arrow.clockwise")
                 }
@@ -204,7 +207,6 @@ struct StorageView: View {
         }
     }
 
-    // The snapshot stays in memory for this session and is replaced only by a completed scan.
     private var resultDate: String { model.completedAt?.formatted(date: .omitted, time: .shortened) ?? "" }
 
     private func directoryRow(_ child: StorageDirectory, index: Int, total: UInt64) -> some View {

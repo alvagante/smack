@@ -183,3 +183,68 @@ final class SpyUserDefaults: UserDefaults {
     #expect(store3.settings.panelSound == .none)
 }
 
+
+@Test func activitySettingsDefaultClampAndPersist() throws {
+    let defaults = CollectionSettings()
+    #expect(defaults.eventRetentionDays == 7)
+    #expect(defaults.recordConnectionEvents == false)
+    #expect(defaults.showEventsOnCharts)
+
+    var settings = CollectionSettings()
+    settings.eventRetentionDays = 0
+    settings.validate()
+    #expect(settings.eventRetentionDays == 1)
+    settings.eventRetentionDays = -5
+    settings.validate()
+    #expect(settings.eventRetentionDays == 1)
+    settings.eventRetentionDays = 400
+    settings.validate()
+    #expect(settings.eventRetentionDays == 30)
+
+    settings.recordConnectionEvents = true
+    settings.showEventsOnCharts = false
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.eventRetentionDays == 30)
+    #expect(decoded.recordConnectionEvents)
+    #expect(!decoded.showEventsOnCharts)
+}
+
+@Test func activityGroupSwitchesGateRecordingAndPersist() throws {
+    var settings = CollectionSettings()
+    for group in ActivityEventKind.Group.allCases { #expect(settings.records(group)) }
+
+    settings.recordNetworkEvents = false
+    #expect(!settings.records(.network))
+    #expect(settings.records(.processes))
+
+    settings.recordActivity = false
+    for group in ActivityEventKind.Group.allCases { #expect(!settings.records(group)) }
+
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(!decoded.recordActivity)
+    #expect(!decoded.recordNetworkEvents)
+    #expect(decoded.recordSystemEvents)
+}
+
+@Test func networkIntervalDefaultsClampsAndSurvivesDisable() throws {
+    let old = try JSONDecoder().decode(CollectionSettings.self, from: #"{"retentionDays": 3}"#.data(using: .utf8)!)
+    #expect(old.backgroundNetworkInterval == 60)
+
+    var settings = CollectionSettings()
+    settings.backgroundNetworkInterval = 1
+    settings.validate()
+    #expect(settings.backgroundNetworkInterval == 5)
+
+    settings.backgroundNetworkInterval = nil
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.backgroundNetworkInterval == nil)
+}
+
+@Test func settingsWrittenBeforeActivityKeysDecodeToDefaults() throws {
+    let old = #"{"retentionDays": 3, "trigger": "Click"}"#.data(using: .utf8)!
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: old)
+    #expect(decoded.retentionDays == 3)
+    #expect(decoded.eventRetentionDays == 7)
+    #expect(decoded.recordConnectionEvents == false)
+    #expect(decoded.showEventsOnCharts)
+}

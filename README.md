@@ -13,17 +13,22 @@ No windows to manage, no third-party dependencies, no data leaving the machine.
 What you can **see** and **monitor**:
 
 - **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
-- **Live dashboard:** CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state, on hover or click of the notch or menu-bar icon.
+- **Live dashboard:** CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state, on hover or click of the notch or menu-bar icon. Each resource opens a detail view with a large live or 1h/24h/7d chart above the heaviest processes, each with its own sparkline. The thermal page also shows hardware temperature sensors (direct build).
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
+- **Application detail:** one page per application merging files, connections, threads, libraries, provenance, timeline and history across all its processes, plus on-demand profiling with `footprint`, `vmmap`, `heap`, `leaks` and `sample` summarized as highlights (direct build). Heap and Leaks ask before they suspend the process.
 - **Network:** listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
 - **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
+- **Activity Timeline:** a persisted, filterable record of process starts and exits, new listeners, startup changes, mounts, sleep and wake, power, thermal and memory pressure, and network changes, plus a "What changed" card on Summary and event markers on History charts. Smack records events only while it runs.
+- **GPU, memory pressure, swap, and wakeups:** live and in history, with per-process wakeup rates.
+- **Process provenance and tree:** ancestry, code signature, architecture, Rosetta, quarantine, launchd job, and plain-language notes on well-known processes, plus a process tree rooted at launchd.
 - **History:** persistent system and per-program history with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, and JSON/CSV export.
 - **System details:** Mac hardware and software information, from the info button in the header.
 
 What you can **change**:
 
 - **Startup items:** every Open at Login app, app-registered background item, launch agent and daemon, and user cron job, with running state and an enable/disable switch for each (direct build). Open at Login apps and app background items appear after Scan for All Items, which asks for an administrator password; daemon changes ask for one too; Apple items are listed read-only.
-- **Settings:** sampling and background collection, launch at login, panel behavior, and what Smack stores and shows.
+- **Quit or kill applications:** Terminate asks an application to quit as the Dock does, so it can offer to save; Force Kill ends its processes immediately. Only the processes shown at confirmation are touched, and a pid reused in the meantime is skipped (direct build).
+- **Settings:** sampling and background collection, per-group activity events, process history depth and retention, launch at login, panel behavior, and what Smack stores and shows, with a Storage Usage card measuring each collection on disk.
 
 ## Additional features
 
@@ -31,6 +36,7 @@ What you can **change**:
 - **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection; it also enables administrator storage scans (direct build).
 - **Panel sounds:** the synthesized Smack sound, silence, or any macOS system alert, with preview; preferences are written to disk immediately and survive quitting.
 - **Glass mode:** optional translucent panel with adjustable opacity.
+- **Pin:** a pin button next to the traffic lights keeps the panel in front until you unpin or close it.
 - **Adaptive panel size:** a compact height for the Summary, full height for every other page.
 - **Quit control:** a Quit button in the header (⌘Q) and in Settings.
 
@@ -38,7 +44,8 @@ All data stays on your Mac: lookups send only an address, file name, or hash, an
 
 Smack has two distribution flavors. The **direct build** has every feature and the optional
 superuser helper. The **App Store build** runs in App Sandbox, so it cannot include the
-helper, native menu-bar icons, click forwarding, Network Ports, or Startup, and memory, disk, and
+helper, native menu-bar icons, click forwarding, Network Ports, Startup, profiling, process
+termination, or temperature sensors, and memory, disk, and
 energy details are limited for other processes. See
 [docs/distribution.md](docs/distribution.md) for the full matrix.
 

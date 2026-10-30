@@ -23,7 +23,7 @@ enum SystemInformation {
         string("hw.model") ?? "Mac"
     }
 
-    static func advancedSections(gpuName: String, volumes: [VolumeSample]) -> [SystemInformationSection] {
+    static func advancedSections(gpuName: String, volumes: [VolumeSample], system: SystemSample? = nil) -> [SystemInformationSection] {
         var hardware = [
             SystemInformationRow(key: "Mac Model", value: modelIdentifier),
             SystemInformationRow(key: "Architecture", value: string("hw.machine") ?? "Unavailable"),
@@ -54,7 +54,25 @@ enum SystemInformation {
         if let language = Locale.preferredLanguages.first { software.append(SystemInformationRow(key: "Preferred Language", value: language)) }
 
         var graphics = [SystemInformationRow(key: "GPU", value: gpuName.isEmpty ? "Unavailable" : gpuName)]
+        if let gpu = system?.gpu {
+            func percent(_ value: Double?) -> String { value.map(Formatting.percent) ?? "Unavailable" }
+            graphics.append(contentsOf: [
+                SystemInformationRow(key: "GPU Utilization", value: percent(gpu.utilizationPercent)),
+                SystemInformationRow(key: "GPU Renderer", value: percent(gpu.rendererUtilizationPercent)),
+                SystemInformationRow(key: "GPU Tiler", value: percent(gpu.tilerUtilizationPercent)),
+                SystemInformationRow(key: "GPU Memory", value: gpu.inUseMemoryBytes.map(Formatting.bytes) ?? "Unavailable"),
+            ])
+        }
         graphics.append(contentsOf: displayRows())
+
+        var memory: [SystemInformationRow] = []
+        if let sample = system?.memory {
+            memory = [
+                SystemInformationRow(key: "Memory Pressure", value: Formatting.pressure(sample.pressure)),
+                SystemInformationRow(key: "Swap Used", value: Formatting.bytes(sample.swapUsedBytes)),
+                SystemInformationRow(key: "Swap Total", value: Formatting.bytes(sample.swapTotalBytes)),
+            ]
+        }
 
         let storage = volumes.flatMap { volume in
             [
@@ -68,6 +86,7 @@ enum SystemInformation {
 
         return [
             SystemInformationSection(title: "Hardware", rows: hardware),
+            SystemInformationSection(title: "Memory", rows: memory),
             SystemInformationSection(title: "Software", rows: software),
             SystemInformationSection(title: "Graphics and Displays", rows: graphics),
             SystemInformationSection(title: "Storage", rows: storage)

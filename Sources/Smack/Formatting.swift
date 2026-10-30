@@ -21,6 +21,24 @@ enum Formatting {
         byteString(Int64(max(0, value))) + "/s"
     }
 
+    /// Wakeups per second, for example `12.4/s`.
+    static func wakeups(_ value: Double) -> String {
+        "\(max(0, value).formatted(.number.precision(.fractionLength(1))))/s"
+    }
+
+    static func pressure(_ value: MemoryPressure) -> String {
+        value == .unavailable ? "Unavailable" : value.rawValue.capitalized
+    }
+
+    /// History stores pressure as 0, 1 or 2; averages between them round to the nearest level.
+    static func pressure(historyValue value: Double) -> String {
+        switch value {
+        case ..<0.5: "Normal"
+        case ..<1.5: "Warning"
+        default: "Critical"
+        }
+    }
+
     static func duration(_ value: TimeInterval?) -> String {
         guard let value, value > 0 else { return "—" }
         let formatter = DateComponentsFormatter()

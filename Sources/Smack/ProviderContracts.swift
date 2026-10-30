@@ -2,13 +2,19 @@ import Foundation
 import SmackIPC
 
 protocol SystemMetricsCollecting: AnyObject {
-    func collectSystemSample() -> SystemSample
+    /// `includeTemperatures` reads hardware sensors, which costs an IOHID service walk; only the thermal page needs it.
+    func collectSystemSample(includeTemperatures: Bool) -> SystemSample
+}
+
+extension SystemMetricsCollecting {
+    func collectSystemSample() -> SystemSample { collectSystemSample(includeTemperatures: false) }
 }
 
 protocol ProcessMetricsCollecting: AnyObject, Sendable {
     /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
     /// Collectors fall back to the current user's visibility when privileged access is unavailable.
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot
+    /// Returns nil for cancelled or stale observations.
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot?
 }
 
 protocol InventoryCollecting: AnyObject, Sendable {

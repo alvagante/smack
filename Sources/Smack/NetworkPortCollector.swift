@@ -8,7 +8,7 @@ struct NetworkEndpoint: Equatable, Sendable {
 
 /// Builds TCP socket and listening-port inventory without spawning `lsof`. The app uses the
 /// unprivileged path; the root helper supplies all-users records when superuser sampling is enabled.
-final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
+final class NetworkPortCollector: NetworkPortCollecting {
     private let privileged: PrivilegedSamplingProviding?
 
     init(privileged: PrivilegedSamplingProviding? = nil) {

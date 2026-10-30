@@ -4,33 +4,19 @@ struct ResourceDetailView: View {
     @ObservedObject var store: MonitorStore
     let resource: ResourceKind
     var body: some View {
+        switch resource {
+        case .cpu, .memory, .network, .disk: ResourceInsightView(store: store, resource: resource)
+        default: otherResource
+        }
+    }
+
+    private var otherResource: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(title: resource.rawValue)
                 switch resource {
-                case .cpu:
-                    Text("Total system CPU is normalized to 0–100%. Application values can exceed 100% across cores.").font(.caption).foregroundStyle(.secondary)
-                    TrendChart(points: store.recentCPU)
-                    MetricTable(applications: sorted { $0.cpuUsage > $1.cpuUsage }, value: { Formatting.percent($0.cpuUsage) }) { store.route = .application($0.id) }
-                case .memory:
-                    if let memory = store.system?.memory {
-                        KeyValueRow(key: "App Memory", value: Formatting.bytes(memory.appBytes))
-                        KeyValueRow(key: "Wired", value: Formatting.bytes(memory.wiredBytes))
-                        KeyValueRow(key: "Compressed", value: Formatting.bytes(memory.compressedBytes))
-                        KeyValueRow(key: "Swap Used", value: Formatting.bytes(memory.swapUsedBytes))
-                    }
-                    MetricTable(applications: sorted { $0.memoryBytes > $1.memoryBytes }, value: { Formatting.bytes($0.memoryBytes) }) { store.route = .application($0.id) }
-                case .network:
-                    Text("Per-application throughput is unavailable. Open an application to inspect its live connections.").font(.caption).foregroundStyle(.secondary)
-                    ForEach(store.system?.interfaces ?? []) { item in
-                        KeyValueRow(key: item.name, value: "↓ \(Formatting.rate(item.receiveRate))  ↑ \(Formatting.rate(item.sendRate))")
-                    }
-                    Button("Inspect Application Connections") { store.route = .applications }
-                case .disk:
-                    ForEach(store.system?.disks ?? []) { item in
-                        KeyValueRow(key: item.name, value: "R \(Formatting.rate(item.readRate))  W \(Formatting.rate(item.writeRate))")
-                    }
-                    MetricTable(applications: sorted { $0.diskReadRate + $0.diskWriteRate > $1.diskReadRate + $1.diskWriteRate }, value: { Formatting.rate($0.diskReadRate + $0.diskWriteRate) }) { store.route = .application($0.id) }
+                case .cpu, .memory, .network, .disk:
+                    EmptyView()
                 case .storage:
                     StorageView(store: store)
                 case .battery:
@@ -42,14 +28,34 @@ struct ResourceDetailView: View {
                         KeyValueRow(key: "Cycle Count", value: battery.cycleCount.map(String.init) ?? "Unavailable")
                     } else { Text("No battery is available on this Mac.").foregroundStyle(.secondary) }
                 case .thermal:
-                    Text(store.system?.thermalCondition.rawValue.capitalized ?? "Unavailable").font(.largeTitle.bold())
-                    Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement. Exact temperatures and fan RPM require undocumented interfaces and are not collected.").foregroundStyle(.secondary)
+                    // One container, so the appear and disappear handlers fire once rather than per row.
+                    VStack(alignment: .leading, spacing: 12) { thermalContent }
+                        .onAppear { store.setTemperaturesWanted(true) }
+                        .onDisappear { store.setTemperaturesWanted(false) }
                 }
             }.padding()
         }
     }
 
-    private func sorted(by predicate: (ApplicationMetrics, ApplicationMetrics) -> Bool) -> [ApplicationMetrics] {
-        Array((store.processes?.applications ?? []).sorted(by: predicate).prefix(25))
+    @ViewBuilder
+    private var thermalContent: some View {
+        ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
+        Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement.")
+            .foregroundStyle(.secondary)
+        SectionHeader(title: "Sensors")
+        if Capabilities.flavor != .appStore, store.system?.temperatures == nil {
+            Text("Reading sensors…").foregroundStyle(.secondary)
+        } else if let sensors = store.system?.temperatures, !sensors.isEmpty {
+            ForEach(sensors) { sensor in
+                KeyValueRow(key: sensor.name, value: String(format: "%.1f °C", sensor.celsius))
+            }
+            Text("Read from hardware sensors through an undocumented system interface; names and availability vary by Mac model.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text(Capabilities.flavor == .appStore
+                 ? "Sensor temperatures are not available in the App Store version."
+                 : "No temperature sensors are available on this Mac.")
+                .foregroundStyle(.secondary)
+        }
     }
 }

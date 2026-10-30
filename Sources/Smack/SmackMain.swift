@@ -42,6 +42,9 @@ enum SmackMain {
         print("disks=\(system.disks.count)")
         print("volumes=\(system.volumes.count)")
         print("gpu=\(system.gpuName)")
+        print("gpuUtilization=\(system.gpu.utilizationPercent.map { String($0) } ?? "unavailable")")
+        print("memoryPressure=\(system.memory.pressure.rawValue)")
+        print("swapUsed=\(system.memory.swapUsedBytes) swapTotal=\(system.memory.swapTotalBytes)")
         print("battery=\(system.battery != nil)")
         print("ports=\(ports.ports.count)")
         if let warning = ports.warning { print("portsWarning=\(warning)") }
@@ -61,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
+    private var activityObservers: ActivitySystemObservers?
     private let terminateApplication: () -> Void
     private(set) var didSynchronizeOnTeardown = false
 
@@ -121,6 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 onNetworkPorts: { [weak self] snapshot in
                     Task { @MainActor in self?.store?.receive(snapshot) }
+                },
+                onHistoryHealth: { [weak self] health in
+                    Task { @MainActor in self?.store?.receive(health) }
+                },
+                onEvents: { [weak self] events in
+                    Task { @MainActor in self?.store?.receive(events) }
                 }
             )
             let store = MonitorStore(
@@ -132,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.store = store
             self.scheduler = scheduler
             privilegedController?.prepare(enabled: settingsStore.settings.privilegedSampling)
+            installActivityObservers(store: store)
             configureStatusItem()
             let nativeMenuBarStore = NativeMenuBarStore()
             panelController = PanelController(store: store, nativeMenuBarStore: nativeMenuBarStore, statusItem: statusItem)
@@ -143,6 +154,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSAlert(error: error).runModal()
             NSApplication.shared.terminate(nil)
         }
+    }
+
+    /// Mounts, sleep, wake and power source changes arrive as notifications; the store forwards them to the recorder.
+    private func installActivityObservers(store: MonitorStore) {
+        let observers = ActivitySystemObservers(handlers: .init(
+            volumeMounted: { path, name in Task { @MainActor in store.recordVolumeMounted(path: path, name: name) } },
+            volumeUnmounted: { path in Task { @MainActor in store.recordVolumeUnmounted(path: path) } },
+            sleep: { Task { @MainActor in store.recordSleep() } },
+            wake: { Task { @MainActor in store.recordWake() } },
+            powerSource: { charging, percent in Task { @MainActor in store.recordPowerSource(charging: charging, chargePercent: percent) } }
+        ))
+        observers.install()
+        activityObservers = observers
     }
 
     private func configureStatusItem() {
@@ -161,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// preference updates in `UserDefaults` are synchronously committed to disk before process exit.
     /// - Parameter notification: The termination notification posted by `NSApplication`.
     func applicationWillTerminate(_ notification: Notification) {
+        activityObservers?.remove()
         store?.setVisible(false)
         _ = UserDefaults.standard.synchronize()
         didSynchronizeOnTeardown = true

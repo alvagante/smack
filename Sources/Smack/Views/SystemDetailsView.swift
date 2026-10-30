@@ -30,7 +30,8 @@ struct AdvancedSystemDetailsView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 ForEach(SystemInformation.advancedSections(
                     gpuName: store.system?.gpuName ?? "",
-                    volumes: store.system?.volumes ?? []
+                    volumes: store.system?.volumes ?? [],
+                    system: store.system
                 )) { section in
                     SectionHeader(title: section.title)
                     ForEach(section.rows) { row in

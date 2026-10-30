@@ -45,6 +45,7 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
+                ThermalDot(condition: store.system?.thermalCondition ?? .unavailable) { store.route = .resource(.thermal) }
                 Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }
                     .hoverHint("Historical Data")
                     .accessibilityLabel("Historical Data")
@@ -57,6 +58,15 @@ struct MonitorRootView: View {
                 exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
+            if let warning = store.historyHealth.warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .hoverHint(store.historyHealth.details)
+                Divider()
+            }
             Group {
                 switch store.route {
                 case .summary: SummaryView(store: store)
@@ -67,6 +77,7 @@ struct MonitorRootView: View {
                 case .process(let id): ProcessDetailView(store: store, id: id)
                 case .networkPorts: NetworkPortsView(store: store)
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
+                case .timeline: TimelineView(store: store)
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
