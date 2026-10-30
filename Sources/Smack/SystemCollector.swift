@@ -76,6 +76,12 @@ final class SystemCollector: SystemMetricsCollecting {
     /// GPU statistics does not enumerate services on every sample.
     private var acceleratorRetryAfter: TimeInterval = 0
     private static let acceleratorRetryInterval: TimeInterval = 60
+#if SMACK_APP_STORE
+    private func readTemperatures() -> [TemperatureSensor] { [] }
+#else
+    private let thermalSensors = ThermalSensorReader()
+    private func readTemperatures() -> [TemperatureSensor] { thermalSensors.read() }
+#endif
 
     init() {
         gpuName = Self.readGPUName()
@@ -111,6 +117,7 @@ final class SystemCollector: SystemMetricsCollecting {
         let volumes = collectVolumes()
         let battery = collectBattery()
         let gpu = collectGPU(now: now)
+        let temperatures = readTemperatures()
 
         return SystemSample(
             timestamp: Date(),
@@ -122,7 +129,8 @@ final class SystemCollector: SystemMetricsCollecting {
             battery: battery,
             thermalCondition: thermalCondition,
             gpuName: gpuName,
-            gpu: gpu
+            gpu: gpu,
+            temperatures: temperatures
         )
     }
 

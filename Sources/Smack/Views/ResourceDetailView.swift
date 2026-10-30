@@ -28,10 +28,29 @@ struct ResourceDetailView: View {
                         KeyValueRow(key: "Cycle Count", value: battery.cycleCount.map(String.init) ?? "Unavailable")
                     } else { Text("No battery is available on this Mac.").foregroundStyle(.secondary) }
                 case .thermal:
-                    Text(store.system?.thermalCondition.rawValue.capitalized ?? "Unavailable").font(.largeTitle.bold())
-                    Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement. Exact temperatures and fan RPM require undocumented interfaces and are not collected.").foregroundStyle(.secondary)
+                    thermalContent
                 }
             }.padding()
+        }
+    }
+
+    @ViewBuilder
+    private var thermalContent: some View {
+        ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
+        Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement.")
+            .foregroundStyle(.secondary)
+        SectionHeader(title: "Sensors")
+        if let sensors = store.system?.temperatures, !sensors.isEmpty {
+            ForEach(sensors) { sensor in
+                KeyValueRow(key: sensor.name, value: String(format: "%.1f °C", sensor.celsius))
+            }
+            Text("Read from hardware sensors through an undocumented system interface; names and availability vary by Mac model.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text(Capabilities.flavor == .appStore
+                 ? "Sensor temperatures are not available in the App Store version."
+                 : "No temperature sensors are available on this Mac.")
+                .foregroundStyle(.secondary)
         }
     }
 }

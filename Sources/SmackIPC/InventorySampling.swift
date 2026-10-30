@@ -267,7 +267,9 @@ public enum InventorySampling {
 
     private static func addressBytes<T>(from address: T, isIPv6: Bool) -> [UInt8] {
         withUnsafeBytes(of: address) { bytes in
-            Array(isIPv6 ? bytes.prefix(16) : bytes.prefix(4))
+            // The address is a union; IPv4 lives in the last 4 bytes (after `i46a_pad32[3]`).
+            guard bytes.count >= 16 else { return [] }
+            return Array(isIPv6 ? bytes.prefix(16) : bytes[12..<16])
         }
     }
 

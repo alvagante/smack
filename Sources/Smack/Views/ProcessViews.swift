@@ -213,62 +213,6 @@ struct ApplicationListView: View {
     }
 }
 
-struct ApplicationDetailView: View {
-    @ObservedObject var store: MonitorStore
-    let id: String
-    var body: some View {
-        ScrollView {
-            if let app = store.application(id: id) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        ApplicationIcon(application: app, size: 34)
-                        Text(app.name).font(.title2.bold())
-                    }
-                    KeyValueRow(key: "Bundle", value: app.bundleIdentifier ?? "Unavailable")
-                    KeyValueRow(key: "CPU", value: Formatting.percent(app.cpuUsage))
-                    KeyValueRow(
-                        key: "Memory",
-                        value: Capabilities.isSandboxed && app.memoryBytes == 0
-                            ? "Unavailable in App Sandbox"
-                            : Formatting.bytes(app.memoryBytes)
-                    )
-                    KeyValueRow(
-                        key: "Disk Read / Write",
-                        value: Capabilities.isSandboxed && app.diskReadRate == 0 && app.diskWriteRate == 0
-                            ? "Unavailable in App Sandbox"
-                            : "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"
-                    )
-                    KeyValueRow(
-                        key: "Energy Impact",
-                        value: Capabilities.isSandboxed && app.energyImpact == nil
-                            ? "Unavailable in App Sandbox"
-                            : app.energyImpact.map { $0.formatted() } ?? "Unavailable"
-                    )
-                    KeyValueRow(
-                        key: "Wakeups",
-                        value: Capabilities.isSandboxed && app.wakeupsPerSecond == 0
-                            ? "Unavailable in App Sandbox"
-                            : Formatting.wakeups(app.wakeupsPerSecond)
-                    )
-                    if let main = app.processes.first(where: { $0.executablePath == app.executablePath }) ?? app.processes.first {
-                        ProvenanceSummaryRow(store: store, process: main)
-                    }
-                    if let path = app.executablePath {
-                        KeyValueRow(key: "Executable", value: path)
-                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                    }
-                    SectionHeader(title: "Processes")
-                    ForEach(app.processes) { process in
-                        Button { store.route = .process(process.id) } label: {
-                            HStack { Text("\(process.name) (\(process.identity.pid))"); Spacer(); Text(Formatting.percent(process.cpuUsage)).monospacedDigit(); Image(systemName: "chevron.right") }
-                        }.buttonStyle(.plain)
-                    }
-                }.padding()
-            } else { ContentUnavailableView("Application Exited", systemImage: "app.dashed", description: Text("Its metrics remain in Historical Data until retention expires.")) }
-        }
-    }
-}
-
 struct ProcessDetailView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ProcessDetailViewModel

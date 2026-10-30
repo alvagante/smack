@@ -45,9 +45,7 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
-                Button { store.timelineViewModel.select(range: .hour1); store.route = .timeline } label: { Image(systemName: "list.bullet.rectangle") }
-                    .hoverHint("Activity Timeline")
-                    .accessibilityLabel("Activity Timeline")
+                ThermalDot(condition: store.system?.thermalCondition ?? .unavailable) { store.route = .resource(.thermal) }
                 Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }
                     .hoverHint("Historical Data")
                     .accessibilityLabel("Historical Data")

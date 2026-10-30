@@ -132,6 +132,35 @@ struct ThermalIndicator: View {
     }
 }
 
+/// Header status dot for the coarse macOS thermal state; opens the thermal page.
+struct ThermalDot: View {
+    let condition: ThermalCondition
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .frame(width: 10, height: 10)
+                .shadow(color: color.opacity(0.55), radius: 3)
+                .padding(4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverHint("Thermal State: \(condition.rawValue.capitalized). System thermal pressure.")
+        .accessibilityLabel("Thermal State: \(condition.rawValue)")
+    }
+
+    private var color: Color {
+        switch condition {
+        case .nominal: .green
+        case .fair: .yellow
+        case .serious, .critical: .red
+        case .unavailable: .secondary
+        }
+    }
+}
+
 struct TrendChart: View {
     let points: [HistoricalPoint]
     var unit: String = "%"

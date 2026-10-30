@@ -46,6 +46,12 @@ final class MonitorStore: ObservableObject {
         recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
     }
     @Published var inventoryLoading = false
+    /// Inventories of all processes of one application, merged; separate from the single-process `inventory`.
+    @Published private(set) var applicationInventory: ApplicationInventory?
+    @Published private(set) var applicationInventoryLoading = false
+    private var applicationInventoryGeneration = 0
+    /// Large applications (browsers) can have thousands of processes; only the biggest are inspected.
+    static let applicationInventoryProcessLimit = 40
     @Published private(set) var networkPorts: NetworkPortSnapshot?
     @Published private(set) var networkPortsLoading = false
     @Published var errorMessage: String?
@@ -364,6 +370,33 @@ final class MonitorStore: ObservableObject {
             guard !Task.isCancelled else { return }
             inventory = result
             inventoryLoading = false
+        }
+    }
+
+    /// Inspects the application's largest processes one at a time, publishing the merged result as it grows.
+    /// Run from `.task(id:)` so leaving the page cancels it. `refresh` skips scheduled inventories.
+    func loadApplicationInventory(for application: ApplicationMetrics, refresh: Bool) async {
+        applicationInventoryGeneration += 1
+        let generation = applicationInventoryGeneration
+        applicationInventory = nil
+        applicationInventoryLoading = true
+        defer { if generation == applicationInventoryGeneration { applicationInventoryLoading = false } }
+
+        let selected = Array(application.processes.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(Self.applicationInventoryProcessLimit))
+        var collected: [(process: ProcessRef, inventory: ProcessInventory)] = []
+        for (index, process) in selected.enumerated() {
+            guard !Task.isCancelled else { return }
+            let inventory: ProcessInventory
+            if !refresh, let cached = scheduledInventories[process.id] {
+                inventory = cached
+            } else {
+                inventory = await scheduler.inventory(for: process)
+            }
+            guard !Task.isCancelled, generation == applicationInventoryGeneration else { return }
+            collected.append((ProcessRef(process), inventory))
+            if index % 4 == 3 || index == selected.count - 1 {
+                applicationInventory = ApplicationInventory.aggregate(collected, total: application.processes.count)
+            }
         }
     }
 

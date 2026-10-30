@@ -6,10 +6,13 @@ final class SettingsViewModel: ObservableObject {
     @Published var confirmDelete = false
     @Published var exportError: String?
     @Published var includeEvents = false
+    @Published var usage: StorageUsage?
+    @Published var isMeasuring = false
+    @Published var usageError: String?
 }
 
 /// Settings management view displaying configuration cards for panel triggers, sound feedback,
-/// appearance glass styling, background collection intervals, and application termination controls.
+/// appearance glass styling, background collection intervals, and storage usage.
 struct SettingsView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settings: SettingsStore
@@ -30,20 +33,24 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
+            VStack(spacing: 0) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 560), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                 panelCard
-                aboutCard
-                appearanceCard
-                collectionCard
-                historyCard
-                activityCard
                 if Capabilities.supportsPrivilegedSampling, let controller = store.privilegedSampling {
                     SettingsCard(title: "Superuser Sampling", systemImage: "lock.shield") {
                         PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
                     }
                 }
+                storageUsageCard
+                collectionCard
+                activityCard
+                historyCard
             }
             .padding()
+            aboutFooter
+                .padding(.horizontal)
+                .padding(.bottom, 14)
+            }
         }
         .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
             Button("Delete History", role: .destructive) { Task { try? await store.history.deleteAll() } }
@@ -71,13 +78,6 @@ struct SettingsView: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
-            SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
-        }
-    }
-
-    private var appearanceCard: some View {
-        SettingsCard(title: "Appearance", systemImage: "paintpalette") {
             SettingsRow("Glass mode", help: "Translucent panel background that shows the desktop through it.") {
                 SettingsSwitch(isOn: appearanceBinding(\.glassMode))
             }
@@ -88,19 +88,51 @@ struct SettingsView: View {
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
             }
+            SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
+            SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
         }
+    }
+
+    private var aboutFooter: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 0) {
+                Text("AI engineered by Alessandro Franceschi (")
+                Link("Alvagante", destination: URL(string: "https://www.alvagante.com")!)
+                Text(") / ")
+                Link("Lab42", destination: URL(string: "https://www.lab42.it")!)
+            }
+            HStack(spacing: 4) {
+                Text("MIT License · Source code:")
+                Link("github.com/alvagante/smack", destination: URL(string: "https://github.com/alvagante/smack")!)
+            }
+            Text("Version \(Self.appVersion)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Read from the bundle's Info.plist so it always matches the shipped build; unbundled debug runs have none.
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        guard let version = info?["CFBundleShortVersionString"] as? String else { return "development build" }
+        guard let build = info?["CFBundleVersion"] as? String else { return version }
+        return "\(version) (\(build))"
     }
 
     private var collectionCard: some View {
         SettingsCard(title: "Background Collection", systemImage: "timer") {
-            OptionalIntervalRow(title: "System metrics", seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
-            OptionalIntervalRow(title: "Process metrics", seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
+            OptionalIntervalRow(title: "System metrics", help: "CPU, memory, disk and network samples taken while the panel is closed. They feed the history graphs and system events. Approximate storage per hour at full resolution; compacted to about a tenth after the full-resolution window.", estimate: StorageEstimate.system, seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
+            OptionalIntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
+            if Capabilities.supportsNetworkPortInspection {
+                OptionalIntervalRow(title: "Listening ports", help: "Samples listening ports (and connections, if enabled) while the panel is closed. Feeds network timeline events; only the resulting events are stored.", estimate: { _ in "<10 KB/h" }, seconds: optionalBinding(\.backgroundNetworkInterval), minimum: 5)
+            }
             if Capabilities.isSandboxed {
                 SettingsCaption("Scheduled inventories are unavailable in the App Sandbox. Use the on-demand inventory button on a process.")
             } else {
-                OptionalIntervalRow(title: "Expensive inventories", seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
+                OptionalIntervalRow(title: "Process inventories (open files, ports, memory)", help: "Collects open files, ports and memory maps for every process on a schedule, so the process detail views are already populated. Expensive; unrelated to history graphs and the timeline. Inventories are kept in memory only, never stored on disk.", estimate: { _ in "no storage" }, seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
             }
-            SettingsCaption("While the panel is open, metrics update every second. Expensive inventories are on demand unless scheduled.")
+            SettingsCaption("While the panel is open, metrics update every second. Process inventories are on demand unless scheduled.")
             if let warning = settings.settings.warning {
                 Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
             }
@@ -117,6 +149,20 @@ struct SettingsView: View {
             }
             SettingsRow("Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.") {
                 StepperValue(text: "\(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), range: 25...10_000, step: 25)
+            }
+            SettingsRow("Record process history", help: "Per-process CPU, memory and disk history. The largest storage consumer. Turn off to keep only system history and timeline events.") {
+                SettingsSwitch(isOn: binding(\.recordProcessHistory))
+            }
+            if settings.settings.recordProcessHistory {
+                SettingsRow("Busiest processes only", help: "Store only the N busiest processes (by CPU or memory) in each snapshot. 0 stores every process. Lower values shrink process history substantially.") {
+                    StepperValue(
+                        text: settings.settings.processHistoryTopCount == 0 ? "All" : "\(settings.settings.processHistoryTopCount)",
+                        value: binding(\.processHistoryTopCount), range: CollectionSettings.processTopCountRange, step: 10
+                    )
+                }
+                SettingsRow("Per-minute process data", help: "How long one-minute process rows are kept. Never longer than Retention. This is usually the biggest part of the database.") {
+                    StepperValue(text: "\(settings.settings.processMinuteRetentionDays) days", value: binding(\.processMinuteRetentionDays), range: CollectionSettings.processMinuteRetentionRange)
+                }
             }
             SettingsRow("Include activity events in export", help: "Adds events to the JSON export, or an extra -events.csv file. Default exports contain metrics only.") {
                 SettingsSwitch(isOn: $model.includeEvents)
@@ -139,40 +185,64 @@ struct SettingsView: View {
     }
 
     private var activityCard: some View {
-        SettingsCard(title: "Activity", systemImage: "list.bullet.rectangle") {
-            SettingsRow("Event retention", help: "How long Activity Timeline events are kept. Events are also capped in number.") {
-                StepperValue(text: "\(settings.settings.eventRetentionDays) days", value: binding(\.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
+        SettingsCard(title: "Activity Timeline", systemImage: "list.bullet.rectangle") {
+            SettingsRow("Record activity", help: "Master switch. When off, no timeline events are stored or shown. Metric history is unaffected.") {
+                SettingsSwitch(isOn: binding(\.recordActivity))
             }
-            SettingsRow("Record outbound connections", help: "Adds an event for each new outbound connection. Can be noisy and grows the event store faster.") {
-                SettingsSwitch(isOn: binding(\.recordConnectionEvents))
+            if settings.settings.recordActivity {
+                SettingsRow("Processes", help: "Process started and exited. About 300 bytes per event; a build-heavy Mac can reach 1 MB per hour, a quiet one a few tens of KB.", estimate: "~30 KB-1 MB/h") { SettingsSwitch(isOn: binding(\.recordProcessEvents)) }
+                SettingsRow("Network", help: "Listening ports opened or closed, interface and address changes.", estimate: "<10 KB/h") { SettingsSwitch(isOn: binding(\.recordNetworkEvents)) }
+                SettingsRow("Startup items", help: "Login items, launch agents and daemons added, removed or changed.", estimate: "<1 KB/h") { SettingsSwitch(isOn: binding(\.recordStartupEvents)) }
+                SettingsRow("System", help: "Volumes, sleep/wake, power source, thermal and memory pressure.", estimate: "<1 KB/h") { SettingsSwitch(isOn: binding(\.recordSystemEvents)) }
+                if settings.settings.recordNetworkEvents {
+                    SettingsRow("Include connections", help: "Adds opened/closed events for every non-listening socket, outbound or inbound. Can be noisy and grows the event store faster.", estimate: "~0.1-1 MB/h") {
+                        SettingsSwitch(isOn: binding(\.recordConnectionEvents))
+                    }
+                    if settings.settings.recordConnectionEvents {
+                        Label {
+                            SettingsCaption("Connection events can be very frequent on busy machines. Event rows are capped, so older events drop sooner.")
+                        } icon: { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).frame(width: 18) }
+                    }
+                }
+                SettingsRow("Event retention", help: "How long timeline events are kept. Events are also capped in number.") {
+                    StepperValue(text: "\(settings.settings.eventRetentionDays) days", value: binding(\.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
+                }
             }
-            if settings.settings.recordConnectionEvents {
-                Label {
-                    SettingsCaption("Outbound connection events can be very frequent on busy machines. Event rows are capped, so older events drop sooner.")
-                } icon: { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).frame(width: 18) }
+            SettingsRow("Show events on history charts", help: "Draws event markers on the history graphs. Display only; does not change what is recorded.") {
+                SettingsSwitch(isOn: binding(\.showEventsOnCharts))
             }
-            SettingsRow("Show events on charts") { SettingsSwitch(isOn: binding(\.showEventsOnCharts)) }
             SettingsCaption("Smack records events only while it is running.")
         }
     }
 
-    private var aboutCard: some View {
-        SettingsCard(title: "Privacy & Visibility", systemImage: "hand.raised") {
+    private var storageUsageCard: some View {
+        SettingsCard(title: "Storage Usage", systemImage: "internaldrive") {
             HStack {
-                SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
+                Button { measureUsage() } label: { Label("Calculate sizes", systemImage: "scalemass") }
+                    .disabled(model.isMeasuring)
+                if model.isMeasuring { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Quit Smack", action: onQuit)
-                    .keyboardShortcut("q")
-                    .controlSize(.small)
             }
-            Label {
-                SettingsCaption("All metrics and settings stay on this Mac; no analytics. Exports contain metrics only, never file paths or connection inventories.")
-            } icon: { Image(systemName: "lock").foregroundStyle(.secondary).frame(width: 18) }
-            Label {
-                SettingsCaption(Capabilities.isSandboxed
-                    ? "Smack runs in the App Sandbox. Network Ports, native menu-bar icons, and click forwarding are unavailable, and memory, disk, and energy details are limited for other processes."
-                    : "Standard sampling limits open-file and port inspection to your own processes. Superuser sampling extends metrics, inventory, and ports to other users; some Apple system processes remain hidden.")
-            } icon: { Image(systemName: "eye").foregroundStyle(.secondary).frame(width: 18) }
+            .controlSize(.small)
+            if let usage = model.usage {
+                ForEach(usage.categories) { category in
+                    SettingsRow(category.kind.rawValue, help: "\(category.rows.formatted()) rows, including indexes.") {
+                        Text(Formatting.bytes(UInt64(category.bytes))).monospacedDigit()
+                        Text(category.bytesPerHour(now: usage.measuredAt).map { "~\(Formatting.bytes(UInt64($0)))/h" } ?? "n/a")
+                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(width: 80, alignment: .trailing)
+                    }
+                }
+                SettingsRow("Database file") {
+                    Text(Formatting.bytes(UInt64(usage.fileBytes))).monospacedDigit()
+                }
+                SettingsCaption("Measured \(usage.measuredAt.formatted(date: .omitted, time: .shortened)). Rates are averages over the stored span (needs at least an hour of data), so they reflect your real usage including compaction.")
+            } else if model.usageError == nil {
+                SettingsCaption("Measures what each collection currently occupies in the local history database.")
+            }
+            if let error = model.usageError {
+                Text(error).foregroundStyle(.red).font(.caption)
+            }
         }
     }
 
@@ -204,6 +274,16 @@ struct SettingsView: View {
 
     private func optionalBinding(_ keyPath: WritableKeyPath<CollectionSettings, TimeInterval?>) -> Binding<TimeInterval?> {
         binding(keyPath)
+    }
+
+    private func measureUsage() {
+        model.isMeasuring = true
+        model.usageError = nil
+        Task {
+            do { model.usage = try await store.history.storageUsage() }
+            catch { model.usageError = error.localizedDescription }
+            model.isMeasuring = false
+        }
     }
 
     private func export(_ format: HistoryExportFormat) {
@@ -353,11 +433,13 @@ private struct SettingsCard<Content: View>: View {
 private struct SettingsRow<Control: View>: View {
     let title: String
     var help: String?
+    var estimate: String?
     @ViewBuilder let control: Control
 
-    init(_ title: String, help: String? = nil, @ViewBuilder control: () -> Control) {
+    init(_ title: String, help: String? = nil, estimate: String? = nil, @ViewBuilder control: () -> Control) {
         self.title = title
         self.help = help
+        self.estimate = estimate
         self.control = control()
     }
 
@@ -368,6 +450,9 @@ private struct SettingsRow<Control: View>: View {
                 Image(systemName: "questionmark.circle").font(.caption).foregroundStyle(.tertiary)
             }
             Spacer(minLength: 8)
+            if let estimate {
+                Text(estimate).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
             control
         }
         .font(.callout)
@@ -419,11 +504,13 @@ private struct StepperValue: View {
 /// A switch that enables an interval, with the interval field shown only while enabled.
 private struct OptionalIntervalRow: View {
     let title: String
+    var help: String?
+    var estimate: ((TimeInterval) -> String)?
     @Binding var seconds: TimeInterval?
     let minimum: Double
 
     var body: some View {
-        SettingsRow(title) {
+        SettingsRow(title, help: help, estimate: seconds.flatMap { estimate?($0) }) {
             if seconds != nil {
                 NumberField(value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), unit: "s")
             }

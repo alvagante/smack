@@ -96,7 +96,7 @@ private struct InsightRow: Identifiable {
     let value: Double
     /// Live rows open the application or process detail.
     let route: AppRoute?
-    /// History rows open that program in Historical Data.
+    /// History rows open the running application's detail, or else that program in Historical Data.
     let program: String?
 }
 
@@ -427,8 +427,11 @@ struct ResourceInsightView: View {
                     Text(row.name).lineLimit(1)
                     if let detail = row.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Sparkline(series: sparkline(for: row), minHeight: 22, maxHeight: 28).frame(width: 150, height: 28)
+                .frame(minWidth: 160, idealWidth: 240, maxWidth: 280, alignment: .leading)
+                // Equal flexible siblings: the graph takes half of the free width.
+                Sparkline(series: sparkline(for: row), minHeight: 22, maxHeight: 32)
+                    .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32)
+                Color.clear.frame(maxWidth: .infinity, maxHeight: 32)
                 Text(format(row.value)).monospacedDigit().foregroundStyle(.secondary).frame(width: 110, alignment: .trailing)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
             }
@@ -440,13 +443,22 @@ struct ResourceInsightView: View {
     }
 
     private func open(_ row: InsightRow) {
-        if let route = row.route {
+        if let route = row.route ?? runningRoute(for: row) {
             store.route = route
         } else if let program = row.program, let hours = model.range.hours {
             store.historyViewModel.hours = hours
             store.historyViewModel.select(program: program)
             store.route = .history
         }
+    }
+
+    /// Historical rows are keyed by program name; open the detail page when that program is running now.
+    private func runningRoute(for row: InsightRow) -> AppRoute? {
+        guard let program = row.program, let snapshot = store.processes else { return nil }
+        if let application = snapshot.applications.first(where: { $0.name == program }) {
+            return .application(application.id)
+        }
+        return snapshot.backgroundProcesses.first { $0.name == program }.map { .process($0.id) }
     }
 
     private func sparkline(for row: InsightRow) -> [SparklineSeries] {

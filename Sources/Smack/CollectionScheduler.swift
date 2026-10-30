@@ -119,7 +119,9 @@ actor CollectionScheduler {
             guard !Task.isCancelled else { return }
             if let snapshot {
                 onProcesses(snapshot)
-                await history.save(processes: snapshot)
+                if settings.recordProcessHistory {
+                    await history.save(processes: snapshot.trimmedForHistory(limit: settings.processHistoryTopCount))
+                }
                 await deliver(await activity.record(processes: snapshot))
             }
             let interval = visible ? 1.0 : settings.backgroundProcessInterval
@@ -137,7 +139,9 @@ actor CollectionScheduler {
             guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
             await deliver(await activity.record(network: snapshot, settings: settings))
-            try? await Task.sleep(for: .seconds(visible ? 5 : 60))
+            let interval = visible ? 5.0 : settings.backgroundNetworkInterval
+            guard let interval else { return }
+            try? await Task.sleep(for: .seconds(interval))
         }
     }
 
@@ -161,7 +165,10 @@ actor CollectionScheduler {
 
     /// Persistence is attempted first and delivery follows even when the write failed, so the current session
     /// still shows the events while the health banner reports that history may be incomplete.
+    /// Recorders keep tracking state even for disabled groups, so re-enabling one emits only new changes.
     private func deliver(_ events: [ActivityEvent]) async {
+        let settings = settings
+        let events = events.filter { settings.records($0.kind.group) }
         guard !events.isEmpty else { return }
         await history.save(events: events)
         onEvents(events)

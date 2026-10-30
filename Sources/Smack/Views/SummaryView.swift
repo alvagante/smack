@@ -9,7 +9,6 @@ struct SummaryView: View {
                 if store.system == nil {
                     ProgressView("Collecting system metrics…")
                 }
-                ActivityDiffStrip(store: store)
                 HStack(spacing: 12) {
                     cpuCard
                     memoryCard
@@ -25,7 +24,7 @@ struct SummaryView: View {
                     if let battery = store.system?.battery, battery.isPresent {
                         batteryCard(battery)
                     }
-                    thermalCard
+                    ActivityDiffCard(store: store)
                     if Capabilities.supportsNetworkPortInspection {
                         networkPortsCard
                     }
@@ -221,18 +220,6 @@ struct SummaryView: View {
                 }
                 Spacer(minLength: 0)
             }
-        }
-    }
-
-    private var thermalCard: some View {
-        card(.thermal, image: "thermometer.medium") {
-            VStack(alignment: .leading, spacing: 10) {
-                ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
-                Text("System thermal pressure")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxHeight: .infinity, alignment: .center)
         }
     }
 

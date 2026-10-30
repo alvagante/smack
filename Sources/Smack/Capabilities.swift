@@ -22,4 +22,6 @@ enum Capabilities {
     static var supportsNetworkPortInspection: Bool { flavor == .direct }
     static var supportsStartupItems: Bool { flavor == .direct }
     static var supportsGatekeeperCheck: Bool { flavor == .direct }
+    static var supportsProfiling: Bool { flavor == .direct }
+    static var supportsProcessTermination: Bool { flavor == .direct }
 }

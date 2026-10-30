@@ -91,6 +91,8 @@ struct SystemSample: Sendable {
     var thermalCondition: ThermalCondition
     var gpuName: String
     var gpu = GPUSample()
+    /// Hardware sensor readings; empty when unavailable (App Store build, unsupported hardware).
+    var temperatures: [TemperatureSensor] = []
 
     var receiveRate: Double { interfaces.reduce(0) { $0 + $1.receiveRate } }
     var sendRate: Double { interfaces.reduce(0) { $0 + $1.sendRate } }
@@ -291,6 +293,26 @@ struct ProcessSnapshot: Sendable {
     var applications: [ApplicationMetrics]
     var backgroundProcesses: [ProcessMetrics]
     var warning: String? = nil
+}
+
+extension ProcessSnapshot {
+    /// Keeps the union of the `limit` highest-CPU and `limit` highest-memory processes; `limit` 0 keeps everything.
+    /// Applications left without processes are dropped.
+    func trimmedForHistory(limit: Int) -> ProcessSnapshot {
+        guard limit > 0 else { return self }
+        let all = applications.flatMap(\.processes) + backgroundProcesses
+        guard all.count > limit else { return self }
+        var keep = Set(all.sorted { $0.cpuUsage > $1.cpuUsage }.prefix(limit).map(\.id))
+        keep.formUnion(all.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(limit).map(\.id))
+        var trimmed = self
+        trimmed.applications = applications.compactMap { application in
+            var application = application
+            application.processes = application.processes.filter { keep.contains($0.id) }
+            return application.processes.isEmpty ? nil : application
+        }
+        trimmed.backgroundProcesses = backgroundProcesses.filter { keep.contains($0.id) }
+        return trimmed
+    }
 }
 
 struct HistoricalProcess: Identifiable, Sendable {

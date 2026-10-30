@@ -49,6 +49,29 @@ enum ProcessMetric: String, CaseIterable, Sendable {
     }
 }
 
+/// Result of measuring the local history database.
+struct StorageUsage: Sendable, Equatable {
+    struct Category: Sendable, Equatable, Identifiable {
+        enum Kind: String, Sendable { case system = "System metrics", processes = "Process metrics", events = "Activity events" }
+        var kind: Kind
+        var bytes: Int
+        var rows: Int
+        var oldest: Date?
+        var id: Kind { kind }
+
+        /// Measured growth rate, from the oldest stored row to now; nil until an hour of data exists.
+        func bytesPerHour(now: Date) -> Int? {
+            guard let oldest, now.timeIntervalSince(oldest) >= 3_600 else { return nil }
+            return Int(Double(bytes) / (now.timeIntervalSince(oldest) / 3_600))
+        }
+    }
+
+    var categories: [Category]
+    var usedBytes: Int
+    var fileBytes: Int
+    var measuredAt: Date
+}
+
 enum HistoryExportFormat: String, Sendable {
     case json
     case csv
@@ -433,12 +456,14 @@ actor HistoryRepository {
         let now = Date()
         let fullResolutionCutoff = now.addingTimeInterval(-TimeInterval(settings.fullResolutionHours * 3_600))
         let expirationCutoff = now.addingTimeInterval(-TimeInterval(settings.retentionDays * 86_400))
+        let processMinuteCutoff = now.addingTimeInterval(-TimeInterval(settings.processMinuteRetentionDays * 86_400))
 
         try transaction {
             try execute("DELETE FROM system_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
             try execute("DELETE FROM system_minutes WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
             try execute("DELETE FROM process_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
             try execute("DELETE FROM process_minutes WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
+            try execute("DELETE FROM process_minutes WHERE timestamp < \(processMinuteCutoff.timeIntervalSince1970)")
             try downsampleSystemSamples(olderThan: fullResolutionCutoff)
             try downsampleProcessSamples(olderThan: fullResolutionCutoff)
             try execute("DELETE FROM system_samples WHERE timestamp < \(fullResolutionCutoff.timeIntervalSince1970)")
@@ -447,6 +472,49 @@ actor HistoryRepository {
         }
         try pruneEvents(settings: settings, now: now)
         try enforceStorageLimit(settings.historyStorageLimitMB)
+    }
+
+    /// Measures what is really stored, per collection, from SQLite's own page accounting (indexes included).
+    func storageUsage(now: Date = Date()) throws -> StorageUsage {
+        var bytesByTable: [String: Int] = [:]
+        try withStatement("""
+            SELECT m.tbl_name, SUM(d.pgsize) FROM dbstat d JOIN sqlite_master m ON m.name = d.name GROUP BY m.tbl_name
+            """) { statement in
+            while true {
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { break }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
+                bytesByTable[stringColumn(statement, index: 0)] = Int(sqlite3_column_int64(statement, 1))
+            }
+        }
+        func category(_ kind: StorageUsage.Category.Kind, tables: [String]) throws -> StorageUsage.Category {
+            var rows = 0
+            var oldest: Double?
+            for table in tables {
+                rows += try integerQuery("SELECT COUNT(*) FROM \(table)")
+                let first = try withStatement("SELECT MIN(timestamp) FROM \(table)") { statement -> Double? in
+                    guard sqlite3_step(statement) == SQLITE_ROW, sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
+                    return sqlite3_column_double(statement, 0)
+                }
+                if let first { oldest = min(oldest ?? first, first) }
+            }
+            return StorageUsage.Category(
+                kind: kind,
+                bytes: tables.reduce(0) { $0 + (bytesByTable[$1] ?? 0) },
+                rows: rows,
+                oldest: oldest.map { Date(timeIntervalSince1970: $0) }
+            )
+        }
+        let categories = [
+            try category(.system, tables: ["system_samples", "system_minutes"]),
+            try category(.processes, tables: ["process_samples", "process_minutes"]),
+            try category(.events, tables: ["events"])
+        ]
+        // Process names and metadata are part of the process history's cost.
+        let processExtras = (bytesByTable["processes"] ?? 0)
+        var adjusted = categories
+        adjusted[1].bytes += processExtras
+        return StorageUsage(categories: adjusted, usedBytes: try usedStorageBytes(), fileBytes: try databaseSize(), measuredAt: now)
     }
 
     func deleteAll() throws {

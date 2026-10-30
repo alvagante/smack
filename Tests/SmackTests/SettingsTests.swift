@@ -209,6 +209,37 @@ final class SpyUserDefaults: UserDefaults {
     #expect(!decoded.showEventsOnCharts)
 }
 
+@Test func activityGroupSwitchesGateRecordingAndPersist() throws {
+    var settings = CollectionSettings()
+    for group in ActivityEventKind.Group.allCases { #expect(settings.records(group)) }
+
+    settings.recordNetworkEvents = false
+    #expect(!settings.records(.network))
+    #expect(settings.records(.processes))
+
+    settings.recordActivity = false
+    for group in ActivityEventKind.Group.allCases { #expect(!settings.records(group)) }
+
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(!decoded.recordActivity)
+    #expect(!decoded.recordNetworkEvents)
+    #expect(decoded.recordSystemEvents)
+}
+
+@Test func networkIntervalDefaultsClampsAndSurvivesDisable() throws {
+    let old = try JSONDecoder().decode(CollectionSettings.self, from: #"{"retentionDays": 3}"#.data(using: .utf8)!)
+    #expect(old.backgroundNetworkInterval == 60)
+
+    var settings = CollectionSettings()
+    settings.backgroundNetworkInterval = 1
+    settings.validate()
+    #expect(settings.backgroundNetworkInterval == 5)
+
+    settings.backgroundNetworkInterval = nil
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.backgroundNetworkInterval == nil)
+}
+
 @Test func settingsWrittenBeforeActivityKeysDecodeToDefaults() throws {
     let old = #"{"retentionDays": 3, "trigger": "Click"}"#.data(using: .utf8)!
     let decoded = try JSONDecoder().decode(CollectionSettings.self, from: old)
