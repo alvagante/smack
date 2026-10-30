@@ -31,6 +31,8 @@ struct SparklineSeries {
 struct Sparkline: View {
     let series: [SparklineSeries]
     var domain: ClosedRange<Double>?
+    var minHeight: CGFloat = 38
+    var maxHeight: CGFloat = 48
 
     var body: some View {
         Canvas { context, size in
@@ -66,7 +68,7 @@ struct Sparkline: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(.black.opacity(0.12))
         }
-        .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 48)
+        .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: maxHeight)
         .clipped()
     }
 }

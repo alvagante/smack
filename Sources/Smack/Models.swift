@@ -425,3 +425,11 @@ struct LiveMetricHistory {
         if points.count > capacity { points.removeFirst(points.count - capacity) }
     }
 }
+
+/// One process-or-application sample kept for the live sparklines in resource detail.
+struct LiveProcessPoint: Sendable {
+    var cpuUsage: Double
+    var memoryBytes: Double
+    var diskReadRate: Double
+    var diskWriteRate: Double
+}

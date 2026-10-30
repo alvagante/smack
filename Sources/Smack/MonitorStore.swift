@@ -32,6 +32,8 @@ final class MonitorStore: ObservableObject {
     @Published var route: AppRoute = .summary
     @Published private(set) var recentMetrics = LiveMetricHistory()
     @Published var inventory: ProcessInventory?
+    /// Recent samples per application and background-process ID, bounded by `LiveMetricHistory`'s capacity.
+    private(set) var recentProcessPoints: [String: [LiveProcessPoint]] = [:]
 
     var recentCPU: [HistoricalPoint] {
         recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
@@ -47,6 +49,7 @@ final class MonitorStore: ObservableObject {
     let privilegedSampling: PrivilegedSamplingController?
     let history: HistoryRepository
     let historyViewModel = HistoryViewModel()
+    let resourceInsightViewModel = ResourceInsightViewModel()
     let applicationListViewModel = ApplicationListViewModel()
     let processDetailViewModel = ProcessDetailViewModel()
     let networkPortsViewModel = NetworkPortsViewModel()
@@ -101,9 +104,37 @@ final class MonitorStore: ObservableObject {
 
     func receive(_ snapshot: ProcessSnapshot) {
         guard processes.map({ snapshot.timestamp > $0.timestamp }) ?? true else { return }
+        recordRecentPoints(snapshot)
         processes = snapshot
         let liveIDs = Set(snapshot.applications.flatMap(\.processes).map(\.id) + snapshot.backgroundProcesses.map(\.id))
         scheduledInventories = scheduledInventories.filter { liveIDs.contains($0.key) }
+    }
+
+    private func recordRecentPoints(_ snapshot: ProcessSnapshot) {
+        var next: [String: [LiveProcessPoint]] = [:]
+        func append(_ id: String, _ point: LiveProcessPoint) {
+            var points = recentProcessPoints[id] ?? []
+            points.append(point)
+            if points.count > recentMetrics.capacity { points.removeFirst(points.count - recentMetrics.capacity) }
+            next[id] = points
+        }
+        for application in snapshot.applications {
+            append(application.id, LiveProcessPoint(
+                cpuUsage: application.cpuUsage,
+                memoryBytes: Double(application.memoryBytes),
+                diskReadRate: application.diskReadRate,
+                diskWriteRate: application.diskWriteRate
+            ))
+        }
+        for process in snapshot.backgroundProcesses {
+            append(process.id, LiveProcessPoint(
+                cpuUsage: process.cpuUsage,
+                memoryBytes: Double(process.memoryBytes),
+                diskReadRate: process.diskReadRate,
+                diskWriteRate: process.diskWriteRate
+            ))
+        }
+        recentProcessPoints = next
     }
 
     func receive(_ snapshot: NetworkPortSnapshot) {

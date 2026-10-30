@@ -40,6 +40,10 @@ struct NativeMenuBarView: View {
         }
     }
 
+    /// Windows without a usable capture (blank or never rendered) are dropped: neither text nor a generic icon
+    /// stands in for them, and they otherwise show up as duplicates or raw bundle identifiers.
+    private var visibleItems: [NativeMenuBarItem] { menuBarStore.items.filter { $0.image != nil } }
+
     @ViewBuilder private var enabledContent: some View {
         VStack(alignment: .trailing, spacing: 4) {
             if !menuBarStore.screenCaptureAllowed {
@@ -50,7 +54,7 @@ struct NativeMenuBarView: View {
                     Button("Open Settings") { menuBarStore.openScreenCaptureSettings() }
                     Button("Reopen") { menuBarStore.relaunch() }
                 }
-            } else if menuBarStore.items.isEmpty {
+            } else if visibleItems.isEmpty {
                 if menuBarStore.loadAttempted {
                     Text("No native menu-bar icons found. Move up your mouse to show the menu-bar")
                         .font(.caption)
@@ -60,7 +64,7 @@ struct NativeMenuBarView: View {
                 }
             } else {
                 WrappingLayout(horizontalSpacing: 2, verticalSpacing: 2) {
-                    ForEach(menuBarStore.items) { item in
+                    ForEach(visibleItems) { item in
                         NativeMenuBarItemButton(
                             item: item,
                             onClick: { menuBarStore.click(item, button: .left) },
@@ -177,7 +181,7 @@ private struct NativeMenuBarItemButton: NSViewRepresentable {
             button.imagePosition = .imageOnly
         } else {
             button.image = nil
-            button.title = item.displayName
+            button.title = ""
             button.imagePosition = .noImage
         }
         button.toolTip = item.displayName
