@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import Smack
 
@@ -177,7 +178,9 @@ private func identity(_ pid: Int32, _ start: TimeInterval = 100) -> ProcessIdent
         targets: [identity(200), identity(201), identity(202), identity(1), identity(300)],
         current: [identity(200), identity(201, 999), identity(1), identity(300)],
         force: false,
-        selfPID: 300
+        selfPID: 300,
+        liveStartTime: { _ in Date(timeIntervalSince1970: 100) },
+        requestQuit: { _ in nil }
     ) { pid, signal in
         sent.append((pid, signal))
         return pid == 200 ? 0 : EPERM
@@ -195,7 +198,9 @@ private func identity(_ pid: Int32, _ start: TimeInterval = 100) -> ProcessIdent
         targets: [identity(10), identity(11), identity(12)],
         current: [identity(10), identity(11), identity(12)],
         force: true,
-        selfPID: 1
+        selfPID: 1,
+        liveStartTime: { _ in Date(timeIntervalSince1970: 100) },
+        requestQuit: { _ in Issue.record("Force Kill must not ask applications to quit"); return nil }
     ) { pid, signal in
         #expect(signal == SIGKILL)
         return pid == 10 ? EPERM : pid == 11 ? ESRCH : 0
@@ -204,4 +209,92 @@ private func identity(_ pid: Int32, _ start: TimeInterval = 100) -> ProcessIdent
     #expect(outcome.skipped == [11])
     #expect(outcome.failures == [ProcessTerminator.Failure(pid: 10, code: EPERM)])
     #expect(outcome.summary.contains("not permitted"))
+}
+
+@Test func terminatorSkipsPidsReusedSinceTheSnapshot() {
+    var sent: [Int32] = []
+    let outcome = ProcessTerminator.terminate(
+        targets: [identity(40), identity(41)],
+        current: [identity(40), identity(41)],
+        force: true,
+        selfPID: 1,
+        liveStartTime: { $0 == 40 ? Date(timeIntervalSince1970: 100) : Date(timeIntervalSince1970: 555) },
+        requestQuit: { _ in nil }
+    ) { pid, _ in
+        sent.append(pid)
+        return 0
+    }
+    #expect(sent == [40])
+    #expect(outcome.skipped == [41])
+}
+
+@Test func terminatorAsksApplicationsToQuitAndLeavesTheirHelpers() {
+    var sent: [Int32] = []
+    let outcome = ProcessTerminator.terminate(
+        targets: [identity(50), identity(51), identity(52)],
+        current: [identity(50), identity(51), identity(52)],
+        force: false,
+        selfPID: 1,
+        liveStartTime: { _ in Date(timeIntervalSince1970: 100) },
+        requestQuit: { $0 == 50 ? true : nil }
+    ) { pid, _ in
+        sent.append(pid)
+        return 0
+    }
+    #expect(sent.isEmpty)
+    #expect(outcome.quitRequested == [50])
+    #expect(outcome.leftToApplication == [51, 52])
+    #expect(outcome.summary.contains("save"))
+}
+
+private func report(_ tool: ProfileTool, bytes: Int) -> ProfileReport {
+    ProfileReport(tool: tool, pid: 42, output: String(repeating: "x", count: bytes), failure: nil, duration: 0, highlights: [])
+}
+
+@MainActor @Test func profileModelAsksBeforeToolsThatSuspendTheProcess() async {
+    let calls = Mutex<[ProfileTool]>([])
+    let model = ApplicationProfileModel { tool, _ in
+        calls.withLock { $0.append(tool) }
+        return report(tool, bytes: 10)
+    }
+    model.request([.leaks], pid: 42)
+    #expect(model.pendingRun == .init(tools: [.leaks], pid: 42))
+    #expect(!model.isRunning)
+    model.confirmPendingRun()
+    while model.isRunning { await Task.yield() }
+    #expect(calls.withLock { $0 } == [.leaks])
+
+    model.request([.footprint], pid: 42)
+    #expect(model.pendingRun == nil)
+    while model.isRunning { await Task.yield() }
+    #expect(model.reports[.footprint] != nil)
+}
+
+@MainActor @Test func profileModelCancelledRunCannotClobberItsReplacement() async {
+    let gate = AsyncStream<Void>.makeStream()
+    let model = ApplicationProfileModel { tool, _ in
+        if tool == .vmmap { for await _ in gate.stream { break } }
+        return report(tool, bytes: 10)
+    }
+    model.run([.vmmap], pid: 42)
+    await Task.yield()
+    model.cancel()
+    model.run([.footprint], pid: 42)
+    #expect(model.running == .footprint)
+    gate.continuation.yield()
+    gate.continuation.finish()
+    while model.isRunning { await Task.yield() }
+    #expect(model.reports[.vmmap] == nil)
+    #expect(model.reports[.footprint] != nil)
+}
+
+@MainActor @Test func profileModelReleasesOlderOutputsBeyondTheBudget() async {
+    let half = ApplicationProfileModel.retainedOutputBudget / 2 + 1
+    let model = ApplicationProfileModel { tool, _ in report(tool, bytes: tool == .sample ? 100 : half) }
+    model.run([.footprint, .vmmap, .sample], pid: 42)
+    while model.isRunning { await Task.yield() }
+    #expect(model.reports[.sample]?.output.count == 100)
+    #expect(model.reports[.vmmap]?.output.count == half)
+    #expect(model.reports[.footprint]?.outputReleased == true)
+    #expect(model.reports[.footprint]?.output.isEmpty == true)
 }

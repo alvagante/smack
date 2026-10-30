@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Darwin
 
 /// A visible folder. Full paths are materialized only for the current branch.
@@ -143,10 +144,13 @@ public struct StorageScanSnapshot: Codable, Sendable {
 }
 
 /// Progress replies omit the tree; the completed snapshot shares its single array.
-public final class StorageScanJob: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stopped = false
-    private var snapshot: StorageScanSnapshot
+public final class StorageScanJob: Sendable {
+    private struct State {
+        var stopped = false
+        var snapshot: StorageScanSnapshot
+    }
+
+    private let state: Mutex<State>
 
     private struct FileIdentity: Hashable {
         var device: dev_t
@@ -154,32 +158,24 @@ public final class StorageScanJob: @unchecked Sendable {
     }
 
     public init(root: String) {
-        snapshot = StorageScanSnapshot(root: root, tree: StorageTree(root: root), files: 0, bytes: 0,
-                                       skipped: 0, currentPath: root, finished: false, cancelled: false)
+        state = Mutex(State(snapshot: StorageScanSnapshot(root: root, tree: StorageTree(root: root), files: 0, bytes: 0,
+                                                          skipped: 0, currentPath: root, finished: false, cancelled: false)))
     }
 
     public func cancel() {
-        lock.lock()
-        stopped = true
-        lock.unlock()
+        state.withLock { $0.stopped = true }
     }
 
     public func status() -> StorageScanSnapshot {
-        lock.lock()
-        defer { lock.unlock() }
-        return snapshot
+        state.withLock { $0.snapshot }
     }
 
     private var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return stopped
+        state.withLock { $0.stopped }
     }
 
     private func publish(_ value: StorageScanSnapshot) {
-        lock.lock()
-        snapshot = value
-        lock.unlock()
+        state.withLock { $0.snapshot = value }
     }
 
     public func run() {

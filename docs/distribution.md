@@ -23,6 +23,9 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Signature, architecture, quarantine | yes | where the executable is readable; otherwise partial |
 | Launchd job label from the startup inventory | yes | unavailable: the inventory is direct-only |
 | Gatekeeper check (`spctl`) | on demand | unavailable: the sandbox denies launching it |
+| Profiling (`footprint`, `vmmap`, `heap`, `leaks`, `sample`) | on demand, own-user processes | unavailable: the sandbox denies launching these tools |
+| Terminate and Force Kill | yes; Terminate asks applications to quit, Force Kill sends SIGKILL | unavailable: the sandbox denies signaling other processes |
+| Hardware temperature sensors | yes, undocumented IOHIDEventSystemClient, read only while the thermal page is open | unavailable: private interface, not compiled in |
 | Update channel | GitHub release zip | App Store |
 
 ## Why superuser cannot be in the App Store build

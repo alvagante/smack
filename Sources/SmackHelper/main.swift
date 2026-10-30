@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import SmackIPC
 import os
 
@@ -8,36 +9,35 @@ private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sam
 /// command. `collectInventory` accepts a PID plus start time, so an accepted client can list
 /// open files, sockets, threads, and loaded images of any process, root processes included.
 /// That is why connections are restricted to the signed Smack app run by an administrator.
-final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, @unchecked Sendable {
-    private let scanLock = NSLock()
-    private var scan: StorageScanJob?
+final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendable {
+    private let scan = Mutex<StorageScanJob?>(nil)
 
     func stopScan() {
-        scanLock.lock()
-        scan?.cancel()
-        scanLock.unlock()
+        scan.withLock { $0?.cancel() }
     }
 
     func startStorageScan(reply: @escaping (Data?, String?) -> Void) {
-        scanLock.lock()
-        if let scan, !scan.status().finished {
-            scanLock.unlock()
+        let job = scan.withLock { scan -> StorageScanJob? in
+            if let scan, !scan.status().finished { return nil }
+            let job = StorageScanJob(root: "/")
+            scan = job
+            return job
+        }
+        guard let job else {
             encode(false, reply: reply)
             return
         }
-        let job = StorageScanJob(root: "/")
-        scan = job
-        scanLock.unlock()
         DispatchQueue.global(qos: .utility).async { job.run() }
         encode(true, reply: reply)
     }
 
     func storageScanStatus(reply: @escaping (Data?, String?) -> Void) {
-        scanLock.lock()
-        let status = scan?.status()
-        // The app owns the completed tree after this reply.
-        if status?.finished == true { scan = nil }
-        scanLock.unlock()
+        let status = scan.withLock { scan -> StorageScanSnapshot? in
+            let status = scan?.status()
+            // The app owns the completed tree after this reply.
+            if status?.finished == true { scan = nil }
+            return status
+        }
         if let status { encode(status, reply: reply) }
         else { reply(nil, "No storage scan is active.") }
     }

@@ -3,32 +3,75 @@ import SwiftUI
 
 @MainActor
 final class ApplicationProfileModel: ObservableObject {
+    /// Full output kept across all reports. Older reports keep their highlights and release their text first, so
+    /// Run All on a large process cannot hold five 16 MB dumps.
+    static let retainedOutputBudget = ProfileRunner.outputLimit
+
+    struct PendingRun: Equatable {
+        var tools: [ProfileTool]
+        var pid: Int32
+    }
+
     @Published var selectedPID: Int32?
     @Published private(set) var reports: [ProfileTool: ProfileReport] = [:]
     @Published private(set) var running: ProfileTool?
     @Published var showFullOutput: Set<ProfileTool> = []
+    /// A run that suspends its target, waiting for the user to confirm.
+    @Published var pendingRun: PendingRun?
     private var task: Task<Void, Never>?
+    /// Bumped on every start and cancel, so a cancelled run that is still winding down cannot touch the state of
+    /// the run that replaced it.
+    private var generation = 0
+    private let runner: @Sendable (ProfileTool, Int32) async -> ProfileReport
+
+    init(runner: @escaping @Sendable (ProfileTool, Int32) async -> ProfileReport = { await ProfileRunner.run($0, pid: $1) }) {
+        self.runner = runner
+    }
 
     var isRunning: Bool { running != nil }
 
+    /// Asks first when a tool would suspend the process.
+    func request(_ tools: [ProfileTool], pid: Int32) {
+        guard !isRunning else { return }
+        if tools.contains(where: \.pausesProcess) {
+            pendingRun = PendingRun(tools: tools, pid: pid)
+        } else {
+            run(tools, pid: pid)
+        }
+    }
+
+    func confirmPendingRun() {
+        guard let pending = pendingRun else { return }
+        pendingRun = nil
+        run(pending.tools, pid: pending.pid)
+    }
+
     /// Runs the tools one after another; `leaks` pauses its target, so two never overlap.
     func run(_ tools: [ProfileTool], pid: Int32) {
-        guard !isRunning else { return }
+        guard !isRunning, let first = tools.first else { return }
+        generation += 1
+        let current = generation
+        let previous = task
+        running = first
         task = Task {
+            // A cancelled run stops its tool on cancellation; wait for it so two tools never inspect the target at once.
+            await previous?.value
             for tool in tools {
+                guard !Task.isCancelled, current == generation else { return }
                 running = tool
-                let report = await ProfileRunner.run(tool, pid: pid)
-                guard !Task.isCancelled else { break }
-                reports[tool] = report
+                let report = await runner(tool, pid)
+                guard !Task.isCancelled, current == generation else { return }
+                store(report)
             }
-            running = nil
+            if current == generation { running = nil }
         }
     }
 
     func cancel() {
+        generation += 1
         task?.cancel()
-        task = nil
         running = nil
+        pendingRun = nil
     }
 
     func select(_ pid: Int32?) {
@@ -42,6 +85,22 @@ final class ApplicationProfileModel: ObservableObject {
         reports = [:]
         showFullOutput = []
         selectedPID = nil
+    }
+
+    private func store(_ report: ProfileReport) {
+        reports[report.tool] = report
+        var budget = Self.retainedOutputBudget - report.output.utf8.count
+        for tool in reports.keys.sorted(by: { reports[$0]!.finishedAt > reports[$1]!.finishedAt }) where tool != report.tool {
+            guard var older = reports[tool], !older.output.isEmpty else { continue }
+            let size = older.output.utf8.count
+            if size <= budget {
+                budget -= size
+            } else {
+                older.releaseOutput()
+                reports[tool] = older
+                showFullOutput.remove(tool)
+            }
+        }
     }
 }
 
@@ -98,17 +157,41 @@ struct ApplicationDiagnosticsTab: View {
             }
             HStack(spacing: 6) {
                 ForEach(ProfileTool.allCases) { tool in
-                    Button(tool.title) { model.run([tool], pid: process.identity.pid) }
+                    Button(tool.title) { model.request([tool], pid: process.identity.pid) }
                         .help("\(tool.summary)\n\(tool.commandLine(pid: process.identity.pid))")
                 }
-                Button("Run All") { model.run(ProfileTool.allCases, pid: process.identity.pid) }
+                Button("Run All") { model.request(ProfileTool.allCases, pid: process.identity.pid) }
                     .help("Runs every tool in turn; this can take a minute.")
             }
             .controlSize(.small)
-            .disabled(model.isRunning)
-            Label("Heap and Leaks suspend the process while they scan it. Nothing runs until you press a button.", systemImage: "info.circle")
-                .font(.caption).foregroundStyle(.secondary)
+            .disabled(model.isRunning || model.pendingRun != nil)
+            if let pending = model.pendingRun, pending.pid == process.identity.pid {
+                pauseConfirmation(pending, process: process)
+            } else {
+                Label("Heap and Leaks suspend the process while they scan it. Nothing runs until you press a button.", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
+    }
+
+    /// Shown inside the window, like the kill confirmation, before a tool that freezes the process.
+    private func pauseConfirmation(_ pending: ApplicationProfileModel.PendingRun, process: ProcessMetrics) -> some View {
+        let pausing = pending.tools.filter(\.pausesProcess)
+        let longest = Int(pausing.map(\.timeout).max() ?? 0)
+        return VStack(alignment: .leading, spacing: 6) {
+            Label("Suspend \(process.name)?", systemImage: "pause.circle.fill").font(.headline).foregroundStyle(.orange)
+            Text("\(pausing.map(\.title).joined(separator: " and ")) freeze\(pausing.count == 1 ? "es" : "") the process while scanning its memory, up to \(longest) seconds per tool on a large process. It stops responding meanwhile; audio, calls or transfers in it may break.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button("Run Anyway") { model.confirmPendingRun() }
+                Button("Cancel") { model.pendingRun = nil }.keyboardShortcut(.cancelAction)
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.orange.opacity(0.4)))
     }
 }
 
@@ -141,6 +224,9 @@ private struct ProfileReportCard: View {
             }
             if report.truncated {
                 Text("Output was cut at \(ProfileRunner.outputLimit / 1_048_576) MB.").font(.caption).foregroundStyle(.secondary)
+            }
+            if report.outputReleased {
+                Text("Full output was released to save memory; run the tool again to see it.").font(.caption).foregroundStyle(.secondary)
             }
             if !report.output.isEmpty {
                 HStack {

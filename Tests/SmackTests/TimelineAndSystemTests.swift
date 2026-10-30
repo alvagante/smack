@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Synchronization
 import SmackIPC
 import Testing
 @testable import Smack
@@ -145,11 +146,10 @@ import Testing
 
 // MARK: Observers
 
-private final class EventBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var items: [String] = []
-    func add(_ item: String) { lock.withLock { items.append(item) } }
-    var all: [String] { lock.withLock { items } }
+private final class EventBox: Sendable {
+    private let items = Mutex<[String]>([])
+    func add(_ item: String) { items.withLock { $0.append(item) } }
+    var all: [String] { items.withLock { $0 } }
 }
 
 @MainActor

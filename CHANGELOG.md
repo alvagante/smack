@@ -2,23 +2,48 @@
 
 All notable changes to Smack are documented in this file.
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-10-30
 
 ### Added
 
 - Add an Activity Timeline: persisted events for process starts and exits, new and closed listening ports, startup item changes, volume mounts, sleep and wake, power source, thermal and memory pressure changes, and network interface and address changes. Filter by range (15 minutes to 7 days), kind, or text; rows link to the live process. Optional outbound connection events are off by default.
-- Add a "What changed" strip to Summary: events and peaks since the panel was last hidden (last hour as fallback), with a link to the timeline at that window.
+- Add a "What changed" card to Summary: events and peaks since the panel was last hidden (last hour as fallback), with a link to the timeline at that window.
 - Add event markers to History charts (up to 50, with an Events toggle) and an "Include activity events" export option: an `events` array in JSON, or an extra `-events.csv` file.
 - Show GPU utilization, memory pressure and swap on Summary and in System Details, and keep all three in history. Unavailable values read "Unavailable", never 0.
 - Collect per-process interrupt and package-idle wakeups: a sortable Wakeups column, separate rates in process detail, and a Wakeups metric in history. Wakeups count as activity for idle-row skipping.
-- Add process provenance: ancestry from launchd, origin, launchd job label (direct build), architecture, Rosetta translation, code signature (identifier, Team ID, certificate, hardened runtime, entitlements), quarantine, a bundled knowledge base of 37 well-known processes with safe-to-quit guidance, and an on-demand Gatekeeper check (direct build). Signature, architecture and quarantine reads happen on demand and are cached for 5 minutes (200 entries).
+- Add process provenance: ancestry from launchd, origin, launchd job label (direct build), architecture, Rosetta translation, code signature (identifier, Team ID, certificate, hardened runtime, entitlements), quarantine, a bundled knowledge base of 37 well-known processes with safe-to-quit guidance, and an on-demand Gatekeeper check with a 30-second timeout (direct build). Signature, architecture and quarantine reads happen on demand and are cached for 5 minutes (200 entries).
 - Add a Flat/Tree toggle to the process list: a tree rooted at launchd, with synthetic nodes for exited parents and broken cycles.
-- Add Activity settings: event retention (1 to 30 days, default 7), outbound connection events, and chart markers.
+- Add Activity settings: event retention (1 to 30 days, default 7), outbound connection events, chart markers, and per-group Activity Timeline switches.
+- Add an application detail page: inventory merged across all of the application's processes, resource graphs, its timeline, and confirmed Terminate or Force Kill. Terminate asks a regular application to quit as the Dock does, so it can offer to save, and leaves its helpers to it; Force Kill sends SIGKILL. Only the processes shown at confirmation are touched, each start time is re-read right before acting so a reused pid is skipped, and Smack and pid 1 are never signaled.
+- Add on-demand profiling of one application process with `footprint`, `vmmap`, `heap`, `leaks` and `sample` (direct build): runs are sequential, time-limited, cancellable, capped at 16 MB of output, and summarized as highlights next to the full output. Heap and Leaks ask for confirmation before suspending the process. Full outputs share a 16 MB budget; older reports keep their highlights and release their text.
+- Read hardware temperature sensors (direct build) and show them on the thermal page; a thermal dot in the header replaces the Summary thermal card. Sensors are read only while the thermal page is open.
+- Add Resource Insight detail views for CPU, Memory, Network and Disk: a large live or historical (1h, 24h, 7d) chart above the heaviest processes, each with a live sparkline.
+- Add a pin button next to the traffic lights that keeps the panel in front and ignores mouse-away and outside-click dismissal until unpinned or closed.
+- Add a Storage Usage card in Settings measured from SQLite page accounting, with per-hour estimates on each collection row.
+- Add collection settings for process history on or off, top-N processes, per-minute process retention, and a background network sampling interval.
+- Add Clear Results to the storage explorer.
+- Report history save and maintenance failures per operation in a persistent banner; live monitoring continues.
+- Document Homebrew installation (`brew tap alvagante/tap` and `brew install --cask smack`) and update the tap cask version and checksum automatically on release when `HOMEBREW_TAP_TOKEN` is set.
 
 ### Changed
 
 - History schema moves to version 4 (additive, migrated in place): an `events` table, a `metadata` table, and wakeup, GPU, pressure and swap columns. Process history vectors grow from four to eight lanes. Older builds ignore the new tables.
 - Events are pruned by retention and capped at 100,000 rows, in batches.
+- Bump the bundle version to 0.6.0 (build 6).
+- Process collection and snapshotting run in actors; stale, duplicate and cancelled snapshots are dropped before they touch rate counters.
+- The storage scanner uses a compact index tree and a descriptor-based walker instead of per-path dictionaries, cutting memory on large scans.
+- Hide native menu-bar items without a usable capture instead of showing duplicates or raw bundle identifiers.
+
+### Fixed
+
+- Fix IPv4 remote addresses in process inventory, which were read from the wrong bytes of the socket address union.
+- Restore idle-run state when a history transaction rolls back.
+- Prune cached inventories of exited processes.
+
+### Security
+
+- Neutralize spreadsheet formulas in CSV exports.
+- Hash files through the opened descriptor (non-blocking, regular files only) so a swapped path or FIFO cannot hang or redirect the hash.
 
 ## [0.5.0] - 2026-10-29
 

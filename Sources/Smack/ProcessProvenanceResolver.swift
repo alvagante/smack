@@ -127,19 +127,20 @@ enum ProcessProvenanceResolver {
             default: nil
             }
         }
+        /// Fat headers list `count` architectures; each entry starts with its CPU type. Entries are 20 bytes in
+        /// `fat_arch` and 32 in `fat_arch_64`.
+        func universal(entrySize: Int) -> String? {
+            let count = min(Int(be32(4)), 8)
+            guard count > 0, header.count >= 8 + count * entrySize else { return nil }
+            let names = (0..<count).compactMap { name(be32(8 + $0 * entrySize)) }
+            if names.isEmpty { return nil }
+            return names.count == 1 ? names[0] : "universal (\(names.joined(separator: ", ")))"
+        }
         switch be32(0) {
         case 0xCAFE_BABE:
-            let count = min(Int(be32(4)), 8)
-            guard count > 0, header.count >= 8 + count * 20 else { return nil }
-            let names = (0..<count).compactMap { name(be32(8 + $0 * 20)) }
-            if names.isEmpty { return nil }
-            return names.count == 1 ? names[0] : "universal (\(names.joined(separator: ", ")))"
+            return universal(entrySize: 20)
         case 0xCAFE_BABF:
-            let count = min(Int(be32(4)), 8)
-            guard count > 0, header.count >= 8 + count * 32 else { return nil }
-            let names = (0..<count).compactMap { name(be32(8 + $0 * 32)) }
-            if names.isEmpty { return nil }
-            return names.count == 1 ? names[0] : "universal (\(names.joined(separator: ", ")))"
+            return universal(entrySize: 32)
         default:
             // 64-bit little-endian Mach-O: magic 0xfeedfacf stored as cf fa ed fe.
             return le32(0) == 0xFEED_FACF ? name(le32(4)) : nil
@@ -336,26 +337,15 @@ actor ProcessFileFactsCache {
 // MARK: Gatekeeper
 
 enum GatekeeperCheck {
+    /// `spctl` may consult the notarization service, so a slow or offline network must not leave the check pending.
+    static let timeout: TimeInterval = 30
+
     /// Direct build only, and only on an explicit user action.
     static func assess(path: String) async -> String {
         guard Capabilities.supportsGatekeeperCheck else { return "Unavailable in the App Store build." }
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/sbin/spctl")
-            process.arguments = ["--assess", "--type", "execute", "-vv", path]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            process.terminationHandler = { _ in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let text = String(decoding: data.prefix(4096), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.resume(returning: text.isEmpty ? "No result" : text)
-            }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(returning: "Could not run spctl: \(error.localizedDescription)")
-            }
-        }
+        let result = await CommandRunner.run("/usr/sbin/spctl", ["--assess", "--type", "execute", "-vv", path], timeout: timeout, outputLimit: 4096)
+        if result.timedOut { return "spctl did not answer within \(Int(timeout)) seconds and was stopped." }
+        let text = (result.output + result.error).prefix(4096).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "No result" : text
     }
 }

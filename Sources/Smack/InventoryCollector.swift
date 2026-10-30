@@ -1,7 +1,7 @@
 import Foundation
 import SmackIPC
 
-final class InventoryCollector: InventoryCollecting, @unchecked Sendable {
+final class InventoryCollector: InventoryCollecting {
     private let privileged: PrivilegedSamplingProviding?
 
     init(privileged: PrivilegedSamplingProviding? = nil) {

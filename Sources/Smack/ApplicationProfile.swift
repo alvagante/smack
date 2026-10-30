@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // MARK: - Tools
@@ -92,6 +93,14 @@ struct ProfileReport: Identifiable, Sendable {
     var duration: TimeInterval
     var highlights: [ProfileHighlight]
     var truncated = false
+    var finishedAt = Date()
+    private(set) var outputReleased = false
+
+    /// Drops the full text and keeps the highlights.
+    mutating func releaseOutput() {
+        output = ""
+        outputReleased = true
+    }
 }
 
 // MARK: - Parsing
@@ -280,20 +289,12 @@ enum ProfileParser {
 // MARK: - Runner
 
 enum ProfileRunner {
-    struct Result: Sendable {
-        var status: Int32
-        var output: String
-        var error: String
-        var timedOut: Bool
-        var truncated: Bool
-    }
-
     /// Output kept per run; heap and vmmap dumps of large processes can be tens of megabytes.
     static let outputLimit = 16 * 1024 * 1024
 
     static func run(_ tool: ProfileTool, pid: Int32) async -> ProfileReport {
         let started = Date()
-        let result = await execute(tool.executable, tool.arguments(pid: pid), timeout: tool.timeout)
+        let result = await CommandRunner.run(tool.executable, tool.arguments(pid: pid), timeout: tool.timeout, outputLimit: outputLimit)
         let failed = result.timedOut || !tool.succeeded(status: result.status)
         return ProfileReport(
             tool: tool,
@@ -305,105 +306,12 @@ enum ProfileRunner {
             truncated: result.truncated
         )
     }
-
-#if SMACK_APP_STORE
-    static func execute(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> Result {
-        Result(status: -1, output: "", error: "Unavailable in the App Store build.", timedOut: false, truncated: false)
-    }
-#else
-    private final class Handle: @unchecked Sendable {
-        private let lock = NSLock()
-        private var process: Process?
-        private var cancelled = false
-        private(set) var timedOut = false
-
-        func attach(_ process: Process) -> Bool {
-            lock.lock(); defer { lock.unlock() }
-            guard !cancelled else { return false }
-            self.process = process
-            return true
-        }
-
-        func cancel() { stop(timedOut: false) }
-
-        func stop(timedOut: Bool) {
-            lock.lock()
-            cancelled = true
-            if timedOut { self.timedOut = true }
-            let process = process
-            lock.unlock()
-            if let process, process.isRunning { process.terminate() }
-        }
-    }
-
-    static func execute(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> Result {
-        let handle = Handle()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .utility).async {
-                    continuation.resume(returning: executeBlocking(executable, arguments, timeout: timeout, handle: handle))
-                }
-            }
-        } onCancel: {
-            handle.cancel()
-        }
-    }
-
-    private static func executeBlocking(_ executable: String, _ arguments: [String], timeout: TimeInterval, handle: Handle) -> Result {
-        guard FileManager.default.isExecutableFile(atPath: executable) else {
-            return Result(status: -1, output: "", error: "\(executable) is not installed.", timedOut: false, truncated: false)
-        }
-        let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = errors
-        process.standardInput = FileHandle.nullDevice
-        do {
-            guard handle.attach(process) else {
-                return Result(status: -1, output: "", error: "Cancelled.", timedOut: false, truncated: false)
-            }
-            try process.run()
-        } catch {
-            return Result(status: -1, output: "", error: error.localizedDescription, timedOut: false, truncated: false)
-        }
-        let watchdog = DispatchWorkItem { handle.stop(timedOut: true) }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: watchdog)
-
-        // Drain stderr concurrently so a full pipe cannot stall the child while stdout is read.
-        nonisolated(unsafe) var errorData = Data()
-        let group = DispatchGroup()
-        DispatchQueue.global(qos: .utility).async(group: group) {
-            errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        }
-        var outputData = Data()
-        var truncated = false
-        while true {
-            let chunk = output.fileHandleForReading.availableData
-            if chunk.isEmpty { break }
-            let room = outputLimit - outputData.count
-            if chunk.count > room { truncated = true }
-            if room > 0 { outputData.append(chunk.prefix(room)) }
-        }
-        group.wait()
-        process.waitUntilExit()
-        watchdog.cancel()
-        return Result(
-            status: process.terminationStatus,
-            output: String(decoding: outputData, as: UTF8.self),
-            error: String(decoding: errorData, as: UTF8.self),
-            timedOut: handle.timedOut,
-            truncated: truncated
-        )
-    }
-#endif
 }
 
 // MARK: - Termination
 
-/// Sends a signal to the processes of an application, but only to the ones the user was shown.
+/// Ends the processes of an application, but only the ones the user was shown, and only while they are still the
+/// same processes.
 enum ProcessTerminator {
     struct Failure: Sendable, Equatable {
         var pid: Int32
@@ -419,12 +327,18 @@ enum ProcessTerminator {
 
     struct Outcome: Sendable, Equatable {
         var signaled: [Int32] = []
+        /// Regular applications asked to quit the way the Dock does, so they can offer to save documents.
+        var quitRequested: [Int32] = []
+        /// Helpers not signaled because their application was asked to quit and will end them itself.
+        var leftToApplication: [Int32] = []
         /// Already gone, reused by another process, Smack itself or a system pid.
         var skipped: [Int32] = []
         var failures: [Failure] = []
 
         var summary: String {
             var parts: [String] = []
+            if !quitRequested.isEmpty { parts.append("Asked \(quitRequested.count) application\(quitRequested.count == 1 ? "" : "s") to quit; it may ask to save documents.") }
+            if !leftToApplication.isEmpty { parts.append("Left \(leftToApplication.count) helper\(leftToApplication.count == 1 ? "" : "s") to the application.") }
             if !signaled.isEmpty { parts.append("Signaled \(signaled.count) process\(signaled.count == 1 ? "" : "es").") }
             if !skipped.isEmpty { parts.append("Skipped \(skipped.count) (already exited or protected).") }
             if !failures.isEmpty { parts.append("Failed: " + failures.map(\.message).joined(separator: "; ") + ".") }
@@ -434,28 +348,70 @@ enum ProcessTerminator {
 
     /// - Parameters:
     ///   - targets: identities captured when the confirmation was shown.
-    ///   - current: identities running now; a target whose pid was reused has a different start time and is skipped.
+    ///   - current: identities in the latest snapshot; a target whose pid was reused has a different start time.
+    ///   - force: SIGKILL every target instead of a graceful quit.
+    ///   - liveStartTime: start time of a pid read right before signaling, nil when it is gone. Closes the window
+    ///     between the snapshot and the signal in which the pid could be reused.
+    ///   - requestQuit: asks a regular application to quit; nil when the pid is not one.
     ///   - send: delivers a signal and returns 0 or an errno.
     static func terminate(
         targets: [ProcessIdentity],
         current: [ProcessIdentity],
         force: Bool,
         selfPID: Int32 = getpid(),
+        liveStartTime: (Int32) -> Date? = ProcessTerminator.startTime(of:),
+        requestQuit: (Int32) -> Bool? = ProcessTerminator.requestApplicationQuit(pid:),
         send: (Int32, Int32) -> Int32 = { kill($0, $1) == 0 ? 0 : errno }
     ) -> Outcome {
         let alive = Set(current)
         var outcome = Outcome()
+        var eligible: [Int32] = []
         for target in targets {
-            guard alive.contains(target), target.pid > 1, target.pid != selfPID else {
+            guard alive.contains(target), target.pid > 1, target.pid != selfPID,
+                  let started = liveStartTime(target.pid), abs(started.timeIntervalSince(target.startTime)) < 0.001 else {
                 outcome.skipped.append(target.pid)
                 continue
             }
-            switch send(target.pid, force ? SIGKILL : SIGTERM) {
-            case 0: outcome.signaled.append(target.pid)
-            case ESRCH: outcome.skipped.append(target.pid)
-            case let code: outcome.failures.append(Failure(pid: target.pid, code: code))
+            eligible.append(target.pid)
+        }
+
+        var signal = SIGKILL
+        if !force {
+            signal = SIGTERM
+            var remaining: [Int32] = []
+            for pid in eligible {
+                switch requestQuit(pid) {
+                case true?: outcome.quitRequested.append(pid)
+                case false?, nil: remaining.append(pid)
+                }
+            }
+            // The application owns its helpers and ends them as it quits; signaling them first could crash it
+            // while it is still asking to save.
+            if !outcome.quitRequested.isEmpty {
+                outcome.leftToApplication = remaining
+                return outcome
+            }
+            eligible = remaining
+        }
+        for pid in eligible {
+            switch send(pid, signal) {
+            case 0: outcome.signaled.append(pid)
+            case ESRCH: outcome.skipped.append(pid)
+            case let code: outcome.failures.append(Failure(pid: pid, code: code))
             }
         }
         return outcome
+    }
+
+    static func startTime(of pid: Int32) -> Date? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000)
+    }
+
+    static func requestApplicationQuit(pid: Int32) -> Bool? {
+        guard let application = NSRunningApplication(processIdentifier: pid), application.activationPolicy == .regular else { return nil }
+        return application.terminate()
     }
 }

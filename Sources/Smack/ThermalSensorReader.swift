@@ -11,7 +11,8 @@ struct TemperatureSensor: Sendable, Equatable, Identifiable {
 /// Reads hardware temperature sensors through the undocumented IOHIDEventSystemClient interface (the same one
 /// powermetrics-style tools use on Apple Silicon). The symbols are resolved at runtime so a missing or changed
 /// symbol degrades to "no sensors" instead of a launch failure. Never compiled into the App Store build.
-final class ThermalSensorReader: @unchecked Sendable {
+/// Not Sendable: `SystemCollector` owns it and calls it under its lock.
+final class ThermalSensorReader {
     private typealias CreateFn = @convention(c) (CFAllocator?) -> Unmanaged<CFTypeRef>?
     private typealias SetMatchingFn = @convention(c) (CFTypeRef, CFDictionary) -> Int32
     private typealias CopyServicesFn = @convention(c) (CFTypeRef) -> Unmanaged<CFArray>?

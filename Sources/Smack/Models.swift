@@ -91,8 +91,9 @@ struct SystemSample: Sendable {
     var thermalCondition: ThermalCondition
     var gpuName: String
     var gpu = GPUSample()
-    /// Hardware sensor readings; empty when unavailable (App Store build, unsupported hardware).
-    var temperatures: [TemperatureSensor] = []
+    /// Hardware sensor readings, read only while the thermal page is open; nil when not read, empty when
+    /// unavailable (App Store build, unsupported hardware).
+    var temperatures: [TemperatureSensor]?
 
     var receiveRate: Double { interfaces.reduce(0) { $0 + $1.receiveRate } }
     var sendRate: Double { interfaces.reduce(0) { $0 + $1.sendRate } }

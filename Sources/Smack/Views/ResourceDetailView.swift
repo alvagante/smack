@@ -28,7 +28,10 @@ struct ResourceDetailView: View {
                         KeyValueRow(key: "Cycle Count", value: battery.cycleCount.map(String.init) ?? "Unavailable")
                     } else { Text("No battery is available on this Mac.").foregroundStyle(.secondary) }
                 case .thermal:
-                    thermalContent
+                    // One container, so the appear and disappear handlers fire once rather than per row.
+                    VStack(alignment: .leading, spacing: 12) { thermalContent }
+                        .onAppear { store.setTemperaturesWanted(true) }
+                        .onDisappear { store.setTemperaturesWanted(false) }
                 }
             }.padding()
         }
@@ -40,7 +43,9 @@ struct ResourceDetailView: View {
         Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement.")
             .foregroundStyle(.secondary)
         SectionHeader(title: "Sensors")
-        if let sensors = store.system?.temperatures, !sensors.isEmpty {
+        if Capabilities.flavor != .appStore, store.system?.temperatures == nil {
+            Text("Reading sensors…").foregroundStyle(.secondary)
+        } else if let sensors = store.system?.temperatures, !sensors.isEmpty {
             ForEach(sensors) { sensor in
                 KeyValueRow(key: sensor.name, value: String(format: "%.1f °C", sensor.celsius))
             }

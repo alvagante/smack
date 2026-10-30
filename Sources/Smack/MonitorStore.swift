@@ -106,6 +106,11 @@ final class MonitorStore: ObservableObject {
         }
     }
 
+    /// The thermal page asks for sensor readings while it is on screen.
+    func setTemperaturesWanted(_ wanted: Bool) {
+        Task { await scheduler.setTemperaturesWanted(wanted) }
+    }
+
     func setVisible(_ visible: Bool) {
         Task { await scheduler.setVisible(visible) }
         // Only a real transition counts: the launch-time hide must not overwrite the previous session's last look.
@@ -240,13 +245,17 @@ final class MonitorStore: ObservableObject {
         scheduledInventories = scheduledInventories.filter { liveIDs.contains($0.key) }
     }
 
+    /// Appends in place through the dictionary's modify accessor: copying each array out and back would duplicate
+    /// every buffer on every tick, hundreds of processes times the window.
     private func recordRecentPoints(_ snapshot: ProcessSnapshot) {
-        var next: [String: [LiveProcessPoint]] = [:]
+        let capacity = recentMetrics.capacity
+        var seen = Set<String>()
+        seen.reserveCapacity(snapshot.applications.count + snapshot.backgroundProcesses.count)
         func append(_ id: String, _ point: LiveProcessPoint) {
-            var points = recentProcessPoints[id] ?? []
-            points.append(point)
-            if points.count > recentMetrics.capacity { points.removeFirst(points.count - recentMetrics.capacity) }
-            next[id] = points
+            seen.insert(id)
+            recentProcessPoints[id, default: []].append(point)
+            let excess = recentProcessPoints[id, default: []].count - capacity
+            if excess > 0 { recentProcessPoints[id, default: []].removeFirst(excess) }
         }
         for application in snapshot.applications {
             append(application.id, LiveProcessPoint(
@@ -264,7 +273,9 @@ final class MonitorStore: ObservableObject {
                 diskWriteRate: process.diskWriteRate
             ))
         }
-        recentProcessPoints = next
+        for id in recentProcessPoints.keys.filter({ !seen.contains($0) }) {
+            recentProcessPoints.removeValue(forKey: id)
+        }
     }
 
     func receive(_ snapshot: NetworkPortSnapshot) {

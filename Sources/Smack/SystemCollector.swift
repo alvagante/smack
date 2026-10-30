@@ -79,8 +79,12 @@ final class SystemCollector: SystemMetricsCollecting {
 #if SMACK_APP_STORE
     private func readTemperatures() -> [TemperatureSensor] { [] }
 #else
-    private let thermalSensors = ThermalSensorReader()
-    private func readTemperatures() -> [TemperatureSensor] { thermalSensors.read() }
+    /// Created on first use, so the IOHID client exists only once someone opened the thermal page.
+    private var thermalSensors: ThermalSensorReader?
+    private func readTemperatures() -> [TemperatureSensor] {
+        if thermalSensors == nil { thermalSensors = ThermalSensorReader() }
+        return thermalSensors?.read() ?? []
+    }
 #endif
 
     init() {
@@ -105,7 +109,7 @@ final class SystemCollector: SystemMetricsCollecting {
         }
     }
 
-    func collectSystemSample() -> SystemSample {
+    func collectSystemSample(includeTemperatures: Bool) -> SystemSample {
         lock.lock()
         defer { lock.unlock() }
 
@@ -117,7 +121,7 @@ final class SystemCollector: SystemMetricsCollecting {
         let volumes = collectVolumes()
         let battery = collectBattery()
         let gpu = collectGPU(now: now)
-        let temperatures = readTemperatures()
+        let temperatures = includeTemperatures ? readTemperatures() : nil
 
         return SystemSample(
             timestamp: Date(),

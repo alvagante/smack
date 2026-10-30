@@ -520,55 +520,11 @@ enum StartupCommand {
         var error: String
     }
 
-#if SMACK_APP_STORE
+    /// Not cancellable: a toggle or crontab write must never be cut off halfway.
     static func run(_ executable: String, _ arguments: [String], input: String? = nil) async -> Output {
-        Output(status: -1, output: "", error: "Unavailable in the App Store build.")
+        let result = await CommandRunner.run(executable, arguments, input: input, cancellable: false)
+        return Output(status: result.status, output: result.output, error: result.error)
     }
-#else
-    /// Pipe reads block, so they run on GCD rather than the cooperative thread pool.
-    static func run(_ executable: String, _ arguments: [String], input: String? = nil) async -> Output {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: runBlocking(executable, arguments, input: input))
-            }
-        }
-    }
-
-    private static func runBlocking(_ executable: String, _ arguments: [String], input: String?) -> Output {
-        let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = errors
-        let inputPipe = input.map { _ in Pipe() }
-        process.standardInput = inputPipe ?? FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return Output(status: -1, output: "", error: error.localizedDescription)
-        }
-        if let inputPipe, let input {
-            inputPipe.fileHandleForWriting.write(Data(input.utf8))
-            try? inputPipe.fileHandleForWriting.close()
-        }
-        // Drain stderr concurrently so a full pipe cannot stall the child while stdout is read.
-        nonisolated(unsafe) var errorData = Data()
-        let group = DispatchGroup()
-        DispatchQueue.global(qos: .utility).async(group: group) {
-            errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        }
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        group.wait()
-        process.waitUntilExit()
-        return Output(
-            status: process.terminationStatus,
-            output: String(decoding: outputData, as: UTF8.self),
-            error: String(decoding: errorData, as: UTF8.self)
-        )
-    }
-#endif
 }
 
 @MainActor

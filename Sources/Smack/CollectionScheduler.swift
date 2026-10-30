@@ -9,6 +9,7 @@ actor CollectionScheduler {
     private let activity: any ActivityRecording
     private var settings: CollectionSettings
     private var visible = false
+    private var temperaturesWanted = false
     private var systemTask: Task<Void, Never>?
     private var processTask: Task<Void, Never>?
     private var inventoryTask: Task<Void, Never>?
@@ -47,6 +48,10 @@ actor CollectionScheduler {
         self.onInventory = onInventory
         self.onNetworkPorts = onNetworkPorts
         self.onEvents = onEvents
+    }
+
+    func setTemperaturesWanted(_ value: Bool) {
+        temperaturesWanted = value
     }
 
     func setVisible(_ value: Bool) {
@@ -103,7 +108,7 @@ actor CollectionScheduler {
 
     private func runSystemLoop() async {
         while !Task.isCancelled {
-            let sample = systemCollector.collectSystemSample()
+            let sample = systemCollector.collectSystemSample(includeTemperatures: visible && temperaturesWanted)
             onSystem(sample)
             await history.save(system: sample)
             await deliver(await activity.record(system: sample, settings: settings))

@@ -115,7 +115,7 @@ struct ApplicationDetailView: View {
         if let targets = model.killTargets {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Kill \(app.name)?", systemImage: "exclamationmark.triangle.fill").font(.headline).foregroundStyle(.red)
-                Text("This sends a signal to \(targets.count) process\(targets.count == 1 ? "" : "es"). Unsaved work in the application will be lost. Terminate asks the processes to exit (SIGTERM); Force Kill ends them immediately (SIGKILL).")
+                Text("This affects \(targets.count) process\(targets.count == 1 ? "" : "es"). Terminate asks the application to quit as the Dock does, so it can offer to save (processes without an application get SIGTERM). Force Kill ends them all immediately (SIGKILL) and unsaved work is lost.")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("Terminate") { kill(force: false) }
