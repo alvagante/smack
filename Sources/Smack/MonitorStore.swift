@@ -40,6 +40,7 @@ final class MonitorStore: ObservableObject {
     @Published private(set) var networkPorts: NetworkPortSnapshot?
     @Published private(set) var networkPortsLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var historyHealth = HistoryHealth()
     private var scheduledInventories: [String: ProcessInventory] = [:]
 
     let settingsStore: SettingsStore
@@ -75,7 +76,11 @@ final class MonitorStore: ObservableObject {
 
     func settingsChanged() {
         Task { await scheduler.update(settings: settingsStore.settings) }
-        Task { try? await history.maintain(settings: settingsStore.settings) }
+    }
+
+    func receive(_ health: HistoryHealth) {
+        guard health.revision > historyHealth.revision else { return }
+        historyHealth = health
     }
 
     func receive(_ sample: SystemSample) {
@@ -95,7 +100,10 @@ final class MonitorStore: ObservableObject {
     }
 
     func receive(_ snapshot: ProcessSnapshot) {
+        guard processes.map({ snapshot.timestamp > $0.timestamp }) ?? true else { return }
         processes = snapshot
+        let liveIDs = Set(snapshot.applications.flatMap(\.processes).map(\.id) + snapshot.backgroundProcesses.map(\.id))
+        scheduledInventories = scheduledInventories.filter { liveIDs.contains($0.key) }
     }
 
     func receive(_ snapshot: NetworkPortSnapshot) {
@@ -104,6 +112,7 @@ final class MonitorStore: ObservableObject {
     }
 
     func receive(_ inventory: ProcessInventory, for id: String) {
+        guard process(id: id) != nil else { return }
         scheduledInventories[id] = inventory
     }
 

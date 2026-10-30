@@ -302,3 +302,44 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     let single = try await repository.processHistory(program: "worker", processID: "1-1234.0", from: start.addingTimeInterval(-1), limit: 720)
     #expect(single[.cpuUsage]?.first?.average == 10)
 }
+
+@Test(arguments: ["=1+1", "+1+1", "-1+1", "@SUM(1)", "  =1+1", "\t=1+1", "\r=1+1", "=SUM(1,2)"])
+func csvExportNeutralizesProcessNameFormulas(name: String) async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+    try await repository.save(processes: makeProcessSnapshot(timestamp: Date(), cpu: 1, memory: 1, name: name))
+    let output = directory.appendingPathComponent("export.csv")
+    try await repository.export(to: output, format: .csv)
+    let text = try String(contentsOf: output, encoding: .utf8)
+    #expect(text.contains("'" + name))
+    let json = directory.appendingPathComponent("export.json")
+    try await repository.export(to: json, format: .json)
+    let records = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [[String: Any]])
+    #expect(records.contains { $0["processName"] as? String == name })
+}
+
+@Test func failedProcessSaveRollsBackIdleRunState() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("history.sqlite")
+    let repository = try HistoryRepository(databaseURL: url)
+    let start = Date(timeIntervalSince1970: 1_760_000_000)
+    for offset in [0.0, 10, 20] {
+        try await repository.save(processes: makeProcessSnapshot(timestamp: start.addingTimeInterval(offset), cpu: 0, memory: 100, diskRead: 0, diskWrite: 0))
+    }
+    var database: OpaquePointer?
+    #expect(sqlite3_open(url.path, &database) == SQLITE_OK)
+    defer { sqlite3_close(database) }
+    #expect(sqlite3_exec(database, """
+        CREATE TRIGGER fail_changed BEFORE INSERT ON process_samples
+        WHEN NEW.memory = 200 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;
+        """, nil, nil, nil) == SQLITE_OK)
+    let changed = makeProcessSnapshot(timestamp: start.addingTimeInterval(30), cpu: 0, memory: 200, diskRead: 0, diskWrite: 0)
+    await #expect(throws: HistoryRepositoryError.self) { try await repository.save(processes: changed) }
+    #expect(sqlite3_exec(database, "DROP TRIGGER fail_changed", nil, nil, nil) == SQLITE_OK)
+    try await repository.save(processes: changed)
+    let points = try await repository.processSeries(processID: "42-1234.0", metric: .memoryBytes, from: .distantPast)
+    #expect(points.map(\.average) == [100, 100, 200])
+    #expect(points.map { $0.timestamp.timeIntervalSince(start) } == [0, 20, 30])
+}

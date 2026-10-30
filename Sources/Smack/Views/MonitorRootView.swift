@@ -57,6 +57,15 @@ struct MonitorRootView: View {
                 exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
+            if let warning = store.historyHealth.warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .hoverHint(store.historyHealth.details)
+                Divider()
+            }
             Group {
                 switch store.route {
                 case .summary: SummaryView(store: store)

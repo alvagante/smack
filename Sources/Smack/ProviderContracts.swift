@@ -8,7 +8,8 @@ protocol SystemMetricsCollecting: AnyObject {
 protocol ProcessMetricsCollecting: AnyObject, Sendable {
     /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
     /// Collectors fall back to the current user's visibility when privileged access is unavailable.
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot
+    /// Returns nil for cancelled or stale observations.
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot?
 }
 
 protocol InventoryCollecting: AnyObject, Sendable {

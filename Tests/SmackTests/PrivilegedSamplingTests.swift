@@ -28,7 +28,7 @@ import Testing
     #expect(try JSONDecoder().decode(ProcessSnapshotPayload.self, from: data) == payload)
 }
 
-@Test func privilegedSnapshotTakesPrecedenceAndFallsBack() async {
+@Test func privilegedSnapshotTakesPrecedenceAndFallsBack() async throws {
     let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
     let provider = StubPrivilegedSampler()
     provider.payload = ProcessSnapshotPayload(
@@ -44,11 +44,11 @@ import Testing
     )
     let service = ProcessSnapshotService(local: ProcessCollector(), privileged: provider)
 
-    let privileged = await service.collectProcessSnapshot(includePrivileged: true)
+    let privileged = try #require(await service.collectProcessSnapshot(includePrivileged: true))
     #expect(privileged.backgroundProcesses.map(\.name) == ["privileged-sample"])
     #expect(privileged.timestamp == timestamp)
 
-    let local = await service.collectProcessSnapshot(includePrivileged: false)
+    let local = try #require(await service.collectProcessSnapshot(includePrivileged: false))
     #expect(!local.backgroundProcesses.isEmpty || !local.applications.isEmpty)
     #expect(local.backgroundProcesses.contains { $0.name == "privileged-sample" } == false)
 }

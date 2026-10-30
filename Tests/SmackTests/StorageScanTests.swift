@@ -22,8 +22,8 @@ import SmackIPC
     #expect(!result.cancelled)
     #expect(result.error == nil)
     #expect(result.files == 4)
-    #expect(result.directories.count == 3)
-    let top = try #require(result.directories.first)
+    #expect(result.tree.nodes.count == 3)
+    let top = try #require(result.tree.nodes.first)
     #expect(top.files == 4)
     #expect(top.directFiles == 3)
     #expect(top.bytes == result.bytes)
@@ -33,7 +33,7 @@ import SmackIPC
     #expect(lstat(root.appendingPathComponent("cycle").path, &linkStat) == 0)
     #expect(result.bytes == UInt64(dataStat.st_blocks + hiddenStat.st_blocks + linkStat.st_blocks) * 512)
     let roundTrip = try JSONDecoder().decode(StorageScanSnapshot.self, from: JSONEncoder().encode(result))
-    #expect(roundTrip.directories == result.directories)
+    #expect(roundTrip.tree == result.tree)
 }
 
 @Test func storageScanCanCancelAndReportsInvalidRoots() throws {
@@ -46,6 +46,7 @@ import SmackIPC
     job.run()
     #expect(job.status().finished)
     #expect(job.status().cancelled)
+    #expect(job.status().tree.nodes.isEmpty)
     let missing = StorageScanJob(root: root.appendingPathComponent("missing").path)
     missing.run()
     #expect(missing.status().finished)
@@ -89,6 +90,7 @@ import SmackIPC
     #expect(!model.isScanning)
     #expect(model.result != nil)
     #expect(model.currentChildren.count == 1)
+    #expect(model.progress?.tree.nodes.isEmpty == true)
     model.open(root.appendingPathComponent("child").path)
     #expect(model.trail.count == 2)
     model.open(root.path)
@@ -97,12 +99,80 @@ import SmackIPC
     #expect(model.trail == [root.path])
     let completed = model.completedAt
     model.scan(root: root)
+    model.clearResults()
+    #expect(model.result != nil)
     model.cancel()
     for _ in 0..<100 where model.isScanning { try await Task.sleep(for: .milliseconds(20)) }
     #expect(!model.isScanning)
     #expect(model.progress?.cancelled == true)
     #expect(model.completedAt == completed)
     #expect(model.currentChildren.count == 1)
+    model.clearResults()
+    #expect(model.result == nil)
+    #expect(model.progress == nil)
+    #expect(model.current == nil)
+    #expect(model.currentChildren.isEmpty)
+    #expect(model.trail.isEmpty)
+    #expect(model.completedAt == nil)
+    model.scan(root: root)
+    for _ in 0..<100 where model.isScanning { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(model.currentChildren.count == 1)
+}
+
+@Test func storageTreeResolvesDuplicateNamesAndEncodesComponents() throws {
+    let root = "/long/root/whose/path/should/not/be/repeated"
+    var tree = StorageTree(root: root)
+    tree.append(name: "", parent: -1)
+    let first = tree.append(name: "first", parent: 0)
+    let second = tree.append(name: "second", parent: 0)
+    let firstChild = tree.append(name: "shared", parent: first)
+    let secondChild = tree.append(name: "shared", parent: second)
+    let unicode = tree.append(name: "caffè ☕", parent: secondChild)
+    #expect(tree.index(for: root) == 0)
+    #expect(tree.index(for: root + "/first/shared") == firstChild)
+    #expect(tree.index(for: root + "/second/shared") == secondChild)
+    #expect(tree.index(for: tree.path(at: unicode)) == unicode)
+    #expect(tree.index(for: root + "-outside/first") == nil)
+    #expect(tree.index(for: root + "/missing") == nil)
+    #expect(Set(tree.children(of: 0)) == [first, second])
+    #expect(tree.children(of: firstChild).isEmpty)
+    #expect(tree.directory(at: unicode).parent == root + "/second/shared")
+    let data = try JSONEncoder().encode(tree)
+    let text = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\\/", with: "/")
+    #expect(!text.contains(root + "/first"))
+    #expect(try JSONDecoder().decode(StorageTree.self, from: data) == tree)
+
+    var disk = StorageTree(root: "/")
+    disk.append(name: "", parent: -1)
+    let folder = disk.append(name: "Users", parent: 0)
+    #expect(disk.path(at: folder) == "/Users")
+    #expect(disk.index(for: "/Users") == folder)
+}
+
+@MainActor
+@Test func storageModelRebuildsBreadcrumbsAndClearsVisibleBranch() async throws {
+    let root = storageTestTemporaryDirectory().appendingPathComponent(UUID().uuidString)
+    let first = root.appendingPathComponent("first/shared")
+    let second = root.appendingPathComponent("second/shared")
+    try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Data(repeating: 42, count: 8192).write(to: second.appendingPathComponent("payload"))
+    let model = StorageScanModel()
+    model.scan(root: root)
+    for _ in 0..<100 where model.isScanning { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(model.currentChildren.map(\.name) == ["second", "first"])
+    model.open(second.path)
+    #expect(model.trail == [root.path, root.appendingPathComponent("second").path, second.path])
+    #expect(model.current?.files == 1)
+    #expect(model.currentChildren.isEmpty)
+    model.open(first.path)
+    #expect(model.trail == [root.path, root.appendingPathComponent("first").path, first.path])
+    #expect(model.current?.files == 0)
+    model.clearResults()
+    model.open(first.path)
+    #expect(model.current == nil)
+    #expect(model.trail.isEmpty)
 }
 
 @MainActor

@@ -35,6 +35,8 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, @unche
     func storageScanStatus(reply: @escaping (Data?, String?) -> Void) {
         scanLock.lock()
         let status = scan?.status()
+        // The app owns the completed tree after this reply.
+        if status?.finished == true { scan = nil }
         scanLock.unlock()
         if let status { encode(status, reply: reply) }
         else { reply(nil, "No storage scan is active.") }

@@ -21,8 +21,8 @@ final class StorageScanModel: ObservableObject {
     @Published private(set) var completedAt: Date?
     @Published private(set) var error: String?
     @Published private(set) var trail: [String] = []
-    private var directories: [String: StorageDirectory] = [:]
-    private var children: [String: [StorageDirectory]] = [:]
+    @Published private(set) var current: StorageDirectory?
+    @Published private(set) var currentChildren: [StorageDirectory] = []
     private var task: Task<Void, Never>?
     private var localJob: StorageScanJob?
     private let client = PrivilegedSamplingClient()
@@ -44,13 +44,33 @@ final class StorageScanModel: ObservableObject {
         }
     }
 
-    var current: StorageDirectory? { trail.last.flatMap { directories[$0] } }
-    var currentChildren: [StorageDirectory] { trail.last.flatMap { children[$0] } ?? [] }
-
     func open(_ path: String) {
-        guard directories[path] != nil else { return }
-        if let index = trail.firstIndex(of: path) { trail = Array(trail.prefix(index + 1)) }
-        else { trail.append(path) }
+        guard let tree = result?.tree, let index = tree.index(for: path) else { return }
+        current = tree.directory(at: index)
+        currentChildren = tree.children(of: index).sorted {
+            let lhs = tree.nodes[$0], rhs = tree.nodes[$1]
+            return lhs.bytes == rhs.bytes ? lhs.name < rhs.name : lhs.bytes > rhs.bytes
+        }.map { tree.directory(at: $0) }
+        var ancestors: [String] = []
+        var ancestor = index
+        while ancestor >= 0 {
+            ancestors.append(tree.path(at: ancestor))
+            ancestor = tree.nodes[ancestor].parent
+        }
+        trail = ancestors.reversed()
+        hovered = nil
+    }
+
+    func clearResults() {
+        guard !isScanning else { return }
+        result = nil
+        progress = nil
+        current = nil
+        currentChildren = []
+        trail = []
+        completedAt = nil
+        hovered = nil
+        error = nil
     }
 
     func scan(root: URL) {
@@ -82,26 +102,29 @@ final class StorageScanModel: ObservableObject {
                 if privilegedJob { status = await client.storageScanStatus() }
                 else { status = localJob?.status() }
                 guard let status else {
-                    error = "The scan connection was lost. Try scanning again."
+                    error = privilegedJob
+                        ? "The helper could not return the scan. Update the helper in Superuser Setup, then try again."
+                        : "The scan connection was lost. Try scanning again."
                     if privilegedJob { await client.cancelStorageScan() }
                     break
                 }
-                progress = status
                 if status.finished {
+                    var summary = status
+                    summary.tree = StorageTree(root: status.root)
+                    progress = summary
                     if let message = status.error { error = message }
                     else if !status.cancelled {
                         completedAt = Date()
                         result = status
-                        directories = Dictionary(uniqueKeysWithValues: status.directories.map { ($0.path, $0) })
-                        children = Dictionary(grouping: status.directories.filter { $0.parent != nil }, by: { $0.parent! })
-                            .mapValues { $0.sorted { $0.bytes == $1.bytes ? $0.path < $1.path : $0.bytes > $1.bytes } }
-                        trail = [status.root]
+                        open(status.root)
                     }
                     break
                 }
+                progress = status
                 try? await Task.sleep(for: .milliseconds(300))
             }
             localJob = nil
+            task = nil
             isScanning = false
         }
     }

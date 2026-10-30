@@ -121,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 onNetworkPorts: { [weak self] snapshot in
                     Task { @MainActor in self?.store?.receive(snapshot) }
+                },
+                onHistoryHealth: { [weak self] health in
+                    Task { @MainActor in self?.store?.receive(health) }
                 }
             )
             let store = MonitorStore(

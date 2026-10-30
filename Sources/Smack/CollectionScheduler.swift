@@ -5,7 +5,7 @@ actor CollectionScheduler {
     private let processCollector: ProcessMetricsCollecting
     private let inventoryCollector: InventoryCollecting
     private let networkPortCollector: NetworkPortCollecting
-    private let history: HistoryRepository
+    private let history: HistoryPersistence
     private var settings: CollectionSettings
     private var visible = false
     private var systemTask: Task<Void, Never>?
@@ -28,13 +28,14 @@ actor CollectionScheduler {
         onSystem: @escaping @Sendable (SystemSample) -> Void,
         onProcesses: @escaping @Sendable (ProcessSnapshot) -> Void,
         onInventory: @escaping @Sendable (String, ProcessInventory) -> Void = { _, _ in },
-        onNetworkPorts: @escaping @Sendable (NetworkPortSnapshot) -> Void = { _ in }
+        onNetworkPorts: @escaping @Sendable (NetworkPortSnapshot) -> Void = { _ in },
+        onHistoryHealth: @escaping @Sendable (HistoryHealth) -> Void = { _ in }
     ) {
         self.systemCollector = systemCollector
         self.processCollector = processCollector
         self.inventoryCollector = inventoryCollector
         self.networkPortCollector = networkPortCollector
-        self.history = history
+        self.history = HistoryPersistence(writer: history, onHealth: onHistoryHealth)
         self.settings = settings
         self.onSystem = onSystem
         self.onProcesses = onProcesses
@@ -47,9 +48,10 @@ actor CollectionScheduler {
         restartSampling()
     }
 
-    func update(settings: CollectionSettings) {
+    func update(settings: CollectionSettings) async {
         self.settings = settings
         restartSampling()
+        await maintainHistory()
     }
 
     func inventory(for process: ProcessMetrics) async -> ProcessInventory {
@@ -97,7 +99,7 @@ actor CollectionScheduler {
         while !Task.isCancelled {
             let sample = systemCollector.collectSystemSample()
             onSystem(sample)
-            try? await history.save(system: sample)
+            await history.save(system: sample)
             let interval = visible ? 1.0 : settings.backgroundSystemInterval
             guard let interval else { return }
             try? await Task.sleep(for: .seconds(interval))
@@ -107,8 +109,11 @@ actor CollectionScheduler {
     private func runProcessLoop() async {
         while !Task.isCancelled {
             let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
-            onProcesses(snapshot)
-            try? await history.save(processes: snapshot)
+            guard !Task.isCancelled else { return }
+            if let snapshot {
+                onProcesses(snapshot)
+                await history.save(processes: snapshot)
+            }
             let interval = visible ? 1.0 : settings.backgroundProcessInterval
             guard let interval else { return }
             try? await Task.sleep(for: .seconds(interval))
@@ -121,6 +126,7 @@ actor CollectionScheduler {
             let snapshot = await networkPortCollector.collectNetworkPorts(
                 includePrivileged: settings.privilegedSampling
             )
+            guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
             try? await Task.sleep(for: .seconds(visible ? 5 : 60))
         }
@@ -128,7 +134,8 @@ actor CollectionScheduler {
 
     private func runScheduledInventory() async {
         guard !visible, !Capabilities.isSandboxed else { return }
-        let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
+        guard let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling),
+              !Task.isCancelled else { return }
         let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         for process in processes {
             guard !Task.isCancelled else { return }
@@ -136,11 +143,12 @@ actor CollectionScheduler {
                 for: process,
                 includePrivileged: settings.privilegedSampling
             )
+            guard !Task.isCancelled else { return }
             onInventory(process.id, inventory)
         }
     }
 
     private func maintainHistory() async {
-        try? await history.maintain(settings: settings)
+        await history.maintain(settings: settings)
     }
 }

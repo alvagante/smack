@@ -44,9 +44,16 @@ enum HistoryExportFormat: String, Sendable {
     case csv
 }
 
-enum HistoryRepositoryError: Error, Equatable {
+enum HistoryRepositoryError: LocalizedError, Equatable {
     case sqlite(code: Int32, message: String)
     case unsupportedSchemaVersion(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .sqlite(let code, let message): "SQLite error \(code): \(message)"
+        case .unsupportedSchemaVersion(let version): "Unsupported history schema version \(version)."
+        }
+    }
 }
 
 actor HistoryRepository {
@@ -142,39 +149,41 @@ actor HistoryRepository {
         let samples = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         let timestamp = snapshot.timestamp.timeIntervalSince1970
         try transaction {
-            var seen = Set<String>()
-            for sample in samples {
-                seen.insert(sample.id)
-                try withStatement("""
-                    INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen
-                    """) { statement in
+            try withStatement("""
+                INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen
+                """) { statement in
+                var seen = Set<String>()
+                for sample in samples {
+                    seen.insert(sample.id)
+                    sqlite3_reset(statement)
+                    sqlite3_clear_bindings(statement)
                     bind(sample.id, at: 1, to: statement)
                     bind(sample.name, at: 2, to: statement)
                     bind(timestamp, at: 3, to: statement)
                     try step(statement)
-                }
-                let row = ProcessRow(
-                    timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
-                    diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate
-                )
-                if let run = idleRuns[sample.id], run.stored.isRepeated(by: row) {
-                    if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
-                        idleRuns[sample.id]?.skipped += 1
-                        idleRuns[sample.id]?.lastSkipped = row
-                        continue
+                    let row = ProcessRow(
+                        timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
+                        diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate
+                    )
+                    if let run = idleRuns[sample.id], run.stored.isRepeated(by: row) {
+                        if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
+                            idleRuns[sample.id]?.skipped += 1
+                            idleRuns[sample.id]?.lastSkipped = row
+                            continue
+                        }
+                        // Heartbeat: values are unchanged, so the skipped run needs no closing row.
+                        try addWeight(run.skipped, toRowOf: sample.id, at: run.stored.timestamp)
+                    } else {
+                        try closeIdleRun(processID: sample.id)
                     }
-                    // Heartbeat: values are unchanged, so the skipped run needs no closing row.
-                    try addWeight(run.skipped, toRowOf: sample.id, at: run.stored.timestamp)
-                } else {
-                    try closeIdleRun(processID: sample.id)
+                    try insert(row, processID: sample.id)
+                    idleRuns[sample.id] = IdleRun(stored: row)
                 }
-                try insert(row, processID: sample.id)
-                idleRuns[sample.id] = IdleRun(stored: row)
-            }
-            for id in idleRuns.keys where !seen.contains(id) {
-                try closeIdleRun(processID: id)
-                idleRuns[id] = nil
+                for id in idleRuns.keys where !seen.contains(id) {
+                    try closeIdleRun(processID: id)
+                    idleRuns[id] = nil
+                }
             }
         }
     }
@@ -743,12 +752,14 @@ actor HistoryRepository {
     }
 
     private func transaction(_ body: () throws -> Void) throws {
+        let savedIdleRuns = idleRuns
         try execute("BEGIN IMMEDIATE")
         do {
             try body()
             try execute("COMMIT")
         } catch {
             try? execute("ROLLBACK")
+            idleRuns = savedIdleRuns
             throw error
         }
     }
@@ -817,6 +828,11 @@ private func csv(records: [HistoryExportRecord]) -> String {
 }
 
 private func csvField(_ value: String) -> String {
+    // CSV quoting alone does not stop spreadsheet formula evaluation.
+    let candidate = value.drop(while: { $0.isWhitespace })
+    let formula = candidate.first.map { "=+-@".contains($0) } ?? false
+    let controlPrefix = value.first.map { "\t\r\n".contains($0) } ?? false
+    let value = formula || controlPrefix ? "'" + value : value
     guard value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r") else {
         return value
     }
