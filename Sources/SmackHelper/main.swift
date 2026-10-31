@@ -59,6 +59,10 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendab
         encode(payload, reply: reply)
     }
 
+    func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {
+        FileActivityCapture.start(pid: pid, startTime: startTime, reply: reply)
+    }
+
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void) {
         encode(ProcessSockets.collect(), reply: reply)
     }

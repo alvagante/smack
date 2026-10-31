@@ -12,6 +12,8 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
+| Dev environments | discover runtimes and version managers, inspect versions, packages and paths | unavailable: sandbox denies runtime inspection |
+| Homebrew | installed and outdated packages, search/install, upgrades, user services, cleanup | unavailable: sandbox denies running brew |
 | Startup items | `launchctl`, `sfltool dumpbtm`, `crontab`, System Events; daemons need an administrator password | unavailable: sandbox denies launching these tools |
 | Launch at login | `SMAppService.mainApp` | `SMAppService.mainApp` |
 | Activity Timeline: process, volume, sleep, power, thermal and pressure events | yes | yes |

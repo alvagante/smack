@@ -154,6 +154,11 @@ final class PrivilegedSamplingController: ObservableObject {
         }
     }
 
+    func captureFileActivity(identity: ProcessIdentity) async -> FileActivityPayload? {
+        guard Capabilities.supportsPrivilegedSampling, case .running = state else { return nil }
+        return await client.captureFileActivity(pid: identity.pid, startTime: identity.startTime)
+    }
+
     func terminalCommand(for action: HelperScriptAction) -> String {
         LegacyHelperInstaller.terminalCommand(for: action)
     }

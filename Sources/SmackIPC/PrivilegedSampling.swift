@@ -20,6 +20,7 @@ public enum SmackIPC {
     func cancelStorageScan(reply: @escaping (Data?, String?) -> Void)
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void)
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
+    func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void)
 }
 

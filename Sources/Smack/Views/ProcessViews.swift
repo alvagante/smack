@@ -217,6 +217,7 @@ struct ProcessDetailView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ProcessDetailViewModel
     let id: String
+    @State private var inspectionTab: ProcessInspectionTab?
 
     init(store: MonitorStore, id: String) {
         self.store = store
@@ -260,49 +261,65 @@ struct ProcessDetailView: View {
                             : "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))"
                     )
                     if let path = process.executablePath { KeyValueRow(key: "Executable", value: path) }
-                    ProvenanceSection(store: store, process: process)
-                    Button("Refresh Live Inventory") { store.loadInventory(for: process) }
-                    if store.inventoryLoading { ProgressView("Inspecting process…") }
-                    if let inventory = store.inventory {
-                        if !inventory.warnings.isEmpty {
-                            ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
-                        }
-                        TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
-                        inventorySection("Open Files", count: inventory.files.count) {
-                            ForEach(filtered(inventory.files)) { file in
-                                HStack {
-                                    FileLookupLinks(path: file.path, checksFileOnDisk: false)
-                                    Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                                }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            Button("Overview") { inspectionTab = nil }
+                                .tint(inspectionTab == nil ? .accentColor : .secondary)
+                            ForEach(ProcessInspectionTab.allCases) { tab in
+                                Button(tab.rawValue) { inspectionTab = tab }
+                                    .tint(inspectionTab == tab ? .accentColor : .secondary)
                             }
-                        }
-                        inventorySection("Network Connections", count: inventory.connections.count) {
-                            ForEach(filtered(inventory.connections)) { connection in
-                                HStack {
-                                    IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
-                                    VStack(alignment: .leading) {
-                                        Text("\(connection.protocolName) · \(connection.state)").font(.caption).foregroundStyle(.secondary)
-                                        Text("\(connection.localAddress) → \(connection.remoteAddress)").textSelection(.enabled)
+                        }.buttonStyle(.bordered).controlSize(.small)
+                    }
+                    if let inspectionTab {
+                        ProcessInspectionView(store: store, process: process, tab: inspectionTab)
+                            .id("\(process.id)#\(inspectionTab.rawValue)")
+                    } else {
+                        ProvenanceSection(store: store, process: process)
+                        Button("Refresh Live Inventory") { store.loadInventory(for: process) }
+                        if store.inventoryLoading { ProgressView("Inspecting process…") }
+                        if let inventory = store.inventory {
+                            if !inventory.warnings.isEmpty {
+                                ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+                            }
+                            TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
+                            inventorySection("Open Files", count: inventory.files.count) {
+                                ForEach(filtered(inventory.files)) { file in
+                                    HStack {
+                                        FileLookupLinks(path: file.path, checksFileOnDisk: false)
+                                        Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
-                        }
-                        inventorySection("Threads", count: inventory.threads.count) {
-                            ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
-                        }
-                        inventorySection("Loaded Libraries", count: inventory.libraries.count) {
-                            ForEach(filtered(inventory.libraries)) { library in
-                                HStack {
-                                    FileLookupLinks(path: library.path)
-                                    Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            inventorySection("Network Connections", count: inventory.connections.count) {
+                                ForEach(filtered(inventory.connections)) { connection in
+                                    HStack {
+                                        IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
+                                        VStack(alignment: .leading) {
+                                            Text("\(connection.protocolName) · \(connection.state)").font(.caption).foregroundStyle(.secondary)
+                                            Text("\(connection.localAddress) → \(connection.remoteAddress)").textSelection(.enabled)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            inventorySection("Threads", count: inventory.threads.count) {
+                                ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
+                            }
+                            inventorySection("Loaded Libraries", count: inventory.libraries.count) {
+                                ForEach(filtered(inventory.libraries)) { library in
+                                    HStack {
+                                        FileLookupLinks(path: library.path)
+                                        Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 }
                             }
                         }
                     }
                 }.padding()
             } else { ContentUnavailableView("Process Exited", systemImage: "terminal", description: Text("Its historical metrics remain available until retention expires.")) }
-        }.onAppear {
+        }.task(id: id) {
+            inspectionTab = nil
             if let process = store.process(id: id) {
                 store.loadProvenance(for: process)
                 store.loadInventory(for: process)

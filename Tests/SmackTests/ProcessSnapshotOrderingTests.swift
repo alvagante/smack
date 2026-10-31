@@ -10,6 +10,8 @@ private actor DelayedSampler: PrivilegedSamplingProviding {
 
     nonisolated func setAvailable(_ value: Bool) {}
     func collectInventory(pid: Int32, startTime: Date) async -> InventoryPayload? { nil }
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload? { nil }
+
     func collectNetworkPorts() async -> SocketCollection? { nil }
 
     func collectSnapshot() async -> ProcessSnapshotPayload? {

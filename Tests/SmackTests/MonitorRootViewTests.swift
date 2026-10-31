@@ -4,6 +4,61 @@ import Testing
 @testable import Smack
 
 @Suite @MainActor struct MonitorRootViewTests {
+    @Test func subpageNavigationRetracesVisitsAndSummaryClearsHistory() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+        let suiteName = "MonitorRootViewTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
+        let client = PrivilegedSamplingClient()
+        let scheduler = CollectionScheduler(
+            systemCollector: SystemCollector(),
+            processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+            inventoryCollector: InventoryCollector(privileged: client),
+            networkPortCollector: NetworkPortCollector(privileged: client),
+            history: history,
+            settings: settingsStore.settings,
+            onSystem: { _ in }, onProcesses: { _ in },
+            onInventory: { _, _ in }, onNetworkPorts: { _ in }
+        )
+        let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
+
+        #expect(store.previousRoute == nil)
+        store.goBack()
+        #expect(store.route == .summary)
+        store.route = .applications
+        #expect(store.previousRoute == .summary)
+        store.route = .application("app")
+        store.route = .application("app")
+        #expect(store.previousRoute == .applications)
+        store.route = .process("process")
+        #expect(store.previousRoute == .application("app"))
+        store.goBack()
+        #expect(store.route == .application("app"))
+        #expect(store.previousRoute == .applications)
+        store.goBack()
+        #expect(store.route == .applications)
+        #expect(store.previousRoute == .summary)
+        store.goBack()
+        #expect(store.route == .summary)
+        #expect(store.previousRoute == nil)
+
+        store.route = .systemDetails
+        store.route = .advancedSystemDetails
+        #expect(store.previousRoute == .systemDetails)
+        store.goBack()
+        #expect(store.route == .systemDetails)
+        store.route = .settings
+        #expect(store.previousRoute == .systemDetails)
+        store.route = .summary
+        #expect(store.previousRoute == nil)
+        store.route = .history
+        #expect(store.previousRoute == .summary)
+    }
+
     @Test func inventoryCacheEvictsExitedProcessesAndRejectsLateReplies() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

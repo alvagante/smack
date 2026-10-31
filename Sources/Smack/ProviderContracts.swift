@@ -30,6 +30,7 @@ protocol PrivilegedSamplingProviding: AnyObject, Sendable {
     func collectSnapshot() async -> ProcessSnapshotPayload?
     func collectInventory(pid: Int32, startTime: Date) async -> InventoryPayload?
     func collectNetworkPorts() async -> SocketCollection?
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload?
 }
 
 struct MetricDelta {

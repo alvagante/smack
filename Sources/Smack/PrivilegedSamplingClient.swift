@@ -35,6 +35,12 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Se
         }
     }
 
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload? {
+        await request(timeout: 10) { proxy, reply in
+            proxy.captureFileActivity(pid: pid, startTime: startTime.timeIntervalSince1970, reply: reply)
+        }
+    }
+
     func collectNetworkPorts() async -> SocketCollection? {
         await request(timeout: 6) { proxy, reply in
             proxy.collectNetworkPorts(reply: reply)

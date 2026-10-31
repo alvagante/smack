@@ -10,6 +10,11 @@ enum ApplicationTab: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
     case processes = "Processes"
     case diagnostics = "Diagnostics"
+    case launchContext = "Launch Context"
+    case logs = "Logs"
+    case startup = "Startup"
+    case security = "Security"
+    case fileActivity = "File Activity"
 
     var id: Self { self }
 }
@@ -186,7 +191,7 @@ struct ApplicationDetailView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: 4), spacing: 12) {
                 AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
                 AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
                 AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
@@ -275,7 +280,7 @@ struct ApplicationDetailView: View {
         case .threads: return inventory?.threadTotal
         case .libraries: return inventory?.libraries.count
         case .processes: return app.processes.count
-        case .provenance, .timeline, .diagnostics: return nil
+        case .provenance, .timeline, .diagnostics, .launchContext, .logs, .startup, .security, .fileActivity: return nil
         }
     }
 
@@ -312,6 +317,11 @@ struct ApplicationDetailView: View {
         case .timeline: ApplicationTimelineTab(store: store, app: app)
         case .processes: processesList(app)
         case .diagnostics: ApplicationDiagnosticsTab(app: app, model: profile)
+        case .launchContext: ApplicationInspectionTab(store: store, app: app, tab: .launchContext)
+        case .logs: ApplicationInspectionTab(store: store, app: app, tab: .logs)
+        case .startup: ApplicationInspectionTab(store: store, app: app, tab: .startup)
+        case .security: ApplicationInspectionTab(store: store, app: app, tab: .security)
+        case .fileActivity: ApplicationInspectionTab(store: store, app: app, tab: .fileActivity)
         }
     }
 
@@ -502,16 +512,19 @@ private struct AppMetricChart: View {
         }
         let maximum = prepared.flatMap { $0.1 }.map(\.value).max() ?? 0
         return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(title).font(.headline)
-                Spacer()
+            Text(title).font(.headline).lineLimit(1).minimumScaleFactor(0.8)
+            HStack(alignment: .top, spacing: 8) {
                 ForEach(prepared, id: \.0.id) { line, samples in
-                    HStack(spacing: 4) {
-                        Circle().fill(line.color).frame(width: 7, height: 7)
-                        Text(line.title)
-                        if let last = samples.last { Text(format(last.value)).monospacedDigit() }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Circle().fill(line.color).frame(width: 7, height: 7)
+                            Text(line.title)
+                        }
+                        Text(samples.last.map { format($0.value) } ?? "No data").monospacedDigit()
                     }
                     .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             Chart {

@@ -31,10 +31,15 @@ struct MonitorRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                if store.route == .advancedSystemDetails {
-                    Button { store.route = .systemDetails } label: { Label("System Details", systemImage: "chevron.left") }
-                } else if store.route != .summary {
-                    Button { store.route = .summary } label: { Label("Summary", systemImage: "chevron.left") }
+                if store.route != .summary {
+                    if let previous = store.previousRoute, previous != .summary {
+                        Button("Summary") { store.route = .summary }
+                        Button { store.goBack() } label: { Image(systemName: "chevron.left") }
+                            .hoverHint("Previous page")
+                            .accessibilityLabel("Previous page")
+                    } else {
+                        Button { store.route = .summary } label: { Label("Summary", systemImage: "chevron.left") }
+                    }
                 } else {
                     Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
                 }
@@ -76,6 +81,11 @@ struct MonitorRootView: View {
                 case .application(let id): ApplicationDetailView(store: store, id: id)
                 case .process(let id): ProcessDetailView(store: store, id: id)
                 case .networkPorts: NetworkPortsView(store: store)
+                case .docker: DockerDetailView(model: store.dockerModel)
+                case .homebrew: HomebrewDetailView(model: store.homebrewModel)
+                case .devEnvironments: DevEnvironmentDetailView(model: store.devEnvironmentModel)
+                case .agents: AgentDetailView(model: store.agentsModel)
+                case .userHome: UserHomeDetailView(model: store.userHomeModel)
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
                 case .timeline: TimelineView(store: store)
                 case .history: HistoryView(store: store)

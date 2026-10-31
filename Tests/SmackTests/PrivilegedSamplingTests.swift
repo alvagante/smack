@@ -154,6 +154,8 @@ private final class StubPrivilegedSampler: PrivilegedSamplingProviding, @uncheck
         inventoryPayload
     }
 
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload? { nil }
+
     func collectNetworkPorts() async -> SocketCollection? {
         socketCollection
     }

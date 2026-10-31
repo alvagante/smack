@@ -18,6 +18,11 @@ enum AppRoute: Hashable {
     case application(String)
     case process(String)
     case networkPorts
+    case docker
+    case homebrew
+    case devEnvironments
+    case userHome
+    case agents
     case startupItems
     case timeline
     case history
@@ -30,7 +35,19 @@ enum AppRoute: Hashable {
 final class MonitorStore: ObservableObject {
     @Published var system: SystemSample?
     @Published var processes: ProcessSnapshot?
-    @Published var route: AppRoute = .summary
+    @Published var route: AppRoute = .summary {
+        didSet {
+            guard route != oldValue else { return }
+            if route == .summary {
+                routeHistory.removeAll()
+            } else if !isNavigatingBack {
+                routeHistory.append(oldValue)
+            }
+        }
+    }
+    @Published private var routeHistory: [AppRoute] = []
+    private var isNavigatingBack = false
+    var previousRoute: AppRoute? { routeHistory.last }
     @Published private(set) var recentMetrics = LiveMetricHistory()
     @Published var inventory: ProcessInventory?
     @Published private(set) var provenance: ProcessProvenance?
@@ -76,6 +93,11 @@ final class MonitorStore: ObservableObject {
     let settingsViewModel = SettingsViewModel()
     let storageScanModel: StorageScanModel
     let startupItemsModel = StartupItemsModel()
+    let dockerModel = DockerMonitor()
+    let homebrewModel = HomebrewMonitor()
+    let devEnvironmentModel = DevEnvironmentMonitor()
+    let userHomeModel = UserHomeMonitor()
+    let agentsModel = AgentMonitor()
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?
@@ -106,6 +128,13 @@ final class MonitorStore: ObservableObject {
         }
     }
 
+    func goBack() {
+        guard let previous = routeHistory.popLast() else { return }
+        isNavigatingBack = true
+        defer { isNavigatingBack = false }
+        route = previous
+    }
+
     /// The thermal page asks for sensor readings while it is on screen.
     func setTemperaturesWanted(_ wanted: Bool) {
         Task { await scheduler.setTemperaturesWanted(wanted) }
@@ -116,6 +145,10 @@ final class MonitorStore: ObservableObject {
         // Only a real transition counts: the launch-time hide must not overwrite the previous session's last look.
         guard visible != panelVisible else { return }
         panelVisible = visible
+        dockerModel.setVisible(visible)
+        homebrewModel.setVisible(visible)
+        devEnvironmentModel.setVisible(visible)
+        agentsModel.setVisible(visible)
         if visible {
             diffTask?.cancel()
             diffTask = Task { await refreshActivityDiff() }

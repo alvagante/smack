@@ -34,6 +34,16 @@ struct SummaryView: View {
                     }
                 }
                 .frame(height: 120)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 12) {
+                        DockerSummaryTile(model: store.dockerModel) { store.route = .docker }
+                        HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew }
+                        DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments }
+                        AgentsSummaryTile(model: store.agentsModel) { store.route = .agents }
+                        UserHomeSummaryTile { store.route = .userHome }
+                    }
+                }
+                .frame(height: 120)
             }
             .padding(14)
         }

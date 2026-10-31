@@ -15,6 +15,7 @@ What you can **see** and **monitor**:
 - **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
 - **Live dashboard:** CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state, on hover or click of the notch or menu-bar icon. Each resource opens a detail view with a large live or 1h/24h/7d chart above the heaviest processes, each with its own sparkline. The thermal page also shows hardware temperature sensors (direct build).
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
+- **Process inspections:** Launch Context (arguments, working directory, masked environment), Logs (severity, search, live refresh and crash reports), Startup (matching registrations and restart triggers), Security (identity, signing and entitlements), and File Activity (five-second filesystem traces via the updated superuser helper). Available on application and individual process pages in direct builds.
 - **Application detail:** one page per application merging files, connections, threads, libraries, provenance, timeline and history across all its processes, plus on-demand profiling with `footprint`, `vmmap`, `heap`, `leaks` and `sample` summarized as highlights (direct build). Heap and Leaks ask before they suspend the process.
 - **Network:** live per-process and per-application receive/send rates with sparklines (direct build, live only), listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
 - **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
@@ -22,6 +23,10 @@ What you can **see** and **monitor**:
 - **GPU, memory pressure, swap, and wakeups:** live and in history, with per-process wakeup rates.
 - **Process provenance and tree:** ancestry, code signature, architecture, Rosetta, quarantine, launchd job, and plain-language notes on well-known processes, plus a process tree rooted at launchd.
 - **History:** persistent system and per-program history with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, and JSON/CSV export.
+- **Docker:** when the CLI is installed, Summary shows running containers and published host ports. A sidebar opens containers grouped by Compose project, images, open ports, volumes, networks, storage usage, and engine details, with section filters and live container statistics (direct build). Containers default to Running; clickable Running and Stopped cards filter the list. Per-container Start, Stop, Restart, Pause and Resume controls ask for confirmation. Inspect opens full details for containers, images, volumes, networks, engine and storage, with copy and refresh.
+- **Homebrew:** when brew is installed, Summary shows installed and outdated counts. Open it to browse versions and descriptions, update packages, search and install tools or apps, control user services, and preview or run cleanup (direct build). Changes ask for confirmation; failed commands include output, copy, and retry. Last-used data is unavailable because Homebrew does not track it.
+- **User home:** Summary opens a configuration browser for dotfiles, home files, XDG configuration, preferences, application support, launch agents, app containers and the user Library (direct build). Browse folders, filter entries, reveal files in Finder and view text or decoded plist contents. Previews load on selection with a 1 MiB limit.
+- **Dev environments:** Summary links to a language sidebar covering 26 languages and runtimes. Discover system, Homebrew, version-manager and Python virtual environments; add project folders for bounded scans. Select installations to inspect versions, executable paths, package inventories and runtime configuration (direct build).
 - **System details:** Mac hardware and software information, from the info button in the header.
 
 What you can **change**:
@@ -40,7 +45,7 @@ What you can **change**:
 - **Adaptive panel size:** a compact height for the Summary, full height for every other page.
 - **Quit control:** a Quit button in the header (⌘Q) and in Settings.
 
-All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some Apple system processes remain hidden even with the helper.
+Monitoring data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Homebrew uses its configured repositories and download sources for package searches, metadata checks, installs, and upgrades. Some Apple system processes remain hidden even with the helper.
 
 Smack has two distribution flavors. The **direct build** has every feature and the optional
 superuser helper. The **App Store build** runs in App Sandbox, so it cannot include the
