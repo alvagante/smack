@@ -13,7 +13,12 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
 | Dev environments | discover runtimes and version managers, inspect versions, packages and paths | unavailable: sandbox denies runtime inspection |
-| Homebrew | installed and outdated packages, search/install, upgrades, user services, cleanup | unavailable: sandbox denies running brew |
+| Homebrew | installed and outdated packages, search/install, upgrades, uninstall/reinstall, pinning, user services, cleanup | unavailable: sandbox denies running brew |
+| Installed apps | inventory, on-demand sizes, confirmed move to Trash | unavailable: sandbox restricts discovery and removal |
+| AI agents | local configuration, logs, memory, skills and sessions | unavailable: sandbox restricts agent directories |
+| User home | configuration browser and bounded file previews | unavailable: sandbox restricts home-directory access |
+| Process/application inspections | launch context, logs, startup, security, helper filesystem trace | unavailable: sandbox restricts inspection tools and helper |
+| Per-process/application network rates | live rates and sparklines, sampled while visible | unavailable: sandbox denies nettop |
 | Startup items | `launchctl`, `sfltool dumpbtm`, `crontab`, System Events; daemons need an administrator password | unavailable: sandbox denies launching these tools |
 | Launch at login | `SMAppService.mainApp` | `SMAppService.mainApp` |
 | Activity Timeline: process, volume, sleep, power, thermal and pressure events | yes | yes |

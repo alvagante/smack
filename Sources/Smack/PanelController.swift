@@ -192,7 +192,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         return summary ? min(Self.summaryHeight, full) : full
     }
 
-    private static let summaryHeight: CGFloat = 380
+    private static let summaryHeight: CGFloat = 506
 
     private func targetFrame() -> NSRect {
         let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]

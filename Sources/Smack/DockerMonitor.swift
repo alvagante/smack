@@ -233,7 +233,7 @@ struct DockerCollector: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func collect(executable: String, details: Bool) async -> DockerSnapshot {
+    func collect(executable: String, details: Bool, section: DockerSection = .containers) async -> DockerSnapshot {
         var snapshot = DockerSnapshot()
         func command(_ arguments: [String]) async throws -> String {
             try Self.checked(await run(executable, arguments))
@@ -257,21 +257,31 @@ struct DockerCollector: Sendable {
             return snapshot
         }
         guard details, !Task.isCancelled else { return snapshot }
-        do {
-            snapshot.stats = try Self.decodeLines(try await command(["stats", "--no-stream", "--no-trunc", "--format", "{{json .}}"]), as: DockerContainerStats.self)
-        } catch { snapshot.warnings.append("Container statistics unavailable: \(error.localizedDescription)") }
-        do {
-            snapshot.disk = try Self.decodeLines(try await command(["system", "df", "--format", "{{json .}}"]), as: DockerDiskUsage.self)
-        } catch { snapshot.warnings.append("Disk usage unavailable: \(error.localizedDescription)") }
-        do {
-            snapshot.images = try Self.decodeLines(try await command(["image", "ls", "--all", "--no-trunc", "--format", "{{json .}}"]), as: DockerImage.self)
-        } catch { snapshot.warnings.append("Images unavailable: \(error.localizedDescription)") }
-        do {
-            snapshot.volumes = try Self.decodeLines(try await command(["volume", "ls", "--format", "{{json .}}"]), as: DockerVolume.self)
-        } catch { snapshot.warnings.append("Volumes unavailable: \(error.localizedDescription)") }
-        do {
-            snapshot.networks = try Self.decodeLines(try await command(["network", "ls", "--no-trunc", "--format", "{{json .}}"]), as: DockerNetwork.self)
-        } catch { snapshot.warnings.append("Networks unavailable: \(error.localizedDescription)") }
+        if section == .containers {
+            do {
+                snapshot.stats = try Self.decodeLines(try await command(["stats", "--no-stream", "--no-trunc", "--format", "{{json .}}"]), as: DockerContainerStats.self)
+            } catch { snapshot.warnings.append("Container statistics unavailable: \(error.localizedDescription)") }
+        }
+        if section == .storage {
+            do {
+                snapshot.disk = try Self.decodeLines(try await command(["system", "df", "--format", "{{json .}}"]), as: DockerDiskUsage.self)
+            } catch { snapshot.warnings.append("Disk usage unavailable: \(error.localizedDescription)") }
+        }
+        if section == .images {
+            do {
+                snapshot.images = try Self.decodeLines(try await command(["image", "ls", "--all", "--no-trunc", "--format", "{{json .}}"]), as: DockerImage.self)
+            } catch { snapshot.warnings.append("Images unavailable: \(error.localizedDescription)") }
+        }
+        if section == .volumes {
+            do {
+                snapshot.volumes = try Self.decodeLines(try await command(["volume", "ls", "--format", "{{json .}}"]), as: DockerVolume.self)
+            } catch { snapshot.warnings.append("Volumes unavailable: \(error.localizedDescription)") }
+        }
+        if section == .networks {
+            do {
+                snapshot.networks = try Self.decodeLines(try await command(["network", "ls", "--no-trunc", "--format", "{{json .}}"]), as: DockerNetwork.self)
+            } catch { snapshot.warnings.append("Networks unavailable: \(error.localizedDescription)") }
+        }
         snapshot.timestamp = Date()
         return snapshot
     }
@@ -293,6 +303,16 @@ final class DockerMonitor: ObservableObject {
     @Published private(set) var operationOutput = ""
     @Published private(set) var operationFailed = false
     var detailsWanted = false
+    var section = DockerSection.containers
+    private var detailDates: [DockerSection: Date] = [:]
+    private var source = ""
+
+    private func sourceKey(_ executable: String) -> String {
+        let env = ProcessInfo.processInfo.environment
+        let config = (env["DOCKER_CONFIG"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".docker").path) + "/config.json"
+        let attributes = try? FileManager.default.attributesOfItem(atPath: config)
+        return "\(executable):\(env["DOCKER_HOST"] ?? ""):\(env["DOCKER_CONTEXT"] ?? ""):\(attributes?[.modificationDate] ?? "")"
+    }
     private var task: Task<Void, Never>?
     private let collector: DockerCollector
     private let locate: () -> String?
@@ -308,24 +328,53 @@ final class DockerMonitor: ObservableObject {
         task = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.refresh()
+                await self.refresh(automatic: true)
                 try? await Task.sleep(for: .seconds(15))
             }
         }
     }
 
-    func refresh() async {
+    func showDetails() async {
+        while loading || busy {
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+        }
+        guard !Task.isCancelled else { return }
+        if let executable = locate(), sourceKey(executable) == source,
+           let date = detailDates[section], Date().timeIntervalSince(date) < (section == .storage ? 300 : 60) { return }
+        await refresh()
+    }
+
+    func refresh(automatic: Bool = false) async {
         guard !loading, !busy else { return }
         let executable = locate()
         installed = executable != nil
         guard let executable else { snapshot = nil; return }
         loading = true
         defer { loading = false }
-        let value = await collector.collect(executable: executable, details: detailsWanted)
+        let key = sourceKey(executable)
+        if key != source { snapshot = nil; detailDates = [:]; source = key }
+        let requested = section
+        let age = detailDates[requested].map { Date().timeIntervalSince($0) } ?? .infinity
+        // Storage is explicit-only. Inventory sections retry at most once per minute while selected.
+        let wantsDetails = detailsWanted && (!automatic || (requested != .storage && (requested == .containers || age >= 60)))
+        var value = await collector.collect(executable: executable, details: wantsDetails, section: requested)
         guard !Task.isCancelled else { return }
+        guard key == sourceKey(executable) else { snapshot = nil; detailDates = [:]; return }
+        if value.engine != nil {
+            if wantsDetails { detailDates[requested] = Date() }
+            value.stats = wantsDetails && requested == .containers ? value.stats : snapshot?.stats ?? []
+            if requested != .storage || !wantsDetails { value.disk = snapshot?.disk }
+            if requested != .images || !wantsDetails { value.images = snapshot?.images }
+            if requested != .volumes || !wantsDetails { value.volumes = snapshot?.volumes }
+            if requested != .networks || !wantsDetails { value.networks = snapshot?.networks }
+        } else { detailDates = [:] }
         snapshot = value
     }
     func inspect(_ target: DockerInspectionTarget) async throws -> String {
+        while loading || busy { try await Task.sleep(for: .milliseconds(50)) }
+        try Task.checkCancellation()
+        loading = true
+        defer { loading = false }
         guard let executable = locate() else { throw DockerCollectionError(message: "Docker CLI unavailable.") }
         return try await collector.inspect(executable: executable, target: target)
     }
@@ -356,6 +405,11 @@ final class DockerMonitor: ObservableObject {
             operationOutput = "Docker CLI unavailable."
             return
         }
+        guard sourceKey(executable) == source else {
+            operationFailed = true
+            operationOutput = "Docker context changed. Refresh its state and try again."
+            return
+        }
         busy = true
         do {
             let output = try DockerCollector.checked(await collector.run(executable, value.arguments))
@@ -365,6 +419,8 @@ final class DockerMonitor: ObservableObject {
             operationOutput = error.localizedDescription
         }
         busy = false
+        detailDates = [:]
+        snapshot = nil
         await refresh()
     }
 

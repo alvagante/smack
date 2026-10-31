@@ -62,3 +62,69 @@ enum ProcessNetworkCollector {
         return rates
     }
 }
+
+/// One panel-owned sampling loop, independent of process/history collection cadence.
+actor ProcessNetworkSampler {
+    typealias Collect = @Sendable () async -> ProcessNetworkSample?
+    typealias Sleep = @Sendable (TimeInterval) async throws -> Void
+    private let collect: Collect
+    private let now: @Sendable () -> TimeInterval
+    private let sleep: Sleep
+    private let interval: TimeInterval
+    private let maximumAge: TimeInterval
+    private var task: Task<Void, Never>?
+    private var visible = false
+    private var generation = 0
+    private var sample: ProcessNetworkSample?
+    private var receivedAt: TimeInterval?
+
+    init(interval: TimeInterval = 5, maximumAge: TimeInterval = 10,
+         collect: @escaping Collect = { await ProcessNetworkCollector.collect() },
+         now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         sleep: @escaping Sleep = { try await Task.sleep(for: .seconds($0)) }) {
+        self.interval = interval
+        self.maximumAge = maximumAge
+        self.collect = collect
+        self.now = now
+        self.sleep = sleep
+    }
+
+    func setVisible(_ value: Bool) async {
+        guard value != visible else { return }
+        visible = value
+        generation += 1
+        let generation = generation
+        let previous = task
+        previous?.cancel()
+        sample = nil
+        receivedAt = nil
+        // Reopening waits for the old subprocess to stop, so rapid toggles cannot overlap probes.
+        await previous?.value
+        guard self.generation == generation else { return }
+        task = nil
+        guard value else { return }
+        let collect = collect, now = now, sleep = sleep, interval = interval
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                let started = now()
+                let value = await collect()
+                guard !Task.isCancelled,
+                      await self?.receive(value, generation: generation) == true else { return }
+                do { try await sleep(max(0.05, interval - (now() - started))) }
+                catch { return }
+            }
+        }
+    }
+
+    private func receive(_ value: ProcessNetworkSample?, generation: Int) -> Bool {
+        guard self.generation == generation, visible else { return false }
+        sample = value
+        receivedAt = value == nil ? nil : now()
+        return true
+    }
+
+    func latest() -> ProcessNetworkSample? {
+        guard visible, let receivedAt, now() - receivedAt <= maximumAge else { return nil }
+        return sample
+    }
+}

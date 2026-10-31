@@ -15,7 +15,7 @@ struct AgentsSummaryTile: View {
                          ?? "Configuration, logs, memory and skills")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
-                .frame(width: 220, height: 110)
+                .frame(maxHeight: .infinity)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -31,6 +31,7 @@ struct AgentDetailView: View {
     @State private var selectedArtifact: String?
     @State private var query = ""
     @StateObject private var browser = UserHomeMonitor()
+    @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
     private var agents: [InstalledAgent] {
         (model.snapshot?.agents ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
@@ -88,9 +89,19 @@ struct AgentDetailView: View {
                         }
                         Text("Discovery uses known user paths and inherited PATH. Existing directories may remain after uninstalling. File previews load on selection, up to 1 MiB.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Picker("Category", selection: $category) {
-                            ForEach(AgentCategory.allCases) { item in
-                                Text("\(item.rawValue) (\(agent.artifacts.filter { $0.category == item }.count))").tag(item)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 4) {
+                                ForEach(AgentCategory.allCases) { item in
+                                    let count = agent.artifacts.filter { $0.category == item }.count
+                                    Button { category = item } label: {
+                                        Text("\(item.rawValue) (\(count))").font(.callout)
+                                            .foregroundStyle(count == 0 && category != item ? .secondary : .primary)
+                                            .padding(.horizontal, 10).padding(.vertical, 5)
+                                            .background(category == item ? Color.accentColor.opacity(0.15) : .clear,
+                                                        in: RoundedRectangle(cornerRadius: 6))
+                                            .contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                }
                             }
                         }
                         if artifacts.isEmpty {
@@ -104,19 +115,21 @@ struct AgentDetailView: View {
                                 HStack {
                                     Text(item.url.path).font(.caption.monospaced()).textSelection(.enabled)
                                     Spacer()
+                                    if !item.isDirectory { WrapToggle(wrap: $wrap) }
                                     Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
                                 }
                                 if item.isDirectory {
                                     UserHomeDetailView(model: browser, rootDirectory: item.url).id(item.id)
                                 } else {
-                                    ScrollView([.horizontal, .vertical]) {
+                                    FileContentsScrollView(wrap: wrap) {
                                         VStack(alignment: .leading, spacing: 10) {
                                             if browser.inspecting { ProgressView("Reading contents…") }
                                             if let preview = browser.preview {
                                                 if let message = preview.message { Text(message).foregroundStyle(.secondary) }
                                                 Text(preview.text).font(.caption.monospaced()).textSelection(.enabled)
+                                                    .fixedSize(horizontal: !wrap, vertical: false)
                                             }
-                                        }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                                        }.padding()
                                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                                 }
                             }

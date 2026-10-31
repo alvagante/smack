@@ -85,6 +85,7 @@ struct MonitorRootView: View {
                 case .homebrew: HomebrewDetailView(model: store.homebrewModel)
                 case .devEnvironments: DevEnvironmentDetailView(model: store.devEnvironmentModel)
                 case .agents: AgentDetailView(model: store.agentsModel)
+                case .installedApps: InstalledAppsDetailView(model: store.installedAppsModel)
                 case .userHome: UserHomeDetailView(model: store.userHomeModel)
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
                 case .timeline: TimelineView(store: store)

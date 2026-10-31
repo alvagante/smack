@@ -15,7 +15,7 @@ struct DockerSummaryTile: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 220, height: 110)
+                .frame(maxHeight: .infinity)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -24,7 +24,7 @@ struct DockerSummaryTile: View {
     }
 }
 
-enum DockerSection: String, CaseIterable {
+enum DockerSection: String, CaseIterable, Sendable {
     case containers = "Containers"
     case images = "Images"
     case ports = "Open ports"
@@ -96,11 +96,10 @@ struct DockerDetailView: View {
                 }
             }
         }
-        .task {
+        .task(id: section) {
+            model.section = section
             model.detailsWanted = true
-            // A summary collection may already be running when this route opens.
-            while model.loading && !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
-            if !Task.isCancelled { await model.refresh() }
+            await model.showDetails()
         }
         .onDisappear { model.detailsWanted = false }
         .onChange(of: section) { model.query = "" }

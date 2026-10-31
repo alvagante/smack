@@ -19,6 +19,51 @@ struct BrewPackage: Identifiable, Sendable {
     func arguments(_ verb: String) -> [String] { [verb, kind.flag, fullName] }
 }
 
+enum BrewPackageAction: String, CaseIterable {
+    case upgrade, reinstall, uninstall, pin, unpin
+
+    var title: String { self == .upgrade ? "Update" : rawValue.capitalized }
+
+    func isAvailable(for package: BrewPackage) -> Bool {
+        switch self {
+        case .upgrade: package.isOutdated && !package.pinned
+        case .pin: package.kind == .formula && !package.pinned
+        case .unpin: package.kind == .formula && package.pinned
+        case .reinstall, .uninstall: true
+        }
+    }
+
+    func operation(for package: BrewPackage) -> BrewOperation {
+        var operation = BrewOperation(title: "\(title) \(package.name)?", arguments: package.arguments(rawValue))
+        operation.confirmationLabel = title
+        operation.destructive = self == .uninstall
+        switch self {
+        case .uninstall:
+            operation.explanation = "Homebrew will remove this package and run its uninstall steps. Files are not moved to the Trash. Homebrew may refuse removal if installed packages depend on it."
+        case .reinstall:
+            operation.explanation = "Homebrew will uninstall and reinstall this package. It may download software, update dependents and clean up old versions."
+        case .pin:
+            operation.explanation = "Hold this tool at its current version during Homebrew upgrades."
+        case .unpin:
+            operation.explanation = "Allow Homebrew to upgrade this tool again."
+        case .upgrade: break
+        }
+        return operation
+    }
+}
+
+enum BrewPackageRead: String, CaseIterable, Identifiable, Sendable {
+    case info = "Info", files = "Installed files"
+    var id: String { rawValue }
+
+    func arguments(for package: BrewPackage) -> [String] {
+        switch self {
+        case .info: package.arguments("info")
+        case .files: ["list", "--verbose", package.kind.flag, package.fullName]
+        }
+    }
+}
+
 struct BrewService: Decodable, Identifiable, Sendable {
     let name: String
     let status: String
@@ -41,7 +86,7 @@ struct BrewCollector: Sendable {
     typealias Runner = @Sendable (String, [String]) async -> CommandRunner.Result
     var run: Runner = { executable, arguments in
         // GUI apps inherit a minimal PATH. Disable background network refresh and analytics.
-        let readOnly = ["info", "outdated", "search", "--prefix"].contains(arguments.first ?? "") ||
+        let readOnly = ["info", "list", "outdated", "search", "--prefix"].contains(arguments.first ?? "") ||
             arguments.contains("--dry-run") || arguments.prefix(2) == ["services", "list"] || executable == "/usr/bin/du"
         return await CommandRunner.run("/usr/bin/env", [
             "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ANALYTICS=1",
@@ -117,7 +162,7 @@ struct BrewCollector: Sendable {
         return (formulae + casks).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    func collect(executable: String, details: Bool) async -> BrewSnapshot {
+    func collect(executable: String, details: Bool, section: BrewSection = .installed) async -> BrewSnapshot {
         var snapshot = BrewSnapshot()
         var outdated: String?
         do { outdated = try Self.checked(await run(executable, ["outdated", "--json=v2"])) }
@@ -133,22 +178,30 @@ struct BrewCollector: Sendable {
             }
         } catch { snapshot.warnings.append("Installed packages unavailable: \(error.localizedDescription)") }
         guard details, !Task.isCancelled else { return snapshot }
-        do {
-            let output = try Self.checked(await run(executable, ["services", "list", "--json"]))
-            snapshot.services = try JSONDecoder().decode([BrewService].self, from: Data(output.utf8))
-        } catch { snapshot.warnings.append("Services unavailable: \(error.localizedDescription)") }
-        do { snapshot.cleanup = try Self.checked(await run(executable, ["cleanup", "--dry-run"])) }
-        catch { snapshot.warnings.append("Cleanup estimate unavailable: \(error.localizedDescription)") }
-        do {
-            let prefix = try Self.checked(await run(executable, ["--prefix"])).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard prefix.hasPrefix("/") else { throw BrewError(message: "Invalid Homebrew prefix.") }
-            let sizes = try Self.checked(await run("/usr/bin/du", ["-sk", "\(prefix)/Cellar"]))
-            if let kilobytes = sizes.split(whereSeparator: \.isWhitespace).first.flatMap({ UInt64($0) }),
-               kilobytes <= UInt64.max / 1024 {
-                snapshot.managedBytes = kilobytes * 1024
-            }
-        } catch { snapshot.warnings.append("Tool storage unavailable: \(error.localizedDescription)") }
+        if section == .services {
+            do {
+                let output = try Self.checked(await run(executable, ["services", "list", "--json"]))
+                snapshot.services = try JSONDecoder().decode([BrewService].self, from: Data(output.utf8))
+            } catch { snapshot.warnings.append("Services unavailable: \(error.localizedDescription)") }
+        }
+        if section == .cleanup {
+            do { snapshot.cleanup = try Self.checked(await run(executable, ["cleanup", "--dry-run"])) }
+            catch { snapshot.warnings.append("Cleanup estimate unavailable: \(error.localizedDescription)") }
+            do {
+                let prefix = try Self.checked(await run(executable, ["--prefix"])).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard prefix.hasPrefix("/") else { throw BrewError(message: "Invalid Homebrew prefix.") }
+                let sizes = try Self.checked(await run("/usr/bin/du", ["-sk", "\(prefix)/Cellar"]))
+                if let kilobytes = sizes.split(whereSeparator: \.isWhitespace).first.flatMap({ UInt64($0) }),
+                   kilobytes <= UInt64.max / 1024 {
+                    snapshot.managedBytes = kilobytes * 1024
+                }
+            } catch { snapshot.warnings.append("Tool storage unavailable: \(error.localizedDescription)") }
+        }
         return snapshot
+    }
+
+    func inspect(executable: String, package: BrewPackage, read: BrewPackageRead) async throws -> String {
+        try Self.checked(await run(executable, read.arguments(for: package)))
     }
 
     func search(executable: String, query: String, kind: BrewKind) async throws -> [BrewPackage] {
@@ -170,6 +223,9 @@ struct BrewOperation: Identifiable {
     var id: String { arguments.joined(separator: " ") }
     let title: String
     let arguments: [String]
+    var confirmationLabel = "Run"
+    var destructive = false
+    var explanation: String?
 }
 
 @MainActor
@@ -187,6 +243,9 @@ final class HomebrewMonitor: ObservableObject {
     private let collector: BrewCollector
     private let locate: () -> String?
     var detailsWanted = false
+    var section = BrewSection.installed
+    private var source: String?
+    private var detailDates: [BrewSection: Date] = [:]
 
     init(collector: BrewCollector = BrewCollector(), locate: @escaping () -> String? = BrewCollector.executable) {
         self.collector = collector
@@ -200,7 +259,7 @@ final class HomebrewMonitor: ObservableObject {
             guard let self else { return }
             // Brew queries are expensive. Cache between panel opens for five minutes.
             if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > 300 {
-                await refresh()
+                await refresh(automatic: true)
             }
         }
     }
@@ -211,18 +270,27 @@ final class HomebrewMonitor: ObservableObject {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
         }
         guard !Task.isCancelled else { return }
+        let current = snapshot
+        let cached = section == .services ? current?.services != nil : section == .cleanup ? current?.cleanup != nil && current?.managedBytes != nil : current?.packages != nil
+        let date = [.services, .cleanup].contains(section) ? detailDates[section] : current?.timestamp
+        if cached, let date, Date().timeIntervalSince(date) < 300, source == locate() { return }
         await refresh()
     }
 
-    func refresh() async {
+    func refresh(automatic: Bool = false) async {
         guard !loading, !busy, !searching else { return }
         let executable = locate()
         installed = executable != nil
         guard let executable else { snapshot = nil; return }
         loading = true
         defer { loading = false }
-        let value = await collector.collect(executable: executable, details: detailsWanted)
+        if source != executable { snapshot = nil; detailDates = [:]; source = executable }
+        let requested = section
+        var value = await collector.collect(executable: executable, details: detailsWanted && !automatic, section: requested)
         guard !Task.isCancelled else { return }
+        if detailsWanted && !automatic { detailDates[requested] = Date() }
+        if requested != .services || automatic { value.services = snapshot?.services }
+        if requested != .cleanup || automatic { value.cleanup = snapshot?.cleanup; value.managedBytes = snapshot?.managedBytes }
         snapshot = value
     }
 
@@ -236,8 +304,22 @@ final class HomebrewMonitor: ObservableObject {
         catch { results = []; output = error.localizedDescription; failed = true; operation = nil }
     }
 
+    func inspect(_ package: BrewPackage, read: BrewPackageRead) async throws -> String {
+        while loading || busy || searching {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try Task.checkCancellation()
+        guard let executable = locate() else { throw BrewError(message: "Homebrew CLI unavailable.") }
+        loading = true
+        defer { loading = false }
+        return try await collector.inspect(executable: executable, package: package, read: read)
+    }
+
     func perform(_ action: BrewOperation) async {
-        guard !busy, !loading, !searching, let executable = locate() else { return }
+        while (loading || searching) && !busy {
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+        }
+        guard !Task.isCancelled, !busy, let executable = locate() else { return }
         busy = true
         operation = action
         output = ""
@@ -249,6 +331,8 @@ final class HomebrewMonitor: ObservableObject {
             if output.isEmpty { output = "Completed successfully." }
         } catch { output = error.localizedDescription; failed = true }
         busy = false
+        snapshot = nil
+        detailDates = [:]
         await refresh()
     }
 }

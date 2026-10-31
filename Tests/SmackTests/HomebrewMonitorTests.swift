@@ -39,10 +39,10 @@ struct HomebrewMonitorTests {
     }
 
     @Test func detailsIncludeCleanupServicesAndToolStorage() async {
-        let snapshot = await Self.collector.collect(executable: "/brew", details: true)
+        let snapshot = await Self.collector.collect(executable: "/brew", details: true, section: .cleanup)
         #expect(snapshot.packages?.count == 3)
         #expect(snapshot.updateCount == 3)
-        #expect(snapshot.services?.first?.status == "started")
+        #expect(await Self.collector.collect(executable: "/brew", details: true, section: .services).services?.first?.status == "started")
         #expect(snapshot.cleanup?.contains("12MB") == true)
         #expect(snapshot.managedBytes == 42 * 1024)
         #expect(snapshot.warnings.isEmpty)
@@ -107,6 +107,95 @@ struct HomebrewMonitorTests {
         #expect(model.operation?.arguments == action.arguments)
         #expect(!model.busy)
         #expect(model.snapshot?.packages?.count == 3)
+    }
+
+    @Test func packageActionsPreserveKindIdentityAndSafeUninstallDefaults() throws {
+        let packages = try BrewCollector.packages(info: Self.info, outdated: Self.outdated)
+        for package in packages {
+            for action in [BrewPackageAction.uninstall, .reinstall] {
+                let operation = action.operation(for: package)
+                #expect(operation.arguments == [action.rawValue, package.kind.flag, package.fullName])
+                #expect(operation.destructive == (action == .uninstall))
+                #expect(operation.explanation?.isEmpty == false)
+                #expect(operation.confirmationLabel == action.title)
+                #expect(!operation.arguments.contains("--force"))
+                #expect(!operation.arguments.contains("--zap"))
+                #expect(!operation.arguments.contains("--ignore-dependencies"))
+            }
+            #expect(BrewPackageAction.upgrade.isAvailable(for: package) == (package.isOutdated && !package.pinned))
+            #expect(BrewPackageAction.pin.isAvailable(for: package) == (package.kind == .formula && !package.pinned))
+            #expect(BrewPackageAction.unpin.isAvailable(for: package) == (package.kind == .formula && package.pinned))
+        }
+    }
+
+    @Test func packageDetailsUseReadCommandsAndRejectPartialOutput() async throws {
+        let packages = try BrewCollector.packages(info: Self.info, outdated: nil)
+        for package in packages {
+            for read in BrewPackageRead.allCases {
+                let expected = read == .info ? ["info", package.kind.flag, package.fullName]
+                    : ["list", "--verbose", package.kind.flag, package.fullName]
+                let collector = BrewCollector(run: { executable, arguments in
+                    #expect(executable == "/brew")
+                    #expect(arguments == expected)
+                    return .init(status: 0, output: "Package details", error: "")
+                })
+                #expect(try await collector.inspect(executable: "/brew", package: package, read: read) == "Package details")
+            }
+        }
+        let package = try #require(packages.first)
+        for result in [CommandRunner.Result.unavailable("No such package"),
+                       .init(status: 0, output: "partial", error: "", timedOut: true),
+                       .init(status: 0, output: "partial", error: "", truncated: true),
+                       .init(status: 0, output: "partial", error: "", cancelled: true)] {
+            let collector = BrewCollector(run: { _, _ in result })
+            await #expect(throws: (any Error).self) {
+                try await collector.inspect(executable: "/brew", package: package, read: .info)
+            }
+        }
+    }
+
+    private actor PackageRunner {
+        var calls: [[String]] = []
+        var continuation: CheckedContinuation<Void, Never>?
+        var reading = false
+
+        func run(_ arguments: [String]) async -> CommandRunner.Result {
+            calls.append(arguments)
+            if arguments == ["list", "--verbose", "--cask", "vendor/apps/app"] {
+                reading = true
+                await withCheckedContinuation { continuation = $0 }
+                return .init(status: 0, output: "/Applications/App.app", error: "")
+            }
+            let output = arguments.first == "info" ? #"{"formulae":[],"casks":[]}"#
+                : arguments.first == "outdated" ? #"{"formulae":[],"casks":[]}"# : "Uninstalled"
+            return .init(status: 0, output: output, error: "")
+        }
+
+        func finish() { continuation?.resume(); continuation = nil }
+    }
+
+    @Test @MainActor func uninstallWaitsForDetailsThenRefreshesInstalledInventory() async throws {
+        let runner = PackageRunner()
+        let package = try #require(BrewCollector.packages(info: Self.info, outdated: nil).first { $0.kind == .cask })
+        let model = HomebrewMonitor(collector: .init(run: { _, args in await runner.run(args) }), locate: { "/brew" })
+        let detail = Task { try await model.inspect(package, read: .files) }
+        for _ in 0..<100 {
+            if await runner.reading { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(model.loading)
+        let uninstall = Task { await model.perform(BrewPackageAction.uninstall.operation(for: package)) }
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await runner.calls.count == 1)
+        await runner.finish()
+        #expect(try await detail.value == "/Applications/App.app")
+        await uninstall.value
+        #expect(await runner.calls == [["list", "--verbose", "--cask", "vendor/apps/app"],
+                                      ["uninstall", "--cask", "vendor/apps/app"],
+                                      ["outdated", "--json=v2"], ["info", "--json=v2", "--installed"]])
+        #expect(model.snapshot?.packages?.isEmpty == true)
+        #expect(!model.failed)
+        #expect(!model.loading && !model.busy)
     }
 
     @Test @MainActor func pageRendersWithCollectedData() async throws {

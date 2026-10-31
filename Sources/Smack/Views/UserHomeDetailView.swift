@@ -12,7 +12,7 @@ struct UserHomeSummaryTile: View {
                     Text("Browse configurations and contents")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                .frame(width: 220, height: 110)
+                .frame(maxHeight: .infinity)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -28,6 +28,7 @@ struct UserHomeDetailView: View {
     @State private var selected: String?
     @State private var query = ""
     @State private var refreshID = 0
+    @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
     private var directory: URL { folders.last ?? rootDirectory ?? model.directory(for: category) }
     private var entries: [HomeEntry] {
@@ -92,6 +93,9 @@ struct UserHomeDetailView: View {
                     }
                     Text("Click to inspect, double-click a folder to open it.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if let warning = model.listing.warning {
+                        Text(warning).font(.caption).foregroundStyle(.orange)
+                    }
                     if let error = model.listing.error {
                         ContentUnavailableView("Folder unavailable", systemImage: "folder.badge.questionmark",
                                                description: Text(error))
@@ -130,12 +134,13 @@ struct UserHomeDetailView: View {
                     }
                 }.padding().frame(minWidth: 220, idealWidth: 280, maxWidth: 320, maxHeight: .infinity, alignment: .topLeading)
                 Divider()
-                ScrollView([.horizontal, .vertical]) {
+                FileContentsScrollView(wrap: wrap) {
                     VStack(alignment: .leading, spacing: 12) {
                         if let item = current {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(item.url.path).font(.headline.monospaced()).textSelection(.enabled)
                                 Spacer(minLength: 20)
+                                WrapToggle(wrap: $wrap)
                                 Button("Copy", systemImage: "doc.on.doc") {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(model.preview?.text ?? "", forType: .string)
@@ -152,12 +157,12 @@ struct UserHomeDetailView: View {
                                     Text(message).font(.callout).foregroundStyle(.secondary)
                                 }
                                 Text(preview.text).font(.caption.monospaced()).textSelection(.enabled)
-                                    .fixedSize(horizontal: true, vertical: false)
+                                    .fixedSize(horizontal: !wrap, vertical: false)
                             }
                         } else {
                             Text("Select a file or folder to show its details.").foregroundStyle(.secondary)
                         }
-                    }.padding().frame(minWidth: 420, alignment: .topLeading)
+                    }.padding()
                 }.frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
@@ -226,5 +231,32 @@ private struct HomeFileInfoView: View {
     @ViewBuilder private func cell(_ field: (String, String)) -> some View {
         Text(field.0).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
         Text(field.1).font(.caption.monospaced()).textSelection(.enabled).padding(.trailing, 16)
+    }
+}
+
+/// Scrolls file contents pinned to the top-leading corner; wrapping drops horizontal scrolling.
+struct FileContentsScrollView<Content: View>: View {
+    static var wrapKey: String { "wrapFileContents" }
+    var wrap: Bool
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        // A scroll view centers content narrower than its viewport, so stretch it to the viewport instead.
+        GeometryReader { proxy in
+            ScrollView(wrap ? .vertical : [.horizontal, .vertical]) {
+                content.frame(minWidth: proxy.size.width, maxWidth: wrap ? proxy.size.width : nil,
+                              minHeight: proxy.size.height, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+struct WrapToggle: View {
+    @Binding var wrap: Bool
+
+    var body: some View {
+        Toggle(isOn: $wrap) { Label("Wrap", systemImage: "text.word.spacing") }
+            .toggleStyle(.button)
+            .help(wrap ? "Show long lines unwrapped with horizontal scrolling" : "Wrap long lines to the column width")
     }
 }

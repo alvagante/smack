@@ -95,15 +95,24 @@ struct DevEnvironmentCollector: Sendable {
         let fm = FileManager.default
         var snapshot = DevDiscovery()
         let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
         var bins: [(String, String)] = []
-        func bin(_ path: String, _ source: String) { bins.append((path, source)) }
+        var binPaths: Set<String> = []
+        func bin(_ path: String, _ source: String) {
+            guard !Task.isCancelled else { return }
+            let directory = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard binPaths.insert(directory).inserted else { return }
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+            bins.append((directory, source))
+        }
         func children(_ root: String) -> [String] {
-            guard fm.fileExists(atPath: root) else { return [] }
+            guard !Task.isCancelled, fm.fileExists(atPath: root) else { return [] }
             do { return try fm.contentsOfDirectory(atPath: root).sorted().filter { !$0.hasPrefix(".") }.map { root + "/" + $0 } }
             catch { snapshot.warnings.append("Cannot read \(root): \(error.localizedDescription)"); return [] }
         }
         func versions(_ root: String, _ source: String, suffix: String = "/bin") {
-            guard fm.fileExists(atPath: root) else { return }
+            guard !Task.isCancelled, fm.fileExists(atPath: root) else { return }
             snapshot.roots.append(root)
             for version in children(root) { bin(version + suffix, source) }
         }
@@ -152,6 +161,7 @@ struct DevEnvironmentCollector: Sendable {
         // Explicit project roots only: never crawl the entire home directory or dependency caches.
         let ignored: Set<String> = [".git", "node_modules", "vendor", "target", ".build", "Library", "__pycache__", "site-packages"]
         for folder in folders {
+            guard !Task.isCancelled else { break }
             snapshot.roots.append(folder)
             bin(folder, "Custom folder")
             var remaining = 10_000
@@ -161,6 +171,7 @@ struct DevEnvironmentCollector: Sendable {
                 bin(directory + "/bin", "Project / virtualenv")
                 if fm.fileExists(atPath: directory + "/pyvenv.cfg") { return }
                 for child in (try? fm.contentsOfDirectory(atPath: directory)) ?? [] {
+                    guard remaining > 0, !Task.isCancelled else { break }
                     guard !ignored.contains(child), !child.hasPrefix(".") || [".venv", ".env"].contains(child) else { continue }
                     let url = URL(fileURLWithPath: directory + "/" + child)
                     guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]), values.isDirectory == true, values.isSymbolicLink != true else { continue }
@@ -176,10 +187,12 @@ struct DevEnvironmentCollector: Sendable {
             // Shims select a version from shell/project state and may auto-install; inspect concrete installations instead.
             guard !directory.contains("/shims") else { continue }
             for language in DevLanguage.allCases {
+                guard !Task.isCancelled else { break }
                 let names = language == .python ? ((try? fm.contentsOfDirectory(atPath: directory)) ?? []).filter {
                     $0 == "python" || $0 == "python3" || $0.range(of: #"^python[23]\.[0-9]+$"#, options: .regularExpression) != nil
                 }.sorted() : language.executables
                 for name in names {
+                    guard !Task.isCancelled else { break }
                     let executable = URL(fileURLWithPath: directory + "/" + name).standardizedFileURL.path
                     guard fm.isExecutableFile(atPath: executable) else { continue }
                     let resolved = URL(fileURLWithPath: executable).resolvingSymlinksInPath().path
@@ -290,13 +303,25 @@ final class DevEnvironmentMonitor: ObservableObject {
     @Published private(set) var folders: [String] = []
     private var task: Task<Void, Never>?
     private var generation = 0
+    private var inspectionOrder: [String] = []
+    private let inspectionBudget: Int
+
+    private func cost(_ value: DevInspection) -> Int {
+        value.version.utf8.count + value.reports.reduce(0) { $0 + $1.title.utf8.count + $1.command.utf8.count + $1.output.utf8.count }
+    }
     private let collector: DevEnvironmentCollector
     private let discover: @Sendable ([String]) async -> DevDiscovery
 
-    init(collector: DevEnvironmentCollector = DevEnvironmentCollector(),
+    init(collector: DevEnvironmentCollector = DevEnvironmentCollector(), inspectionBudget: Int = 16_000_000,
          discover: @escaping @Sendable ([String]) async -> DevDiscovery = { folders in
-             await Task.detached(priority: .utility) { DevEnvironmentCollector.discover(folders: folders) }.value
+             let worker = Task.detached(priority: .utility) { DevEnvironmentCollector.discover(folders: folders) }
+             return await withTaskCancellationHandler {
+                 await worker.value
+             } onCancel: {
+                 worker.cancel()
+             }
          }) {
+        self.inspectionBudget = inspectionBudget
         self.collector = collector
         self.discover = discover
     }
@@ -325,16 +350,32 @@ final class DevEnvironmentMonitor: ObservableObject {
         guard !Task.isCancelled else { return }
         snapshot = value
         inspections = [:]
+        inspectionOrder = []
     }
 
     func inspect(_ item: DevEnvironment) async {
-        guard inspections[item.id] == nil else { return }
+        if inspections[item.id] != nil {
+            inspectionOrder.removeAll { $0 == item.id }
+            inspectionOrder.append(item.id)
+            return
+        }
+        while inspecting != nil {
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+        }
+        guard !Task.isCancelled, inspections[item.id] == nil else { return }
         let started = generation
         inspecting = item.id
         defer { if inspecting == item.id { inspecting = nil } }
         let value = await collector.inspect(item)
         guard !Task.isCancelled else { return }
         guard started == generation else { return }
+        guard cost(value) <= inspectionBudget else { return }
+        while inspections.values.reduce(0, { $0 + cost($1) }) + cost(value) > inspectionBudget,
+              let oldest = inspectionOrder.first {
+            inspections[oldest] = nil
+            inspectionOrder.removeFirst()
+        }
         inspections[item.id] = value
+        inspectionOrder.append(item.id)
     }
 }

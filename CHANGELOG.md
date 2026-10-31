@@ -2,6 +2,42 @@
 
 All notable changes to Smack are documented in this file.
 
+## [0.7.0] - 2026-10-31
+
+### Added
+
+- Add a Docker page with containers grouped by Compose project, live statistics, published ports, images, volumes, networks, storage and engine details. Inspect objects and confirm Start, Stop, Restart, Pause or Resume actions (direct build).
+- Add Homebrew inventory, outdated packages, search/install, upgrades, user services and cleanup. Package actions include details, uninstall, reinstall, installed-file listing and formula pin/unpin, with confirmation and command-output retry on failure (direct build).
+- Add installed-app discovery in `/Applications` and `~/Applications`, searchable grid/list views, explicit size measurement and a volume-usage indicator. Confirmed multi-select uninstall moves eligible bundles to Trash, skips running, protected and alias-only apps, and keeps support files (direct build).
+- Add development-environment discovery for 26 languages and runtimes across system, Homebrew, version-manager and Python virtual environments, plus bounded project-folder scans and on-demand version, package and configuration inspection (direct build).
+- Add an AI-agent browser for configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions and sessions, discovered from known local directories and inherited PATH (direct build).
+- Add a user-home browser for dotfiles, XDG configuration, preferences, application support, launch agents, containers and Library contents, with Finder reveal, file metadata and bounded text/XML plist previews (direct build).
+- Add Launch Context, Logs, Startup, Security and File Activity tabs to application and process pages. File Activity requests a five-second filesystem trace through the updated privileged helper (direct build).
+- Add live per-process and per-application receive/send rates with sparklines (direct build, live only).
+- Add a Previous page button backed by detail-page navigation history.
+
+### Changed
+
+- Bump the bundle version to 0.7.0 (build 7).
+- Support native menu-bar icons hosted by MenuBarAgent on macOS 27 through Accessibility discovery and shared-window capture; Accessibility is required for discovery. Earlier versions retain individual-window capture.
+- Sample per-process network rates every five seconds only while the panel is visible, independently of process-metric collection; discard stale results after visibility changes.
+- Collect Docker statistics only for Containers, cache inventory sections for one minute, and collect storage only on selection or explicit refresh with a five-minute cache. Homebrew services and cleanup/Cellar sizing load only for their selected sections.
+- Keep installed-app discovery cheap; measure sizes only on request, cache successful results for five minutes against bundle metadata, and label incomplete measurements.
+- Bound directory scans and bundle walks by entry/time budgets, cap runtime inspection text at 16 MB with least-recently-used eviction, and limit the application-icon cache.
+- Read file previews only on selection up to 1 MiB. Refuse binary plist decoding; reveal those files for opening in another app.
+
+### Fixed
+
+- Re-enable the privileged helper before bootstrap so a disabled launchd override does not break reinstallation.
+- Move hosted menu-bar Accessibility discovery off the main actor, prevent overlapping discovery and discard results after display or visibility changes.
+- Prefer real application bundles over symlink aliases and recheck running applications before each Trash operation.
+- Propagate cancellation into discovery and size-measurement workers, and avoid repeated runtime probes and directory-preview account lookups.
+
+### Security
+
+- Share a subprocess runner between the app and helper with independent stdout/stderr caps, nonblocking I/O, process-group termination, escalation and bounded cleanup after timeout or cancellation.
+- Cancel helper file-activity capture when its client disconnects and enforce an independent seven-second watchdog, while retaining PID/start-time validation and the 1 MiB returned-output limit.
+
 ## [0.6.0] - 2026-10-30
 
 ### Added

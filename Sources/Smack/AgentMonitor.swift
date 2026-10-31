@@ -68,6 +68,7 @@ struct AgentCollector: Sendable {
         let pathDirectories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         var agents: [InstalledAgent] = []
         for definition in definitions {
+            guard !Task.isCancelled else { break }
             var candidates = definition.roots.map(resolve)
             let overrideKey = ["codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR", "gemini": "GEMINI_CLI_HOME"][definition.id]
             if let key = overrideKey, let path = environment[key], path.hasPrefix("/") {
@@ -86,8 +87,10 @@ struct AgentCollector: Sendable {
             var artifacts: [AgentArtifact] = []
             var seen: Set<String> = []
             for location in definition.locations {
+                guard !Task.isCancelled else { break }
                 let urls = location.homeRelative ? [resolve(location.path)] : roots.map { $0.appendingPathComponent(location.path) }
                 for url in urls {
+                    guard !Task.isCancelled else { break }
                     var directory: ObjCBool = false
                     guard fm.fileExists(atPath: url.path, isDirectory: &directory) else { continue }
                     let artifact = AgentArtifact(url: url, category: location.category, isDirectory: directory.boolValue)
@@ -126,7 +129,12 @@ final class AgentMonitor: ObservableObject {
         loading = true
         defer { loading = false }
         let collector = collector
-        let value = await Task.detached(priority: .utility) { collector.discover() }.value
+        let worker = Task.detached(priority: .utility) { collector.discover() }
+        let value = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
         guard !Task.isCancelled else { return }
         snapshot = value
     }

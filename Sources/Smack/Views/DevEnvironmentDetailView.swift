@@ -14,7 +14,7 @@ struct DevEnvironmentSummaryTile: View {
                     Text(model.snapshot.map { "\(Set($0.environments.map(\.language)).count) languages detected" } ?? "Languages, packages and paths")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                .frame(width: 220, height: 110)
+                .frame(maxHeight: .infinity)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)

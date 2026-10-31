@@ -54,8 +54,10 @@ actor CollectionScheduler {
         temperaturesWanted = value
     }
 
-    func setVisible(_ value: Bool) {
+    func setVisible(_ value: Bool) async {
         visible = value
+        await processCollector.setNetworkSamplingVisible(value)
+        guard visible == value else { return }
         restartSampling()
     }
 

@@ -6,19 +6,28 @@ import ApplicationServices
 private func AXWindowID(_ element: AXUIElement, _ id: inout CGWindowID) -> AXError
 
 /// macOS 27 hosts status items together, rather than giving each item a CG window.
-@MainActor
 enum HostedMenuBarDiscovery {
-    static var application: NSRunningApplication? {
+    @MainActor static var application: NSRunningApplication? {
         NSWorkspace.shared.runningApplications.first { $0.executableURL?.lastPathComponent == "MenuBarAgent" }
     }
 
-    static func items(application: NSRunningApplication, displayBounds: CGRect, currentPID: pid_t,
-                      windowInfo: (CGWindowID) -> NativeMenuBarWindow?) -> [NativeMenuBarItemSource] {
-        let app = AXUIElementCreateApplication(application.processIdentifier)
+    static func items(hostPID: pid_t, budget: TimeInterval = 0.75, displayBounds: CGRect, currentPID: pid_t,
+                      windowInfo: (CGWindowID) -> NativeMenuBarWindow?) -> [NativeMenuBarItemSource]? {
+        let deadline = ProcessInfo.processInfo.systemUptime + budget
+        func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+            Self.value(element, attribute, deadline: deadline)
+        }
+        func content(of element: AXUIElement, hostPID: pid_t) -> AXUIElement {
+            Self.content(of: element, hostPID: hostPID, deadline: deadline)
+        }
+        let app = AXUIElementCreateApplication(hostPID)
         AXUIElementSetMessagingTimeout(app, 0.2)
         let windows = value(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
         var elements: [CGWindowID: AXUIElement] = [:]
         for window in windows {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0, !Task.isCancelled else { return nil }
+            AXUIElementSetMessagingTimeout(window, Float(min(0.1, remaining)))
             var id: CGWindowID = 0
             if AXWindowID(window, &id) == .success { elements[id] = window }
         }
@@ -26,7 +35,7 @@ enum HostedMenuBarDiscovery {
         let activeElements: [AXUIElement]
         if let extras, CFGetTypeID(extras) == AXUIElementGetTypeID() {
             activeElements = (value(extras as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement] ?? [])
-                .map { content(of: $0, hostPID: application.processIdentifier) }
+                .map { content(of: $0, hostPID: hostPID) }
         } else {
             activeElements = []
         }
@@ -35,24 +44,25 @@ enum HostedMenuBarDiscovery {
         var matches: [CGWindowID: Int] = [:]
         var orderedIDs: [CGWindowID] = []
         for info in descriptions {
+            guard ProcessInfo.processInfo.systemUptime < deadline, !Task.isCancelled else { return nil }
             guard let id = info[kCGWindowNumber] as? CGWindowID, let element = elements[id],
                   let window = windowInfo(id), window.frame.minY == displayBounds.minY,
                   window.frame.minX == displayBounds.minX, window.frame.width == displayBounds.width else { continue }
             let children = value(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
             var activeMatches = 0
             let candidates = children.compactMap { child -> NativeMenuBarItemSource? in
-                guard let frame = frame(of: child), frame.height > 0 else { return nil }
-                AXUIElementSetMessagingTimeout(child, 0.2)
+                guard ProcessInfo.processInfo.systemUptime < deadline, let frame = frame(of: child, deadline: deadline), frame.height > 0 else { return nil }
+                AXUIElementSetMessagingTimeout(child, Float(max(0.001, min(0.1, deadline - ProcessInfo.processInfo.systemUptime))))
                 var actions: CFArray?
                 guard AXUIElementCopyActionNames(child, &actions) == .success,
                       (actions as? [String])?.contains(kAXPressAction) == true else { return nil }
-                let content = content(of: child, hostPID: application.processIdentifier)
+                let content = content(of: child, hostPID: hostPID)
                 if activeElements.contains(where: { CFEqual($0, content) }) { activeMatches += 1 }
-                var ownerPID = application.processIdentifier
+                var ownerPID = hostPID
                 AXUIElementGetPid(content, &ownerPID)
                 let identifier = value(content, kAXIdentifierAttribute) as? String
                 let title: String?
-                if ownerPID == application.processIdentifier {
+                if ownerPID == hostPID {
                     title = systemName(identifier) ?? nonempty(value(content, kAXDescriptionAttribute) as? String)
                 } else {
                     title = NSRunningApplication(processIdentifier: ownerPID)?.localizedName
@@ -68,6 +78,7 @@ enum HostedMenuBarDiscovery {
                 sources[id] = visibleItems(candidates, currentPID: currentPID)
             }
         }
+        guard ProcessInfo.processInfo.systemUptime < deadline, !Task.isCancelled else { return nil }
         guard let selected = preferredWindow(orderedIDs: orderedIDs, matchingExtras: matches) else { return [] }
         return sources[selected] ?? []
     }
@@ -95,9 +106,9 @@ enum HostedMenuBarDiscovery {
         }.sorted { $0.frame.minX < $1.frame.minX }
     }
 
-    static func frame(of element: AXUIElement) -> CGRect? {
-        guard let position = value(element, kAXPositionAttribute), CFGetTypeID(position) == AXValueGetTypeID(),
-              let size = value(element, kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+    static func frame(of element: AXUIElement, deadline: TimeInterval = ProcessInfo.processInfo.systemUptime + 0.2) -> CGRect? {
+        guard let position = value(element, kAXPositionAttribute, deadline: deadline), CFGetTypeID(position) == AXValueGetTypeID(),
+              let size = value(element, kAXSizeAttribute, deadline: deadline), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
         var dimensions = CGSize.zero
         guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
@@ -105,18 +116,21 @@ enum HostedMenuBarDiscovery {
         return CGRect(origin: point, size: dimensions)
     }
 
-    private static func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+    private static func value(_ element: AXUIElement, _ attribute: String, deadline: TimeInterval) -> CFTypeRef? {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > 0, !Task.isCancelled else { return nil }
+        AXUIElementSetMessagingTimeout(element, Float(min(0.1, remaining)))
         var result: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &result) == .success else { return nil }
         return result
     }
 
-    private static func content(of element: AXUIElement, hostPID: pid_t, depth: Int = 0) -> AXUIElement {
+    private static func content(of element: AXUIElement, hostPID: pid_t, deadline: TimeInterval, depth: Int = 0) -> AXUIElement {
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
         guard pid == hostPID, depth < 3,
-              let children = value(element, kAXChildrenAttribute) as? [AXUIElement], let first = children.first else { return element }
-        return content(of: first, hostPID: hostPID, depth: depth + 1)
+              let children = value(element, kAXChildrenAttribute, deadline: deadline) as? [AXUIElement], let first = children.first else { return element }
+        return content(of: first, hostPID: hostPID, deadline: deadline, depth: depth + 1)
     }
 
     private static func nonempty(_ string: String?) -> String? {

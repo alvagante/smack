@@ -8,15 +8,21 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
     private let privileged: PrivilegedSamplingProviding
     private var lastTimestamp: Date?
     private let privilegedBuilder = ProcessSnapshotBuilder()
+    private let network: ProcessNetworkSampler
 
-    init(local: any ProcessMetricsCollecting, privileged: PrivilegedSamplingProviding) {
+    init(local: any ProcessMetricsCollecting, privileged: PrivilegedSamplingProviding,
+         network: ProcessNetworkSampler = ProcessNetworkSampler()) {
         self.local = local
         self.privileged = privileged
+        self.network = network
+    }
+
+    func setNetworkSamplingVisible(_ visible: Bool) async {
+        await network.setVisible(visible && !Capabilities.isSandboxed)
     }
 
     func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         guard !Task.isCancelled else { return nil }
-        async let network = ProcessNetworkCollector.collect()
         var snapshot: ProcessSnapshot
         if includePrivileged, let payload = await privileged.collectSnapshot() {
             guard !Task.isCancelled,
@@ -29,7 +35,7 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
                   lastTimestamp.map({ localSnapshot.timestamp > $0 }) ?? true else { return nil }
             snapshot = localSnapshot
         }
-        let networkSample = await network
+        let networkSample = await network.latest()
         guard !Task.isCancelled,
               lastTimestamp.map({ snapshot.timestamp > $0 }) ?? true else { return nil }
         for index in snapshot.applications.indices {

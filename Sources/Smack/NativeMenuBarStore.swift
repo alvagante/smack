@@ -47,7 +47,8 @@ enum NativeMenuBarItemID: Hashable {
     case hosted(CGWindowID, CFHashCode)
 }
 
-struct NativeMenuBarItemSource {
+// AX references are transferred from the discovery worker after it finishes using them.
+struct NativeMenuBarItemSource: @unchecked Sendable {
     let window: NativeMenuBarWindow
     let element: AXUIElement?
     let activationElement: AXUIElement?
@@ -225,24 +226,48 @@ final class NativeMenuBarStore: ObservableObject {
     private var refreshTimer: Timer?
     private var requestingPermissions = false
     private var captureInProgress = false
+    nonisolated private static let discoveryQueue = DispatchQueue(label: "it.lab42.smack.menu-bar-discovery", qos: .utility)
+    private var generation = 0
+    private let hostPID: () -> pid_t?
+    private let trusted: () -> Bool
+    private let discoverHosted: @Sendable (pid_t, CGRect) async -> [NativeMenuBarItemSource]?
+
+    init(hostPID: @escaping () -> pid_t? = { HostedMenuBarDiscovery.application?.processIdentifier },
+         trusted: @escaping () -> Bool = { AXIsProcessTrusted() },
+         discoverHosted: @escaping @Sendable (pid_t, CGRect) async -> [NativeMenuBarItemSource]? = { pid, bounds in
+             await withCheckedContinuation { continuation in
+                 NativeMenuBarStore.discoveryQueue.async {
+                     continuation.resume(returning: HostedMenuBarDiscovery.items(hostPID: pid, displayBounds: bounds,
+                         currentPID: ProcessInfo.processInfo.processIdentifier, windowInfo: NativeMenuBarStore.window))
+                 }
+             }
+         }) {
+        self.hostPID = hostPID
+        self.trusted = trusted
+        self.discoverHosted = discoverHosted
+    }
 
     private var isActive: Bool { panelVisible && featureEnabled }
 
     func setPanelVisible(_ visible: Bool, screen: NSScreen? = nil) {
+        generation += 1
         panelVisible = visible
-        if let screen {
-            backingScaleFactor = screen.backingScaleFactor
-        }
-        if let screen, screen.nativeDisplayID != displayID {
-            displayID = screen.nativeDisplayID
-            pendingLayout = nil
-            items = snapshots[displayID] ?? []
-            loadAttempted = !items.isEmpty
-        }
+        if let screen { setDisplay(screen.nativeDisplayID, scale: screen.backingScaleFactor) }
         updateActivity()
     }
 
+    func setDisplay(_ display: CGDirectDisplayID, scale: CGFloat) {
+        backingScaleFactor = scale
+        guard display != displayID else { return }
+        generation += 1
+        displayID = display
+        pendingLayout = nil
+        items = snapshots[display] ?? []
+        loadAttempted = !items.isEmpty
+    }
+
     func setFeatureEnabled(_ enabled: Bool) {
+        generation += 1
         featureEnabled = enabled
         if !enabled {
             items = []
@@ -269,48 +294,50 @@ final class NativeMenuBarStore: ObservableObject {
     }
 
     func refresh() {
-        accessibilityAllowed = AXIsProcessTrusted()
+        accessibilityAllowed = trusted()
         guard isActive else { return }
 
-        let host = HostedMenuBarDiscovery.application
-        accessibilityRequiredForIcons = host != nil
-        let discovered: [NativeMenuBarItemSource]
-        if let host {
-            discovered = accessibilityAllowed ? HostedMenuBarDiscovery.items(
-                application: host, displayBounds: CGDisplayBounds(displayID),
-                currentPID: ProcessInfo.processInfo.processIdentifier, windowInfo: window
-            ) : []
-        } else {
-            discovered = NativeMenuBarDiscovery.items(
-                from: menuBarWindows(),
-                currentPID: ProcessInfo.processInfo.processIdentifier,
-                menuBarMinY: CGDisplayBounds(displayID).minY
-            ).map { NativeMenuBarItemSource(window: $0) }
-        }
-        screenCaptureAllowed = CGPreflightScreenCaptureAccess() || discovered.contains { $0.window.title != nil }
-        guard screenCaptureAllowed, !captureInProgress else {
-            if !screenCaptureAllowed {
-                items = []
-                loadAttempted = false
-            }
-            return
-        }
-        // A hidden menu bar has nothing to capture: keep the last snapshot instead of blanking it.
-        guard discovered.contains(where: { $0.element != nil || $0.window.isOnScreen }) else { return }
-        let ids = discovered.map(\.id)
-        let previous = snapshots[displayID] ?? []
-        guard NativeMenuBarDiscovery.acceptsLayout(ids, current: previous.map(\.id), pending: pendingLayout) else {
-            pendingLayout = ids
-            return
-        }
-        pendingLayout = nil
-
+        guard !captureInProgress else { return }
         captureInProgress = true
+        let started = generation
         let display = displayID
         let scale = backingScaleFactor
+        let allowed = accessibilityAllowed
+        let host = hostPID()
+        accessibilityRequiredForIcons = host != nil
         Task {
             defer { captureInProgress = false }
+            let discovered: [NativeMenuBarItemSource]
+            if let host, allowed {
+                guard let result = await discoverHosted(host, CGDisplayBounds(display)), isActive, started == generation, display == displayID else { return }
+                discovered = result
+            } else if host != nil {
+                discovered = []
+            } else {
+                discovered = NativeMenuBarDiscovery.items(
+                    from: menuBarWindows(),
+                    currentPID: ProcessInfo.processInfo.processIdentifier,
+                    menuBarMinY: CGDisplayBounds(displayID).minY
+                ).map { NativeMenuBarItemSource(window: $0) }
+            }
+            screenCaptureAllowed = CGPreflightScreenCaptureAccess() || discovered.contains { $0.window.title != nil }
+            guard screenCaptureAllowed else {
+                items = []
+                loadAttempted = false
+                return
+            }
+            // A hidden menu bar has nothing to capture: keep the last snapshot instead of blanking it.
+            guard discovered.contains(where: { $0.element != nil || $0.window.isOnScreen }) else { return }
+            let ids = discovered.map(\.id)
+            let previous = snapshots[displayID] ?? []
+            guard NativeMenuBarDiscovery.acceptsLayout(ids, current: previous.map(\.id), pending: pendingLayout) else {
+                pendingLayout = ids
+                return
+            }
+            pendingLayout = nil
+
             guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
+                guard isActive, started == generation else { return }
                 screenCaptureAllowed = false
                 items = []
                 loadAttempted = false
@@ -334,7 +361,7 @@ final class NativeMenuBarStore: ObservableObject {
                 }
                 captured.append(NativeMenuBarItem(source: source, image: image, scale: scale))
             }
-            guard featureEnabled else { return }
+            guard isActive, started == generation else { return }
             snapshots[display] = captured
             guard display == displayID else { return }
             items = captured
@@ -352,7 +379,7 @@ final class NativeMenuBarStore: ObservableObject {
         if let element = target.element {
             frame = HostedMenuBarDiscovery.frame(of: element)
         } else {
-            frame = currentFrame(for: target.window.id)
+            frame = Self.currentFrame(for: target.window.id)
         }
         guard let frame, frame.width > 0, frame.height > 0 else { return }
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
@@ -399,10 +426,10 @@ final class NativeMenuBarStore: ObservableObject {
         var identifiers = [CGWindowID](repeating: 0, count: Int(count))
         var actualCount: Int32 = 0
         guard CGSGetProcessMenuBarWindowList(connection, 0, count, &identifiers, &actualCount) == .success else { return [] }
-        return identifiers.prefix(Int(actualCount)).compactMap(window)
+        return identifiers.prefix(Int(actualCount)).compactMap(Self.window)
     }
 
-    private func window(_ id: CGWindowID) -> NativeMenuBarWindow? {
+    nonisolated static func window(_ id: CGWindowID) -> NativeMenuBarWindow? {
         var pointer = UnsafeRawPointer(bitPattern: Int(id))
         guard let array = CFArrayCreate(kCFAllocatorDefault, &pointer, 1, nil),
               let descriptions = CGWindowListCreateDescriptionFromArray(array) as? [CFDictionary],
@@ -423,7 +450,7 @@ final class NativeMenuBarStore: ObservableObject {
         )
     }
 
-    private func currentFrame(for id: CGWindowID) -> CGRect? {
+    nonisolated private static func currentFrame(for id: CGWindowID) -> CGRect? {
         var frame = CGRect.zero
         guard CGSGetScreenRectForWindow(CGSMainConnectionID(), id, &frame) == .success else { return nil }
         return frame

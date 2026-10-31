@@ -8,6 +8,16 @@ No windows to manage, no third-party dependencies, no data leaving the machine.
 
 ![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
 
+## New in 0.7.0
+
+Docker and Homebrew management, installed-app inventory and size measurement, runtime
+discovery for 26 languages, AI-agent configuration browsing, and a user-home browser.
+Application and process pages gain launch context, logs, startup, security and file-activity
+inspections. Live network rates now cover individual processes and applications, and
+native menu-bar icons support macOS 27. These features require the direct build.
+
+See [the changelog](CHANGELOG.md#070---2026-10-31) for the full release notes.
+
 ## Core features: see, change, monitor
 
 What you can **see** and **monitor**:
@@ -17,16 +27,18 @@ What you can **see** and **monitor**:
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
 - **Process inspections:** Launch Context (arguments, working directory, masked environment), Logs (severity, search, live refresh and crash reports), Startup (matching registrations and restart triggers), Security (identity, signing and entitlements), and File Activity (five-second filesystem traces via the updated superuser helper). Available on application and individual process pages in direct builds.
 - **Application detail:** one page per application merging files, connections, threads, libraries, provenance, timeline and history across all its processes, plus on-demand profiling with `footprint`, `vmmap`, `heap`, `leaks` and `sample` summarized as highlights (direct build). Heap and Leaks ask before they suspend the process.
-- **Network:** live per-process and per-application receive/send rates with sparklines (direct build, live only), listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build).
+- **Network:** live per-process and per-application receive/send rates with sparklines (direct build, live only), listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build). Per-process network rates refresh every five seconds while the panel is visible; sampling stops when hidden.
 - **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
 - **Activity Timeline:** a persisted, filterable record of process starts and exits, new listeners, startup changes, mounts, sleep and wake, power, thermal and memory pressure, and network changes, plus a "What changed" card on Summary and event markers on History charts. Smack records events only while it runs.
 - **GPU, memory pressure, swap, and wakeups:** live and in history, with per-process wakeup rates.
 - **Process provenance and tree:** ancestry, code signature, architecture, Rosetta, quarantine, launchd job, and plain-language notes on well-known processes, plus a process tree rooted at launchd.
 - **History:** persistent system and per-program history with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, and JSON/CSV export.
-- **Docker:** when the CLI is installed, Summary shows running containers and published host ports. A sidebar opens containers grouped by Compose project, images, open ports, volumes, networks, storage usage, and engine details, with section filters and live container statistics (direct build). Containers default to Running; clickable Running and Stopped cards filter the list. Per-container Start, Stop, Restart, Pause and Resume controls ask for confirmation. Inspect opens full details for containers, images, volumes, networks, engine and storage, with copy and refresh.
-- **Homebrew:** when brew is installed, Summary shows installed and outdated counts. Open it to browse versions and descriptions, update packages, search and install tools or apps, control user services, and preview or run cleanup (direct build). Changes ask for confirmation; failed commands include output, copy, and retry. Last-used data is unavailable because Homebrew does not track it.
-- **User home:** Summary opens a configuration browser for dotfiles, home files, XDG configuration, preferences, application support, launch agents, app containers and the user Library (direct build). Browse folders, filter entries, reveal files in Finder and view text or decoded plist contents. Previews load on selection with a 1 MiB limit.
+- **Docker:** when the CLI is installed, Summary shows running containers and published host ports. A sidebar opens containers grouped by Compose project, images, open ports, volumes, networks, storage usage, and engine details, with section filters and live container statistics (direct build). Statistics refresh while Containers is selected; inventory sections cache for one minute. Storage runs on selection or explicit refresh and caches for five minutes. Containers default to Running; clickable Running and Stopped cards filter the list. Per-container Start, Stop, Restart, Pause and Resume controls ask for confirmation. Inspect opens full details for containers, images, volumes, networks, engine and storage, with copy and refresh.
+- **Installed apps:** Summary discovers apps in `/Applications` and `~/Applications` (direct build). Choose Measure sizes on the app page to collect sizes, cached for five minutes against bundle metadata. Incomplete measurements are labeled. The page lists apps in a grid or list sorted by size, with search, the used share of the volume, and multi-select uninstall that moves bundles to the Trash after confirmation. Running and system-protected apps are skipped; support files in `~/Library` are kept.
+- **Homebrew:** when brew is installed, Summary shows installed and outdated counts. Open it to browse versions and descriptions, update packages, search and install tools or apps, control user services, and preview or run cleanup (direct build). Each installed package offers Details and Uninstall, plus reinstall, installed-file listing and formula pin/unpin actions. Uninstall uses Homebrew's normal dependency checks and does not move files to the Trash. Changes ask for confirmation; failed commands include output, copy, and retry. Services load on selection; cleanup estimates and Cellar sizing run only when Clean up is opened or explicitly refreshed. Last-used data is unavailable because Homebrew does not track it.
+- **User home:** Summary opens a configuration browser for dotfiles, home files, XDG configuration, preferences, application support, launch agents, app containers and the user Library (direct build). Browse folders, filter entries, reveal files in Finder and view text or XML plist contents. Binary plists can be revealed for opening in another app. Previews load on selection with a 1 MiB limit; folder scans stop at 5,000 entries or their time budget and label incomplete results.
 - **Dev environments:** Summary links to a language sidebar covering 26 languages and runtimes. Discover system, Homebrew, version-manager and Python virtual environments; add project folders for bounded scans. Select installations to inspect versions, executable paths, package inventories and runtime configuration (direct build).
+- **AI agents:** discover local coding agents from known directories and inherited PATH (direct build). Browse configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions and sessions, with file previews on selection. Discovery respects supported agent-home and XDG overrides; leftover directories may still appear after uninstall.
 - **System details:** Mac hardware and software information, from the info button in the header.
 
 What you can **change**:
@@ -42,6 +54,7 @@ What you can **change**:
 - **Panel sounds:** the synthesized Smack sound, silence, or any macOS system alert, with preview; preferences are written to disk immediately and survive quitting.
 - **Glass mode:** optional translucent panel with adjustable opacity.
 - **Pin:** a pin button next to the traffic lights keeps the panel in front until you unpin or close it.
+- **Navigation history:** a Previous page button retraces visits across detail pages.
 - **Adaptive panel size:** a compact height for the Summary, full height for every other page.
 - **Quit control:** a Quit button in the header (⌘Q) and in Settings.
 

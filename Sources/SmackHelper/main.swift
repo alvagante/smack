@@ -11,6 +11,12 @@ private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sam
 /// That is why connections are restricted to the signed Smack app run by an administrator.
 final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendable {
     private let scan = Mutex<StorageScanJob?>(nil)
+    private let capture = FileActivityCapture()
+
+    func disconnect() {
+        stopScan()
+        capture.cancel()
+    }
 
     func stopScan() {
         scan.withLock { $0?.cancel() }
@@ -60,7 +66,7 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendab
     }
 
     func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {
-        FileActivityCapture.start(pid: pid, startTime: startTime, reply: reply)
+        capture.start(pid: pid, startTime: startTime, reply: reply)
     }
 
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void) {
@@ -90,7 +96,8 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         newConnection.exportedInterface = NSXPCInterface(with: SmackPrivilegedSampling.self)
         let service = PrivilegedSamplingService()
         newConnection.exportedObject = service
-        newConnection.invalidationHandler = { service.stopScan() }
+        newConnection.invalidationHandler = { service.disconnect() }
+        newConnection.interruptionHandler = { service.disconnect() }
         newConnection.resume()
         return true
     }

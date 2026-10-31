@@ -221,7 +221,7 @@ struct ApplicationDetailView: View {
     }
 
     private func footnote(_ app: ApplicationMetrics) -> String {
-        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network includes observable TCP and UDP traffic." }
+        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every five seconds and includes observable TCP and UDP traffic." }
         let names = Set(app.processes.map(\.name)).count
         let shown = min(names, Self.programLimit)
         return names > shown

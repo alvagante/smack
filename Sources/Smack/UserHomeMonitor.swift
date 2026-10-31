@@ -42,6 +42,7 @@ struct HomeEntry: Identifiable, Sendable {
 struct HomeListing: Sendable {
     var entries: [HomeEntry] = []
     var error: String?
+    var warning: String?
 }
 
 struct HomePreview: Sendable {
@@ -72,6 +73,30 @@ struct HomeFileInfo: Sendable {
     var linkTarget: String?
 }
 
+enum HomeDirectory {
+    static func names(_ url: URL, limit: Int = 5_000) throws -> (names: [String], truncated: Bool) {
+        guard let stream = opendir(url.path) else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { closedir(stream) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        var names: [String] = []
+        while true {
+            try Task.checkCancellation()
+            if ProcessInfo.processInfo.systemUptime >= deadline { return (names, true) }
+            errno = 0
+            guard let entry = readdir(stream) else {
+                if errno != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                return (names, false)
+            }
+            let name = withUnsafePointer(to: &entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(entry.pointee.d_namlen) + 1) { String(cString: $0) }
+            }
+            guard name != ".", name != ".." else { continue }
+            guard names.count < limit else { return (names, true) }
+            names.append(name)
+        }
+    }
+}
+
 enum HomeStat {
     static func info(_ url: URL) throws -> HomeFileInfo {
         var st = stat()
@@ -94,14 +119,22 @@ enum HomeStat {
 
     /// Mirrors `ls -la`: dot entries, a total in 512-byte blocks, and aligned long-format rows.
     static func longListing(_ directory: URL, limit: Int = 5_000) -> HomePreview {
-        let names: [String]
-        do { names = try FileManager.default.contentsOfDirectory(atPath: directory.path) }
+        let scan: (names: [String], truncated: Bool)
+        do { scan = try HomeDirectory.names(directory) }
         catch { return HomePreview(message: error.localizedDescription) }
-        let all = [".", ".."] + names.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+        let all = [".", ".."] + scan.names.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
         let shown = all.prefix(limit)
         var total: Int64 = 0
         var rows: [[String]] = []
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        var users: [uid_t: String] = [:]
+        var groups: [gid_t: String] = [:]
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        var timedOut = false
         for name in shown {
+            if ProcessInfo.processInfo.systemUptime >= deadline { timedOut = true; break }
+            guard !Task.isCancelled else { return HomePreview(message: "Listing cancelled.") }
             let path = directory.appendingPathComponent(name).path
             var st = stat()
             guard lstat(path, &st) == 0 else { rows.append(["?---------", "?", "?", "?", "?", "", name]); continue }
@@ -116,8 +149,10 @@ enum HomeStat {
             let kind = st.st_mode & S_IFMT
             let size = kind == S_IFCHR || kind == S_IFBLK
                 ? String(format: "%#x", UInt32(bitPattern: st.st_rdev)) : String(st.st_size)
-            rows.append([mode, String(st.st_nlink), userName(st.st_uid), groupName(st.st_gid), size,
-                         lsDate(date(st.st_mtimespec)), label])
+            if users[st.st_uid] == nil { users[st.st_uid] = userName(st.st_uid) }
+            if groups[st.st_gid] == nil { groups[st.st_gid] = groupName(st.st_gid) }
+            rows.append([mode, String(st.st_nlink), users[st.st_uid]!, groups[st.st_gid]!, size,
+                         lsDate(date(st.st_mtimespec), formatter: formatter), label])
         }
         let widths = (0..<6).map { column in rows.map { $0[column].count }.max() ?? 0 }
         let lines = rows.map { row in
@@ -129,7 +164,7 @@ enum HomeStat {
              String(repeating: " ", count: widths[4] - row[4].count) + row[4],
              row[5], row[6]].joined(separator: " ")
         }
-        let message = all.count > limit ? "Showing the first \(limit) of \(all.count) entries." : nil
+        let message = scan.truncated || timedOut ? "Directory scan limited to 5,000 entries or one second; listing is incomplete." : all.count > limit ? "Showing the first \(limit) of \(all.count) entries." : nil
         return HomePreview(text: (["total \(total)"] + lines).joined(separator: "\n"), message: message)
     }
 
@@ -169,9 +204,7 @@ enum HomeStat {
         Date(timeIntervalSince1970: TimeInterval(time.tv_sec) + TimeInterval(time.tv_nsec) / 1_000_000_000)
     }
 
-    private static func lsDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+    private static func lsDate(_ date: Date, formatter: DateFormatter) -> String {
         formatter.dateFormat = "MMM"
         let month = formatter.string(from: date)
         let dayNumber = String(Calendar.current.component(.day, from: date))
@@ -217,8 +250,13 @@ struct UserHomeCollector: Sendable {
     func list(category: HomeCategory, directory: URL) -> HomeListing {
         do {
             let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
-            let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
-            let entries = try urls.map { url in
+            let scan = try HomeDirectory.names(directory)
+            let urls = scan.names.map { directory.appendingPathComponent($0) }
+            let deadline = ProcessInfo.processInfo.systemUptime + 1
+            var timedOut = false
+            let entries = try urls.compactMap { url -> HomeEntry? in
+                guard ProcessInfo.processInfo.systemUptime < deadline else { timedOut = true; return nil }
+                try Task.checkCancellation()
                 let values = try url.resourceValues(forKeys: keys)
                 // Resolve directory links for navigation, but retain their original paths and identities.
                 let directory = values.isSymbolicLink == true
@@ -233,7 +271,7 @@ struct UserHomeCollector: Sendable {
                 if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
-            return HomeListing(entries: entries)
+            return HomeListing(entries: entries, warning: scan.truncated || timedOut ? "Directory scan limited to 5,000 entries or one second; listing is incomplete." : nil)
         } catch { return HomeListing(error: error.localizedDescription) }
     }
 
@@ -253,13 +291,9 @@ struct UserHomeCollector: Sendable {
             guard data.count <= Self.previewLimit else {
                 return HomePreview(message: "Preview unavailable: file exceeds the 1 MiB limit.")
             }
-            if (url.pathExtension.lowercased() == "plist" || data.starts(with: Data("bplist".utf8))),
-               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) {
-                let xml = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-                guard xml.count <= Self.previewLimit else {
-                    return HomePreview(message: "Decoded property list exceeds the 1 MiB preview limit.")
-                }
-                return HomePreview(text: String(decoding: xml, as: UTF8.self))
+            // Binary object graphs can expand far beyond their encoded size during conversion.
+            if data.starts(with: Data("bplist".utf8)) {
+                return HomePreview(message: "Binary property list preview is unavailable. Reveal the file to open it with another app.")
             }
             if let text = String(data: data, encoding: .utf8), !text.contains("\0") {
                 return HomePreview(text: text, message: text.isEmpty ? "Empty file." : nil)
@@ -296,7 +330,12 @@ final class UserHomeMonitor: ObservableObject {
         listing = HomeListing()
         clearPreview()
         let collector = collector
-        let value = await Task.detached(priority: .utility) { collector.list(category: category, directory: directory) }.value
+        let worker = Task.detached(priority: .utility) { collector.list(category: category, directory: directory) }
+        let value = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
         guard generation == listingGeneration else { return }
         loading = false
         guard !Task.isCancelled else { return }
@@ -314,7 +353,12 @@ final class UserHomeMonitor: ObservableObject {
         let generation = previewGeneration
         inspecting = true
         let collector = collector
-        let value = await Task.detached(priority: .utility) { collector.details(url) }.value
+        let worker = Task.detached(priority: .utility) { collector.details(url) }
+        let value = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
         guard generation == previewGeneration else { return }
         inspecting = false
         guard !Task.isCancelled else { return }

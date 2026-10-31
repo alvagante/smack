@@ -81,12 +81,12 @@ struct DockerMonitorTests {
         })
         let snapshot = await collector.collect(executable: "/docker", details: true)
         #expect(snapshot.warnings.isEmpty)
-        #expect(snapshot.images?.first?.Repository == "nginx")
-        #expect(snapshot.volumes?.first?.Name == "data")
-        #expect(snapshot.networks?.first?.Driver == "bridge")
+        #expect(await collector.collect(executable: "/docker", details: true, section: .images).images?.first?.Repository == "nginx")
+        #expect(await collector.collect(executable: "/docker", details: true, section: .volumes).volumes?.first?.Name == "data")
+        #expect(await collector.collect(executable: "/docker", details: true, section: .networks).networks?.first?.Driver == "bridge")
         #expect(snapshot.containerMemoryBytes == 1_572_864)
         #expect(snapshot.stats.first?.CPUPerc == "1.25%")
-        #expect(snapshot.disk?.first?.Reclaimable == "1GB (48%)")
+        #expect(await collector.collect(executable: "/docker", details: true, section: .storage).disk?.first?.Reclaimable == "1GB (48%)")
         var missingStats = snapshot
         missingStats.stats = []
         #expect(missingStats.containerMemoryBytes == nil)
@@ -123,7 +123,7 @@ struct DockerMonitorTests {
         #expect(snapshot.images == nil)
         #expect(snapshot.volumes == nil)
         #expect(snapshot.networks == nil)
-        #expect(snapshot.warnings.count == 5)
+        #expect(snapshot.warnings.count == 1)
     }
 
     @Test func emptyEngineReportsZeroAndTruncatedDataIsRejected() async {
@@ -154,9 +154,9 @@ struct DockerMonitorTests {
             .init(status: 0, output: args.first == "info" ? Self.engine : "", error: "")
         })
         let snapshot = await collector.collect(executable: "/docker", details: true)
-        #expect(snapshot.images?.isEmpty == true)
-        #expect(snapshot.volumes?.isEmpty == true)
-        #expect(snapshot.networks?.isEmpty == true)
+        #expect(await collector.collect(executable: "/docker", details: true, section: .images).images?.isEmpty == true)
+        #expect(await collector.collect(executable: "/docker", details: true, section: .volumes).volumes?.isEmpty == true)
+        #expect(await collector.collect(executable: "/docker", details: true, section: .networks).networks?.isEmpty == true)
         #expect(snapshot.warnings.isEmpty)
     }
 

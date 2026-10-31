@@ -11,10 +11,15 @@ extension SystemMetricsCollecting {
 }
 
 protocol ProcessMetricsCollecting: AnyObject, Sendable {
+    func setNetworkSamplingVisible(_ visible: Bool) async
     /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
     /// Collectors fall back to the current user's visibility when privileged access is unavailable.
     /// Returns nil for cancelled or stale observations.
     func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot?
+}
+
+extension ProcessMetricsCollecting {
+    func setNetworkSamplingVisible(_ visible: Bool) async {}
 }
 
 protocol InventoryCollecting: AnyObject, Sendable {

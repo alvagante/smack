@@ -23,6 +23,7 @@ enum AppRoute: Hashable {
     case devEnvironments
     case userHome
     case agents
+    case installedApps
     case startupItems
     case timeline
     case history
@@ -98,6 +99,7 @@ final class MonitorStore: ObservableObject {
     let devEnvironmentModel = DevEnvironmentMonitor()
     let userHomeModel = UserHomeMonitor()
     let agentsModel = AgentMonitor()
+    let installedAppsModel = InstalledAppsMonitor()
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?
@@ -149,6 +151,7 @@ final class MonitorStore: ObservableObject {
         homebrewModel.setVisible(visible)
         devEnvironmentModel.setVisible(visible)
         agentsModel.setVisible(visible)
+        installedAppsModel.setVisible(visible)
         if visible {
             diffTask?.cancel()
             diffTask = Task { await refreshActivityDiff() }
