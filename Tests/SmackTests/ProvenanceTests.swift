@@ -160,7 +160,11 @@ private final class Counter: Sendable {
 // MARK: Knowledge base
 
 @Test func bundledKnowledgeBaseLoadsAndMatchesNamesAndBundles() throws {
-    let base = ProcessKnowledgeBase.load()
+    // SwiftPM test runners do not contain the app resources copied by build-app.sh.
+    let knowledgeFile = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/Smack/Resources/process-knowledge.json")
+    let base = ProcessKnowledgeBase.load(fileURL: knowledgeFile)
     #expect(base.entries.count >= 25)
     let entry = try #require(base.match(name: "mdworker_shared", bundleIdentifier: nil))
     #expect(entry.category == "Spotlight")

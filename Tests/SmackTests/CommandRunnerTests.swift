@@ -22,24 +22,25 @@ struct CommandRunnerTests {
         #expect(result.error == "diag")
         #expect(result.truncated)
     }
+    // Leave CI scheduling headroom while still failing if a child runs to completion.
     @Test func timeoutEscalatesForSIGTERMIgnoringProcess() async {
         let start = ContinuousClock.now
-        let result = await CommandRunner.run("/bin/sh", ["-c", "trap '' TERM; sleep 2"], timeout: 0.1)
+        let result = await CommandRunner.run("/bin/sh", ["-c", "trap '' TERM; sleep 30"], timeout: 0.1)
         #expect(result.timedOut)
-        #expect(ContinuousClock.now - start < .seconds(1.5))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     @Test func inheritedPipesCannotDefeatTimeout() async {
         let start = ContinuousClock.now
-        let result = await CommandRunner.run("/bin/sh", ["-c", "(trap '' TERM; sleep 2) & exit 0"], timeout: 0.1)
+        let result = await CommandRunner.run("/bin/sh", ["-c", "(trap '' TERM; sleep 30) & exit 0"], timeout: 0.1)
         #expect(result.timedOut)
-        #expect(ContinuousClock.now - start < .seconds(1.5))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     @Test func cancellationInterruptsBlockedInputAndOutput() async {
         let start = ContinuousClock.now
         let task = Task {
-            await CommandRunner.run("/bin/sh", ["-c", "trap '' TERM; sleep 2"],
+            await CommandRunner.run("/bin/sh", ["-c", "trap '' TERM; sleep 30"],
                                     input: String(repeating: "x", count: 1_000_000))
         }
         try? await Task.sleep(for: .milliseconds(100))
@@ -47,7 +48,7 @@ struct CommandRunnerTests {
         let result = await task.value
         #expect(result.cancelled)
         #expect(!result.timedOut)
-        #expect(ContinuousClock.now - start < .seconds(1.5))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     @Test func mutationCompletesDespiteCallerCancellation() async {

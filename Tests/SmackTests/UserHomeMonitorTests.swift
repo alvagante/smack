@@ -128,13 +128,24 @@ struct UserHomeMonitorTests {
         #expect(model.preview?.text.contains("Fixture") == true)
         #expect(!model.inspecting)
         for width in [900.0, 1400.0] {
+            var reloaded = false
+            let observation = model.$listing.dropFirst().sink { listing in
+                if listing.entries.map(\.url) == [file] { reloaded = true }
+            }
+            defer { observation.cancel() }
             let host = NSHostingView(rootView: UserHomeDetailView(model: model)
                 .environment(\.colorScheme, .light).background(Color.white))
             host.frame = NSRect(x: 0, y: 0, width: width, height: 650)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentView = host
             host.layoutSubtreeIfNeeded()
-            try await Task.sleep(for: .milliseconds(100))
+            // Mounting the view starts another asynchronous load; wait for its result.
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !reloaded && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(reloaded)
+            #expect(!model.loading)
             #expect(model.listing.entries.count == 1)
             host.layoutSubtreeIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
