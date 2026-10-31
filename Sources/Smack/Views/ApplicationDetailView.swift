@@ -155,6 +155,7 @@ struct ApplicationDetailView: View {
             tile("CPU", Formatting.percent(app.cpuUsage))
             tile("Memory", unavailable(app.memoryBytes == 0, Formatting.bytes(app.memoryBytes)))
             tile("Disk Read / Write", unavailable(app.diskReadRate == 0 && app.diskWriteRate == 0, "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"))
+            tile("Network In / Out", app.networkThroughput?.formatted ?? "Unavailable")
             tile("Energy Impact", unavailable(app.energyImpact == nil, app.energyImpact.map { $0.formatted() } ?? "Unavailable"))
             tile("Wakeups", unavailable(app.wakeupsPerSecond == 0, Formatting.wakeups(app.wakeupsPerSecond)))
             tile("Processes", "\(app.processes.count)")
@@ -189,6 +190,9 @@ struct ApplicationDetailView: View {
                 AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
                 AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
                 AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
+                if model.range == .live, app.networkThroughput != nil {
+                    AppMetricChart(title: "Network", lines: networkLines(app), format: Formatting.rate)
+                }
                 if model.range != .live {
                     AppMetricChart(title: "Wakeups", lines: [line("Wakeups", .teal, .wakeups, app)], format: Formatting.wakeups)
                 }
@@ -197,8 +201,22 @@ struct ApplicationDetailView: View {
         }
     }
 
+    private func networkLines(_ app: ApplicationMetrics) -> [AppChartLine] {
+        let points = store.recentProcessPoints[app.id] ?? []
+        let now = Date()
+        func line(_ title: String, _ color: Color, _ value: KeyPath<ProcessNetworkThroughput, Double>) -> AppChartLine {
+            let source = points.enumerated().compactMap { index, point -> HistoricalPoint? in
+                guard let throughput = point.networkThroughput else { return nil }
+                let rate = throughput[keyPath: value]
+                return HistoricalPoint(timestamp: now.addingTimeInterval(-Double(points.count - 1 - index)), average: rate, peak: rate)
+            }
+            return AppChartLine(title: title, color: color, points: source)
+        }
+        return [line("In", .cyan, \.receiveRate), line("Out", .mint, \.sendRate)]
+    }
+
     private func footnote(_ app: ApplicationMetrics) -> String {
-        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes." }
+        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network includes observable TCP and UDP traffic." }
         let names = Set(app.processes.map(\.name)).count
         let shown = min(names, Self.programLimit)
         return names > shown

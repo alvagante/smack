@@ -22,12 +22,16 @@ import Testing
     let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
 
     for tick in 0..<70 {
-        store.receive(obsSnapshot([obsProcess(10, cpu: Double(tick)), obsProcess(11)], at: 1_000 + Double(tick)))
+        var process = obsProcess(10, cpu: Double(tick))
+        process.networkThroughput = ProcessNetworkThroughput(receiveRate: Double(tick), sendRate: 2)
+        store.receive(obsSnapshot([process, obsProcess(11)], at: 1_000 + Double(tick)))
     }
     let kept = try #require(store.recentProcessPoints[obsProcess(10).id])
     #expect(kept.count == 60)
     #expect(kept.first?.cpuUsage == 10)
     #expect(kept.last?.cpuUsage == 69)
+    #expect(kept.last?.networkThroughput?.receiveRate == 69)
+    #expect(kept.last?.networkThroughput?.sendRate == 2)
 
     store.receive(obsSnapshot([obsProcess(10)], at: 2_000))
     #expect(store.recentProcessPoints[obsProcess(11).id] == nil)

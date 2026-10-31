@@ -126,6 +126,8 @@ struct ProcessMetrics: Identifiable, Sendable {
     var interruptWakeupsPerSecond: Double = 0
     var packageIdleWakeupsPerSecond: Double = 0
 
+    var networkThroughput: ProcessNetworkThroughput?
+
     var wakeupsPerSecond: Double { interruptWakeupsPerSecond + packageIdleWakeupsPerSecond }
 }
 
@@ -135,6 +137,15 @@ struct ApplicationMetrics: Identifiable, Sendable {
     var bundleIdentifier: String?
     var executablePath: String?
     var processes: [ProcessMetrics]
+
+    var networkThroughput: ProcessNetworkThroughput? {
+        let values = processes.compactMap(\.networkThroughput)
+        guard !values.isEmpty else { return nil }
+        return ProcessNetworkThroughput(
+            receiveRate: values.reduce(0) { $0 + $1.receiveRate },
+            sendRate: values.reduce(0) { $0 + $1.sendRate }
+        )
+    }
 
     var cpuUsage: Double { processes.reduce(0) { $0 + $1.cpuUsage } }
     var memoryBytes: UInt64 { processes.reduce(UInt64(0)) { $0 &+ $1.memoryBytes } }
@@ -487,6 +498,7 @@ struct LiveMetricHistory {
 
 /// One process-or-application sample kept for the live sparklines in resource detail.
 struct LiveProcessPoint: Sendable {
+    var networkThroughput: ProcessNetworkThroughput? = nil
     var cpuUsage: Double
     var memoryBytes: Double
     var diskReadRate: Double

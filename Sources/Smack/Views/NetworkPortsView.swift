@@ -11,7 +11,8 @@ enum NetworkViewMode: String, CaseIterable, Identifiable {
 final class NetworkPortsViewModel: ObservableObject {
     @Published var query = ""
     @Published var expanded: Set<String> = []
-    @Published var mode: NetworkViewMode = .listening
+    @Published var collapsedConnectionGroups: Set<String> = []
+    @Published var mode: NetworkViewMode = .allConnections
 }
 
 struct NetworkPortsView: View {
@@ -245,15 +246,25 @@ struct NetworkPortsView: View {
                     } label: {
                         HStack(spacing: 12) {
                             if let application = group.application {
-                                ApplicationIcon(application: application, size: 24)
+                                Button { store.route = .application(application.id) } label: {
+                                    HStack(spacing: 12) {
+                                        ApplicationIcon(application: application, size: 24)
+                                        Text(group.name)
+                                            .font(.headline)
+                                            .lineLimit(1)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Open \(application.name) details")
                             } else {
                                 Image(systemName: "terminal")
                                     .frame(width: 24, height: 24)
                                     .foregroundStyle(.secondary)
+                                Text(group.name)
+                                    .font(.headline)
+                                    .lineLimit(1)
                             }
-                            Text(group.name)
-                                .font(.headline)
-                                .lineLimit(1)
                             Spacer()
                             Text("\(group.connections.count) connection\(group.connections.count == 1 ? "" : "s")")
                                 .font(.callout.weight(.semibold))
@@ -296,12 +307,12 @@ struct NetworkPortsView: View {
 
     private func expansion(for group: ApplicationNetworkConnections) -> Binding<Bool> {
         Binding(
-            get: { expanded.contains(group.id) },
+            get: { !model.collapsedConnectionGroups.contains(group.id) },
             set: { isExpanded in
                 if isExpanded {
-                    expanded.insert(group.id)
+                    model.collapsedConnectionGroups.remove(group.id)
                 } else {
-                    expanded.remove(group.id)
+                    model.collapsedConnectionGroups.insert(group.id)
                 }
             }
         )

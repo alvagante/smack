@@ -16,7 +16,8 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
 
     func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         guard !Task.isCancelled else { return nil }
-        let snapshot: ProcessSnapshot
+        async let network = ProcessNetworkCollector.collect()
+        var snapshot: ProcessSnapshot
         if includePrivileged, let payload = await privileged.collectSnapshot() {
             guard !Task.isCancelled,
                   lastTimestamp.map({ payload.timestamp > $0 }) ?? true else { return nil }
@@ -27,6 +28,18 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
                   !Task.isCancelled,
                   lastTimestamp.map({ localSnapshot.timestamp > $0 }) ?? true else { return nil }
             snapshot = localSnapshot
+        }
+        let networkSample = await network
+        guard !Task.isCancelled,
+              lastTimestamp.map({ snapshot.timestamp > $0 }) ?? true else { return nil }
+        for index in snapshot.applications.indices {
+            for processIndex in snapshot.applications[index].processes.indices {
+                let identity = snapshot.applications[index].processes[processIndex].identity
+                snapshot.applications[index].processes[processIndex].networkThroughput = networkSample?.throughput(for: identity)
+            }
+        }
+        for index in snapshot.backgroundProcesses.indices {
+            snapshot.backgroundProcesses[index].networkThroughput = networkSample?.throughput(for: snapshot.backgroundProcesses[index].identity)
         }
         lastTimestamp = snapshot.timestamp
         return snapshot

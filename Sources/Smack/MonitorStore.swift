@@ -259,6 +259,7 @@ final class MonitorStore: ObservableObject {
         }
         for application in snapshot.applications {
             append(application.id, LiveProcessPoint(
+                networkThroughput: application.networkThroughput,
                 cpuUsage: application.cpuUsage,
                 memoryBytes: Double(application.memoryBytes),
                 diskReadRate: application.diskReadRate,
@@ -267,6 +268,7 @@ final class MonitorStore: ObservableObject {
         }
         for process in snapshot.backgroundProcesses {
             append(process.id, LiveProcessPoint(
+                networkThroughput: process.networkThroughput,
                 cpuUsage: process.cpuUsage,
                 memoryBytes: Double(process.memoryBytes),
                 diskReadRate: process.diskReadRate,

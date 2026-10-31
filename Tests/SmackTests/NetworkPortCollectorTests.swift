@@ -124,6 +124,8 @@ import Testing
     #expect(groups[1].connections.map(\.state) == ["SYN_SENT"])
 }
 
-@Test @MainActor func networkViewDefaultsToListeningPorts() {
-    #expect(NetworkPortsViewModel().mode == .listening)
+@Test @MainActor func networkViewDefaultsToAllConnectionsExpanded() {
+    let model = NetworkPortsViewModel()
+    #expect(model.mode == .allConnections)
+    #expect(model.collapsedConnectionGroups.isEmpty)
 }

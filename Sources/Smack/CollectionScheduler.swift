@@ -120,6 +120,7 @@ actor CollectionScheduler {
 
     private func runProcessLoop() async {
         while !Task.isCancelled {
+            let started = ProcessInfo.processInfo.systemUptime
             let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
             guard !Task.isCancelled else { return }
             if let snapshot {
@@ -131,7 +132,8 @@ actor CollectionScheduler {
             }
             let interval = visible ? 1.0 : settings.backgroundProcessInterval
             guard let interval else { return }
-            try? await Task.sleep(for: .seconds(interval))
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            try? await Task.sleep(for: .seconds(max(0.05, interval - elapsed)))
         }
     }
 

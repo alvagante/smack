@@ -86,7 +86,7 @@ private struct InsightLine: Identifiable {
     let gapThreshold: TimeInterval?
 }
 
-private struct InsightRow: Identifiable {
+struct InsightRow: Identifiable {
     let id: String
     let name: String
     let detail: String?
@@ -94,6 +94,7 @@ private struct InsightRow: Identifiable {
     let executablePath: String?
     let isBackground: Bool
     let value: Double
+    var throughput: ProcessNetworkThroughput? = nil
     /// Live rows open the application or process detail.
     let route: AppRoute?
     /// History rows open the running application's detail, or else that program in Historical Data.
@@ -113,7 +114,8 @@ struct ResourceInsightView: View {
     }
 
     private var series: [InsightSeries] { InsightSeries.series(for: resource) }
-    private var hasProcessList: Bool { resource != .network }
+    var hasProcessList: Bool { resource != .network || !Capabilities.isSandboxed }
+    private var usesLiveProcessRows: Bool { resource == .network || model.range == .live }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -298,8 +300,8 @@ struct ResourceInsightView: View {
 
     // MARK: Process list
 
-    private var rows: [InsightRow] {
-        let hours = model.range.hours
+    var rows: [InsightRow] {
+        let hours = usesLiveProcessRows ? nil : model.range.hours
         var rows: [InsightRow]
         if let hours {
             let minutes = hours * 60
@@ -327,7 +329,8 @@ struct ResourceInsightView: View {
                     bundleIdentifier: application.bundleIdentifier,
                     executablePath: application.executablePath,
                     isBackground: false,
-                    value: liveValue(cpu: application.cpuUsage, memory: application.memoryBytes, read: application.diskReadRate, write: application.diskWriteRate),
+                    value: liveValue(cpu: application.cpuUsage, memory: application.memoryBytes, read: application.diskReadRate, write: application.diskWriteRate, network: application.networkThroughput),
+                    throughput: application.networkThroughput,
                     route: .application(application.id),
                     program: nil
                 )
@@ -341,7 +344,8 @@ struct ResourceInsightView: View {
                         bundleIdentifier: nil,
                         executablePath: nil,
                         isBackground: true,
-                        value: liveValue(cpu: process.cpuUsage, memory: process.memoryBytes, read: process.diskReadRate, write: process.diskWriteRate),
+                        value: liveValue(cpu: process.cpuUsage, memory: process.memoryBytes, read: process.diskReadRate, write: process.diskWriteRate, network: process.networkThroughput),
+                        throughput: process.networkThroughput,
                         route: .process(process.id),
                         program: nil
                     )
@@ -350,13 +354,14 @@ struct ResourceInsightView: View {
         } else {
             rows = []
         }
-        return rows.sorted { $0.value > $1.value }
+        return rows.filter { $0.value >= 0 }.sorted { $0.value > $1.value }
     }
 
-    private func liveValue(cpu: Double, memory: UInt64, read: Double, write: Double) -> Double {
+    private func liveValue(cpu: Double, memory: UInt64, read: Double, write: Double, network: ProcessNetworkThroughput?) -> Double {
         switch resource {
         case .cpu: cpu
         case .memory: Double(memory)
+        case .network: network?.total ?? -1
         default: read + write
         }
     }
@@ -382,6 +387,7 @@ struct ResourceInsightView: View {
         switch resource {
         case .cpu: "CPU"
         case .memory: "memory"
+        case .network: "network activity"
         default: "disk activity"
         }
     }
@@ -392,15 +398,19 @@ struct ResourceInsightView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(model.showAll ? "All processes by \(metricName)" : "Top \(shown.count) by \(metricName)").font(.headline)
-                Text(model.range == .live ? "now" : "average over \(model.range.rawValue)").font(.caption).foregroundStyle(.secondary)
+                Text(usesLiveProcessRows ? "now" : "average over \(model.range.rawValue)").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if rows.count > ResourceInsightViewModel.topCount {
                     Button(model.showAll ? "Show top \(ResourceInsightViewModel.topCount)" : "Show all (\(rows.count))") { model.showAll.toggle() }
                         .controlSize(.small)
                 }
             }
+            if resource == .network {
+                Text("Live receive/send rates by application, summed across observable processes. The chart range applies to system totals; per-app network history is not recorded.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if shown.isEmpty {
-                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(model.loading ? "Loading…" : "No process data for this range."))
+                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(model.loading ? "Loading…" : (resource == .network ? "No network samples available. Only processes with observable TCP or UDP sockets are listed." : "No process data for this range.")))
                     .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
@@ -432,7 +442,7 @@ struct ResourceInsightView: View {
                 Sparkline(series: sparkline(for: row), minHeight: 22, maxHeight: 32)
                     .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32)
                 Color.clear.frame(maxWidth: .infinity, maxHeight: 32)
-                Text(format(row.value)).monospacedDigit().foregroundStyle(.secondary).frame(width: 110, alignment: .trailing)
+                Text(resource == .network ? (row.throughput?.formatted ?? "Unavailable") : format(row.value)).monospacedDigit().foregroundStyle(.secondary).frame(width: resource == .network ? 200 : 110, alignment: .trailing)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
             }
             .padding(.vertical, 4)
@@ -461,8 +471,8 @@ struct ResourceInsightView: View {
         return snapshot.backgroundProcesses.first { $0.name == program }.map { .process($0.id) }
     }
 
-    private func sparkline(for row: InsightRow) -> [SparklineSeries] {
-        let live = model.range == .live
+    func sparkline(for row: InsightRow) -> [SparklineSeries] {
+        let live = usesLiveProcessRows
         let livePoints = live ? (store.recentProcessPoints[row.id] ?? []) : []
         let history = live ? [:] : (model.rowHistory[historyKey(row)] ?? [:])
         func values(_ metric: ProcessMetric, live: KeyPath<LiveProcessPoint, Double>) -> [Double] {
@@ -471,6 +481,11 @@ struct ResourceInsightView: View {
         switch resource {
         case .cpu: return [SparklineSeries(values: values(.cpuUsage, live: \.cpuUsage), color: .blue)]
         case .memory: return [SparklineSeries(values: values(.memoryBytes, live: \.memoryBytes), color: .purple)]
+        case .network:
+            return [
+                SparklineSeries(values: livePoints.compactMap { $0.networkThroughput?.receiveRate }, color: .cyan),
+                SparklineSeries(values: livePoints.compactMap { $0.networkThroughput?.sendRate }, color: .mint),
+            ]
         default:
             return [
                 SparklineSeries(values: values(.diskReadRate, live: \.diskReadRate), color: .orange),
@@ -485,7 +500,7 @@ struct ResourceInsightView: View {
 
     private var networkSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Per-application throughput is unavailable. Open an application to inspect its live connections.")
+            Text("Per-application network throughput is unavailable in the App Store build.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Inspect Application Connections") { store.route = .applications }
@@ -512,11 +527,11 @@ struct ResourceInsightView: View {
         }
         guard !Task.isCancelled else { return }
         model.points = result
-        if hasProcessList { model.programs = await store.historicalPrograms(hours: hours) }
+        if hasProcessList, !usesLiveProcessRows { model.programs = await store.historicalPrograms(hours: hours) }
     }
 
     private func loadRowHistory(_ row: InsightRow) async {
-        guard let hours = model.range.hours, let program = row.program else { return }
+        guard !usesLiveProcessRows, let hours = model.range.hours, let program = row.program else { return }
         let key = historyKey(row)
         guard model.rowHistory[key] == nil else { return }
         let result = await store.processHistory(program: program, processID: nil, hours: hours, limit: ResourceInsightViewModel.sparklinePoints)
