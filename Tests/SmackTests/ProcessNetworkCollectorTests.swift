@@ -153,3 +153,24 @@ private actor EmptyNetworkHelper: PrivilegedSamplingProviding {
     func collectNetworkPorts() async -> SocketCollection? { nil }
     func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload? { nil }
 }
+
+@Test func networkSamplerStopsWhenTurnedOffAndRestartsAtNewInterval() async {
+    let sample = ProcessNetworkSample(startedAt: Date(), rates: [:])
+    let probe = NetworkSamplingProbe([sample, sample, sample])
+    // Each loop parks in a cancellable sleep, so a restart ends the old loop instead of letting it spin.
+    let sampler = ProcessNetworkSampler(collect: { await probe.collect() }, sleep: { delay in
+        await probe.sleeping(delay)
+        try await Task.sleep(for: .seconds(3_600))
+    })
+    await sampler.setVisible(true)
+    await probe.waitForSleeps(1)
+    await sampler.setInterval(nil)
+    #expect(await sampler.latest() == nil)
+    #expect(await probe.calls == 1)
+    await sampler.setInterval(20)
+    await probe.waitForSleeps(2)
+    #expect(await probe.calls == 2)
+    #expect(await probe.delays.last ?? 0 > 19)
+    #expect(await sampler.latest() != nil)
+    await sampler.setVisible(false)
+}

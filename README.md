@@ -45,7 +45,7 @@ What you can **change**:
 
 - **Startup items:** every Open at Login app, app-registered background item, launch agent and daemon, and user cron job, with running state and an enable/disable switch for each (direct build). Open at Login apps and app background items appear after Scan for All Items, which asks for an administrator password; daemon changes ask for one too; Apple items are listed read-only.
 - **Quit or kill applications:** Terminate asks an application to quit as the Dock does, so it can offer to save; Force Kill ends its processes immediately. Only the processes shown at confirmation are touched, and a pid reused in the meantime is skipped (direct build).
-- **Settings:** sampling and background collection, per-group activity events, process history depth and retention, launch at login, panel behavior, and what Smack stores and shows, with a Storage Usage card measuring each collection on disk.
+- **Settings:** a System Settings style window with panes for panel behavior, appearance, live and background collection (refresh period, battery slowdown, per-process network rates, memory budget), superuser sampling, local environment pages (which pages show, cache lifetime, Docker refresh and statistics, project folders, AI agents), activity events, history retention and export, and Storage Usage with on-demand database compaction.
 
 ## Additional features
 
@@ -134,7 +134,7 @@ sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
   /Library/PrivilegedHelperTools/it.lab42.smack.helper
 ```
 
-Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use the power button in the header (⌘Q) or **Settings → Quit** to exit completely.
+Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use the power button in the header (⌘Q) or **Settings → General → Quit Smack** to exit completely.
 
 ## Test
 

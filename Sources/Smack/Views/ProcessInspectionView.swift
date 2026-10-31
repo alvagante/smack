@@ -18,6 +18,10 @@ struct ProcessInspectionView: View {
     @State private var live = false
     @State private var capture = false
     @State private var crashes: [URL] = []
+    @State private var segment = 0
+
+    private var traceSeconds: Int { store.settingsStore.settings.fileActivitySeconds }
+    private var traceSegments: Int { max(1, traceSeconds / CollectionSettings.fileActivitySegmentSeconds) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -25,7 +29,7 @@ struct ProcessInspectionView: View {
                 Text("This inspection is unavailable in the App Store build.").foregroundStyle(.secondary)
             } else {
                 controls
-                if loading { ProgressView(tab == .fileActivity ? "Capturing five seconds of file activity…" : "Inspecting process…").controlSize(.small) }
+                if loading { ProgressView(tab == .fileActivity ? captureProgress : "Inspecting process…").controlSize(.small) }
                 if let message { Text(message).font(.callout).foregroundStyle(.orange).textSelection(.enabled) }
                 content
             }
@@ -51,7 +55,7 @@ struct ProcessInspectionView: View {
                 }
                 Spacer()
                 if tab == .fileActivity {
-                    Button("Capture 5 Seconds") { capture = true; refresh += 1 }.disabled(loading)
+                    Button("Capture \(traceSeconds) Seconds") { capture = true; refresh += 1 }.disabled(loading)
                 } else {
                     Button("Refresh") { refresh += 1 }.disabled(loading && !live)
                 }
@@ -88,6 +92,12 @@ struct ProcessInspectionView: View {
             Text("Captures filesystem calls for this process using the superuser helper. Includes reads, writes, renames and deletions observed during the capture.").font(.caption).foregroundStyle(.secondary)
             outputView
         }
+    }
+
+    private var captureProgress: String {
+        traceSegments > 1
+            ? "Capturing file activity: segment \(max(segment, 1)) of \(traceSegments) (five seconds each)…"
+            : "Capturing five seconds of file activity…"
     }
 
     private var outputView: some View {
@@ -155,7 +165,12 @@ struct ProcessInspectionView: View {
             } while !Task.isCancelled
         case .fileActivity:
             guard capture else { return }
-            guard let result = await store.privilegedSampling?.captureFileActivity(identity: identity) else {
+            guard let controller = store.privilegedSampling,
+                  let result = await FileActivityTrace.capture(
+                      segments: traceSegments,
+                      isCurrent: { ProcessInspection.isCurrent(identity) },
+                      segment: { await controller.captureFileActivity(identity: identity) },
+                      progress: { segment = $0 }) else {
                 message = "Enable superuser sampling in Settings and update the helper to capture file activity."
                 return
             }

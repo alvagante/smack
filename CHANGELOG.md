@@ -2,6 +2,28 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Add tuning settings, all defaulting to the previous fixed behavior:
+  - **Collection:** refresh period while the panel is open (1, 2 or 5 s); per-process network rates on or off, with their interval (2-60 s, default 5); a battery and Low Power Mode slowdown that stretches background intervals 2, 4 or 8 times; and a Memory budget (Small, Standard or Large) for profiling output, development runtime inspections, application icons and signature facts.
+  - **Local Environment pane (direct build):**
+    - Show or hide each inventory page on Summary; hidden pages skip discovery when the panel opens.
+    - Reuse inventories for a Short, Standard or Long time.
+    - Docker auto-refresh (15, 30 or 60 s, or only on request) and live container statistics on or off.
+    - Persistent development project folders and their scan depth (1-8 levels).
+    - AI agents to include, and custom agent folders.
+  - **Activity Timeline:** Maximum events (10,000 to 1,000,000; default 100,000).
+  - **Storage Usage:** Compact database now, with the date of the last manual compaction.
+  - **Superuser Sampling:** File Activity trace length (5, 10 or 30 s), captured as consecutive five-second segments without changing the helper.
+
+### Changed
+
+- Redesign Settings in the macOS System Settings layout: a sidebar of panes and grouped forms, with an info button for help and the live cost under each label.
+- Rename the Background Collection pane to Collection; it also covers sampling while the panel is open.
+- Show "Off" instead of "Unavailable" for per-process network rates when they are turned off.
+
 ## [0.7.0] - 2026-10-31
 
 ### Added

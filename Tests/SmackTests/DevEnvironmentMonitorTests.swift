@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
+import Synchronization
 @testable import Smack
 
 struct DevEnvironmentMonitorTests {
@@ -97,7 +98,7 @@ struct DevEnvironmentMonitorTests {
     @Test @MainActor func refreshInvalidatesDetailsAndFolderIsNotAddedTwice() async {
         let item = DevEnvironment(language: .ruby, executable: "/ruby", resolvedPath: "/ruby", source: "Test", onPath: false)
         let model = DevEnvironmentMonitor(collector: .init(run: { _, _ in .init(status: 0, output: "3.4", error: "") }),
-                                          discover: { folders in DevDiscovery(environments: [item], roots: folders) })
+                                          discover: { folders, _ in DevDiscovery(environments: [item], roots: folders) })
         await model.refresh()
         await model.inspect(item)
         #expect(model.inspections[item.id] != nil)
@@ -136,7 +137,7 @@ struct DevEnvironmentMonitorTests {
         let snapshot = await Task.detached { DevEnvironmentCollector.discover() }.value
         #expect(!snapshot.environments.isEmpty)
         let model = DevEnvironmentMonitor(collector: .init(run: { _, _ in .init(status: 0, output: "Test runtime\npackage==1.0 /test/lib", error: "") }),
-                                          discover: { _ in snapshot })
+                                          discover: { _, _ in snapshot })
         await model.refresh()
         if let item = snapshot.environments.first { await model.inspect(item) }
         let host = NSHostingView(rootView: DevEnvironmentDetailView(model: model)
@@ -147,5 +148,33 @@ struct DevEnvironmentMonitorTests {
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         try png.write(to: URL(fileURLWithPath: "/tmp/smack-dev-environments.png"))
+    }
+
+    @Test func projectScanDepthFollowsSetting() throws {
+        let root = try fixture()
+        let deep = try executable(root, "project/a/b/c/d/e/bin/ruby")
+        let shallow = DevEnvironmentCollector.discover(home: root.path, environment: [:], folders: [root.path + "/project"], includeSystem: false)
+        #expect(!shallow.environments.contains { $0.executable == deep })
+        let deeper = DevEnvironmentCollector.discover(home: root.path, environment: [:], folders: [root.path + "/project"], includeSystem: false, depth: 6)
+        #expect(deeper.environments.contains { $0.executable == deep })
+    }
+
+    @Test @MainActor func settingsChangedDuringDiscoveryAreAppliedAfterIt() async {
+        let calls = Mutex<[Int]>([])
+        let gate = AsyncStream<Void>.makeStream()
+        let model = DevEnvironmentMonitor(discover: { _, depth in
+            let first = calls.withLock { $0.append(depth); return $0.count == 1 }
+            if first { for await _ in gate.stream { break } }
+            return DevDiscovery(roots: ["depth \(depth)"])
+        })
+        let running = Task { await model.refresh() }
+        while calls.withLock({ $0.isEmpty }) { await Task.yield() }
+        model.configure(folders: [], depth: 5, cache: .standard)
+        model.configure(folders: [], depth: 6, cache: .standard)
+        for _ in 0..<20 { await Task.yield() }
+        gate.continuation.yield(())
+        await running.value
+        #expect(model.snapshot?.roots == ["depth 6"])
+        #expect(calls.withLock { $0 } == [4, 6])
     }
 }

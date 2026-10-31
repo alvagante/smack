@@ -97,8 +97,10 @@ extension HistoryRepository {
         }
     }
 
-    /// Applies the retention window (clamped to the valid range), then keeps the newest `rowCap` rows.
-    func pruneEvents(settings: CollectionSettings, now: Date = Date(), rowCap: Int = HistoryRepository.eventRowCap) throws {
+    /// Applies the retention window (clamped to the valid range), then keeps the newest `rowCap` rows
+    /// (the Maximum events setting unless a test overrides it).
+    func pruneEvents(settings: CollectionSettings, now: Date = Date(), rowCap: Int? = nil) throws {
+        let rowCap = rowCap ?? settings.maximumEventRows
         let range = CollectionSettings.eventRetentionRange
         let days = min(max(settings.eventRetentionDays, range.lowerBound), range.upperBound)
         try deleteEvents(before: now.addingTimeInterval(-TimeInterval(days) * 86_400))
@@ -110,6 +112,19 @@ extension HistoryRepository {
             }
             excess -= batch
         }
+    }
+
+    /// Rewrites the database file to release space left by deleted rows. Blocks other history writes while it runs
+    /// and temporarily needs free disk space about the size of the database.
+    @discardableResult
+    func compactNow(at date: Date = Date()) throws -> Date {
+        try compactFile()
+        try setMetadata(Self.lastCompactedKey, value: String(date.timeIntervalSince1970))
+        return date
+    }
+
+    func lastCompacted() throws -> Date? {
+        try metadata(Self.lastCompactedKey).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
     }
 
     func metadata(_ key: String) throws -> String? {

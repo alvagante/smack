@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum ResourceKind: String, CaseIterable, Identifiable {
@@ -106,6 +107,8 @@ final class MonitorStore: ObservableObject {
     private var diffTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private var panelVisible = false
+    private var settingsObservation: AnyCancellable?
+    private var appliedPages: Set<SummaryPage> = []
     static let lastSeenDefaultsKey = "smack.activity.lastSeen"
     static let lastSeenMetadataKey = "activity.lastSeen"
     static let recentEventLimit = 500
@@ -128,6 +131,42 @@ final class MonitorStore: ObservableObject {
             guard let self else { return }
             Task { await self.recordStartup(inventory) }
         }
+        devEnvironmentModel.onFoldersChanged = { [weak settingsStore] folders in
+            settingsStore?.update { $0.devProjectFolders = folders }
+        }
+        applyEnvironmentSettings(settingsStore.settings)
+        // Every writer goes through SettingsStore, including ones that skip settingsChanged(), so observe it here.
+        settingsObservation = settingsStore.$settings.dropFirst().sink { [weak self] settings in
+            self?.applyEnvironmentSettings(settings)
+        }
+    }
+
+    /// "Off" when the user turned per-process network rates off; "Unavailable" is for values the system withholds.
+    var networkRateFallback: String {
+        settingsStore.settings.processNetworkRateEnabled ? "Unavailable" : "Off"
+    }
+
+    /// Pushes settings that do not affect sampling to the page monitors, at launch and on every change.
+    private func applyEnvironmentSettings(_ settings: CollectionSettings) {
+        dockerModel.configure(refreshSeconds: settings.dockerRefreshSeconds, liveStats: settings.dockerLiveStats, cache: settings.inventoryCache)
+        homebrewModel.cache = settings.inventoryCache
+        devEnvironmentModel.configure(folders: settings.devProjectFolders, depth: settings.devScanDepth, cache: settings.inventoryCache)
+        agentsModel.configure(excluded: settings.excludedAgents, customFolders: settings.customAgentFolders, cache: settings.inventoryCache)
+        let shown = Set(SummaryPage.allCases.filter(settings.shows))
+        let changed = shown.symmetricDifference(appliedPages)
+        appliedPages = shown
+        // Only pages whose state changed: re-showing an unchanged one would cancel its in-flight discovery.
+        if panelVisible, !changed.isEmpty { setPageMonitorsVisible(true, only: changed) }
+    }
+
+    /// Hidden pages skip discovery; hiding one while the panel is open stops its refresh loop.
+    private func setPageMonitorsVisible(_ visible: Bool, only pages: Set<SummaryPage> = Set(SummaryPage.allCases)) {
+        func show(_ page: SummaryPage) -> Bool { visible && appliedPages.contains(page) }
+        if pages.contains(.docker) { dockerModel.setVisible(show(.docker)) }
+        if pages.contains(.homebrew) { homebrewModel.setVisible(show(.homebrew)) }
+        if pages.contains(.devEnvironments) { devEnvironmentModel.setVisible(show(.devEnvironments)) }
+        if pages.contains(.agents) { agentsModel.setVisible(show(.agents)) }
+        if pages.contains(.installedApps) { installedAppsModel.setVisible(show(.installedApps)) }
     }
 
     func goBack() {
@@ -147,11 +186,7 @@ final class MonitorStore: ObservableObject {
         // Only a real transition counts: the launch-time hide must not overwrite the previous session's last look.
         guard visible != panelVisible else { return }
         panelVisible = visible
-        dockerModel.setVisible(visible)
-        homebrewModel.setVisible(visible)
-        devEnvironmentModel.setVisible(visible)
-        agentsModel.setVisible(visible)
-        installedAppsModel.setVisible(visible)
+        setPageMonitorsVisible(visible)
         if visible {
             diffTask?.cancel()
             diffTask = Task { await refreshActivityDiff() }

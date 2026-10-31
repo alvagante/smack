@@ -410,7 +410,7 @@ struct ResourceInsightView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if shown.isEmpty {
-                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(model.loading ? "Loading…" : (resource == .network ? "No network samples available. Only processes with observable TCP or UDP sockets are listed." : "No process data for this range.")))
+                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(model.loading ? "Loading…" : (resource == .network ? (store.settingsStore.settings.processNetworkRateEnabled ? "No network samples available. Only processes with observable TCP or UDP sockets are listed." : "Per-process network rates are off. Turn them on in Settings › Collection.") : "No process data for this range.")))
                     .frame(maxWidth: .infinity)
             } else {
                 ScrollView {

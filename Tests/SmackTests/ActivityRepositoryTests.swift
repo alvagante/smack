@@ -148,3 +148,25 @@ import Testing
     try await repository.save(system: obsSystem(at: 1_760_000_002, cpu: 70))
     #expect(try await repository.peak(.cpu, from: .distantPast) == 70)
 }
+
+@Test func pruningDefaultsToMaximumEventsSetting() async throws {
+    let directory = try obsTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("h.sqlite"))
+    let now = Date(timeIntervalSince1970: 10_000_000)
+    try await repository.save(events: (0..<6).map { obsEvent(.processStarted, at: now.timeIntervalSince1970 - Double($0), subject: "n\($0)") })
+    var settings = CollectionSettings()
+    settings.maximumEventRows = 3
+    try await repository.pruneEvents(settings: settings, now: now)
+    #expect(try await repository.eventCount() == 3)
+}
+
+@Test func compactNowRecordsWhenItRan() async throws {
+    let directory = try obsTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("h.sqlite"))
+    #expect(try await repository.lastCompacted() == nil)
+    let date = Date(timeIntervalSince1970: 1_800_000_000)
+    try await repository.compactNow(at: date)
+    #expect(try await repository.lastCompacted() == date)
+}

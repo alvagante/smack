@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import ServiceManagement
 
 @MainActor
@@ -22,6 +23,7 @@ final class SettingsStore: ObservableObject {
             settings = CollectionSettings()
         }
         settings.validate()
+        MemoryBudget.current.withLock { [budget = settings.memoryBudget] in $0 = budget }
     }
 
     /// Updates settings using the provided mutation closure, immediately validating,
@@ -33,6 +35,7 @@ final class SettingsStore: ObservableObject {
         let oldLoginPreference = settings.launchAtLogin
         updated.validate()
         settings = updated
+        MemoryBudget.current.withLock { $0 = updated.memoryBudget }
         persist(updated)
         if oldLoginPreference != updated.launchAtLogin {
             updateLoginItem(enabled: updated.launchAtLogin)

@@ -233,7 +233,7 @@ struct DockerCollector: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func collect(executable: String, details: Bool, section: DockerSection = .containers) async -> DockerSnapshot {
+    func collect(executable: String, details: Bool, section: DockerSection = .containers, stats: Bool = true) async -> DockerSnapshot {
         var snapshot = DockerSnapshot()
         func command(_ arguments: [String]) async throws -> String {
             try Self.checked(await run(executable, arguments))
@@ -257,7 +257,7 @@ struct DockerCollector: Sendable {
             return snapshot
         }
         guard details, !Task.isCancelled else { return snapshot }
-        if section == .containers {
+        if section == .containers, stats {
             do {
                 snapshot.stats = try Self.decodeLines(try await command(["stats", "--no-stream", "--no-trunc", "--format", "{{json .}}"]), as: DockerContainerStats.self)
             } catch { snapshot.warnings.append("Container statistics unavailable: \(error.localizedDescription)") }
@@ -316,20 +316,41 @@ final class DockerMonitor: ObservableObject {
     private var task: Task<Void, Never>?
     private let collector: DockerCollector
     private let locate: () -> String?
+    private var visible = false
+    /// Auto-refresh period while visible; 0 refreshes once on open and then only on request.
+    private(set) var refreshSeconds = 15
+    private(set) var liveStats = true
+    private(set) var cache = InventoryCachePreset.standard
+
+    /// Applies the Docker settings; a new refresh period restarts the loop if the panel is open.
+    func configure(refreshSeconds: Int, liveStats: Bool, cache: InventoryCachePreset) {
+        let restart = refreshSeconds != self.refreshSeconds
+        self.refreshSeconds = refreshSeconds
+        self.cache = cache
+        if liveStats != self.liveStats {
+            self.liveStats = liveStats
+            if !liveStats, var current = snapshot { current.stats = []; snapshot = current }
+        }
+        if restart && visible { setVisible(true, force: true) }
+    }
 
     init(collector: DockerCollector = DockerCollector(), locate: @escaping () -> String? = DockerCollector.executable) {
         self.collector = collector
         self.locate = locate
     }
 
-    func setVisible(_ visible: Bool) {
+    func setVisible(_ visible: Bool, force: Bool = false) {
+        guard force || visible != self.visible else { return }
+        self.visible = visible
         task?.cancel()
         guard visible else { return }
+        let period = refreshSeconds
         task = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh(automatic: true)
-                try? await Task.sleep(for: .seconds(15))
+                guard period > 0 else { return }
+                do { try await Task.sleep(for: .seconds(period)) } catch { return }
             }
         }
     }
@@ -340,7 +361,7 @@ final class DockerMonitor: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if let executable = locate(), sourceKey(executable) == source,
-           let date = detailDates[section], Date().timeIntervalSince(date) < (section == .storage ? 300 : 60) { return }
+           let date = detailDates[section], Date().timeIntervalSince(date) < (section == .storage ? cache.slowInventory : cache.dockerInventory) { return }
         await refresh()
     }
 
@@ -355,14 +376,14 @@ final class DockerMonitor: ObservableObject {
         if key != source { snapshot = nil; detailDates = [:]; source = key }
         let requested = section
         let age = detailDates[requested].map { Date().timeIntervalSince($0) } ?? .infinity
-        // Storage is explicit-only. Inventory sections retry at most once per minute while selected.
-        let wantsDetails = detailsWanted && (!automatic || (requested != .storage && (requested == .containers || age >= 60)))
-        var value = await collector.collect(executable: executable, details: wantsDetails, section: requested)
+        // Storage is explicit-only. Inventory sections retry at most once per cache lifetime while selected.
+        let wantsDetails = detailsWanted && (!automatic || (requested != .storage && (requested == .containers || age >= cache.dockerInventory)))
+        var value = await collector.collect(executable: executable, details: wantsDetails, section: requested, stats: liveStats)
         guard !Task.isCancelled else { return }
         guard key == sourceKey(executable) else { snapshot = nil; detailDates = [:]; return }
         if value.engine != nil {
             if wantsDetails { detailDates[requested] = Date() }
-            value.stats = wantsDetails && requested == .containers ? value.stats : snapshot?.stats ?? []
+            value.stats = wantsDetails && requested == .containers ? value.stats : liveStats ? snapshot?.stats ?? [] : []
             if requested != .storage || !wantsDetails { value.disk = snapshot?.disk }
             if requested != .images || !wantsDetails { value.images = snapshot?.images }
             if requested != .volumes || !wantsDetails { value.volumes = snapshot?.volumes }

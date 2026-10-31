@@ -1,3 +1,4 @@
+import Synchronization
 import Darwin
 import Foundation
 import Security
@@ -294,7 +295,8 @@ actor ProcessFileFactsCache {
     }
 
     static let ttl: TimeInterval = 300
-    static let capacity = 200
+    /// From the Memory budget setting.
+    static var capacity: Int { MemoryBudget.current.withLock { $0 }.fileFactsEntries }
 
     private var entries: [Key: (facts: ProcessFileFacts, loadedAt: Date)] = [:]
     private let reader: @Sendable (String) -> ProcessFileFacts

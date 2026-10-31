@@ -82,4 +82,27 @@ struct AgentMonitorTests {
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         try png.write(to: URL(fileURLWithPath: "/tmp/smack-agents.png"))
     }
+
+    @Test func customFoldersAreBrowsedAndExcludedAgentsSkipped() throws {
+        let home = try fixture()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try directory(home, ".claude/skills")
+        try directory(home, ".codex/log")
+        try directory(home, "work/agent/skills")
+        let custom = AgentDefinition.custom(folder: home.path + "/work/agent")
+        #expect(custom.locations.allSatisfy { !$0.homeRelative })
+        let definitions = AgentDefinition.catalog.filter { $0.id != "codex" } + [custom]
+        let snapshot = AgentCollector(home: home, environment: [:]).discover(definitions: definitions)
+        #expect(Set(snapshot.agents.map(\.id)) == ["claude", custom.id])
+        let found = try #require(snapshot.agents.first { $0.id == custom.id })
+        #expect(found.name == "Custom: agent")
+        #expect(found.artifacts.contains { $0.category == .skills })
+    }
+
+    @Test @MainActor func monitorDefinitionsFollowConfiguration() {
+        let model = AgentMonitor()
+        model.configure(excluded: ["claude"], customFolders: ["/tmp/x"], cache: .standard)
+        #expect(!model.definitions.contains { $0.id == "claude" })
+        #expect(model.definitions.contains { $0.id == "custom:/tmp/x" })
+    }
 }

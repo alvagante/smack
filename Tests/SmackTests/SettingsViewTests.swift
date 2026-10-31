@@ -80,5 +80,13 @@ import Testing
         view.onQuit()
         #expect(quitTriggered == true)
     }
-}
 
+    @Test func settingsPanesFollowCapabilities() {
+        let panes = SettingsPane.groups.flatMap { $0 }
+        #expect(panes.first == .general)
+        #expect(panes.last == .about)
+        #expect(panes.contains(.superuser) == Capabilities.supportsPrivilegedSampling)
+        #expect(panes.contains(.environment) == !Capabilities.isSandboxed)
+        #expect(Set(panes).count == panes.count)
+    }
+}

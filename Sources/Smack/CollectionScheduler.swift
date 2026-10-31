@@ -1,4 +1,15 @@
 import Foundation
+import IOKit.ps
+
+/// Battery power or Low Power Mode, when background collection may be slowed down.
+enum PowerConstraint {
+    static func current() -> Bool {
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() else { return false }
+        return (type as String) == kIOPSBatteryPowerValue
+    }
+}
 
 actor CollectionScheduler {
     private let systemCollector: SystemMetricsCollecting
@@ -20,6 +31,7 @@ actor CollectionScheduler {
     private let onInventory: @Sendable (String, ProcessInventory) -> Void
     private let onNetworkPorts: @Sendable (NetworkPortSnapshot) -> Void
     private let onEvents: @Sendable ([ActivityEvent]) -> Void
+    private let isPowerConstrained: @Sendable () -> Bool
 
     init(
         systemCollector: SystemMetricsCollecting,
@@ -34,7 +46,8 @@ actor CollectionScheduler {
         onNetworkPorts: @escaping @Sendable (NetworkPortSnapshot) -> Void = { _ in },
         onHistoryHealth: @escaping @Sendable (HistoryHealth) -> Void = { _ in },
         activity: (any ActivityRecording)? = nil,
-        onEvents: @escaping @Sendable ([ActivityEvent]) -> Void = { _ in }
+        onEvents: @escaping @Sendable ([ActivityEvent]) -> Void = { _ in },
+        isPowerConstrained: @escaping @Sendable () -> Bool = PowerConstraint.current
     ) {
         self.systemCollector = systemCollector
         self.processCollector = processCollector
@@ -48,6 +61,7 @@ actor CollectionScheduler {
         self.onInventory = onInventory
         self.onNetworkPorts = onNetworkPorts
         self.onEvents = onEvents
+        self.isPowerConstrained = isPowerConstrained
     }
 
     func setTemperaturesWanted(_ value: Bool) {
@@ -56,13 +70,14 @@ actor CollectionScheduler {
 
     func setVisible(_ value: Bool) async {
         visible = value
-        await processCollector.setNetworkSamplingVisible(value)
+        await processCollector.setNetworkSampling(visible: value, interval: networkRateInterval)
         guard visible == value else { return }
         restartSampling()
     }
 
     func update(settings: CollectionSettings) async {
         self.settings = settings
+        await processCollector.setNetworkSampling(visible: visible, interval: networkRateInterval)
         restartSampling()
         await maintainHistory()
     }
@@ -78,6 +93,18 @@ actor CollectionScheduler {
         await networkPortCollector.collectNetworkPorts(
             includePrivileged: settings.privilegedSampling
         )
+    }
+
+    private var networkRateInterval: TimeInterval? {
+        settings.processNetworkRateEnabled ? settings.processNetworkRateSeconds : nil
+    }
+
+    /// The panel-visible period, or the background interval stretched on battery or in Low Power Mode.
+    func sleepInterval(background: TimeInterval?, live: TimeInterval? = nil) -> TimeInterval? {
+        if visible { return live ?? settings.liveRefreshSeconds }
+        guard let background else { return nil }
+        let multiplier = settings.constrainedPowerMultiplier
+        return multiplier > 1 && isPowerConstrained() ? background * Double(multiplier) : background
     }
 
     private func restartSampling() {
@@ -102,7 +129,7 @@ actor CollectionScheduler {
                 while !Task.isCancelled {
                     guard let self else { return }
                     await self.runScheduledInventory()
-                    try? await Task.sleep(for: .seconds(interval))
+                    try? await Task.sleep(for: .seconds(await self.sleepInterval(background: interval, live: interval) ?? interval))
                 }
             }
         }
@@ -114,8 +141,7 @@ actor CollectionScheduler {
             onSystem(sample)
             await history.save(system: sample)
             await deliver(await activity.record(system: sample, settings: settings))
-            let interval = visible ? 1.0 : settings.backgroundSystemInterval
-            guard let interval else { return }
+            guard let interval = sleepInterval(background: settings.backgroundSystemInterval) else { return }
             try? await Task.sleep(for: .seconds(interval))
         }
     }
@@ -132,8 +158,7 @@ actor CollectionScheduler {
                 }
                 await deliver(await activity.record(processes: snapshot))
             }
-            let interval = visible ? 1.0 : settings.backgroundProcessInterval
-            guard let interval else { return }
+            guard let interval = sleepInterval(background: settings.backgroundProcessInterval) else { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - started
             try? await Task.sleep(for: .seconds(max(0.05, interval - elapsed)))
         }
@@ -148,8 +173,7 @@ actor CollectionScheduler {
             guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
             await deliver(await activity.record(network: snapshot, settings: settings))
-            let interval = visible ? 5.0 : settings.backgroundNetworkInterval
-            guard let interval else { return }
+            guard let interval = sleepInterval(background: settings.backgroundNetworkInterval, live: 5) else { return }
             try? await Task.sleep(for: .seconds(interval))
         }
     }

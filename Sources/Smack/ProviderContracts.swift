@@ -11,7 +11,8 @@ extension SystemMetricsCollecting {
 }
 
 protocol ProcessMetricsCollecting: AnyObject, Sendable {
-    func setNetworkSamplingVisible(_ visible: Bool) async
+    /// Per-process network rates run only while visible and `interval` is set; nil turns them off.
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async
     /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
     /// Collectors fall back to the current user's visibility when privileged access is unavailable.
     /// Returns nil for cancelled or stale observations.
@@ -19,7 +20,7 @@ protocol ProcessMetricsCollecting: AnyObject, Sendable {
 }
 
 extension ProcessMetricsCollecting {
-    func setNetworkSamplingVisible(_ visible: Bool) async {}
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async {}
 }
 
 protocol InventoryCollecting: AnyObject, Sendable {

@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Security
+import SmackIPC
 
 enum ProcessInspectionTab: String, CaseIterable, Identifiable {
     case launchContext = "Launch Context"
@@ -158,3 +159,50 @@ enum ProcessInspection {
     }
 }
 
+
+/// A File Activity trace longer than the helper's fixed five seconds, built from consecutive segments. The helper
+/// protocol stays unchanged; each segment repeats its own PID and start-time check, and there are short gaps between
+/// segments, so the result is labeled as segmented rather than continuous.
+enum FileActivityTrace {
+    static let outputLimit = 4 * 1_048_576
+    /// The helper releases its single-capture gate just after replying, so an immediate follow-up can be refused.
+    static let retries = 5
+    static let retryDelay: TimeInterval = 0.2
+
+    typealias Segment = @Sendable () async -> FileActivityPayload?
+    typealias Wait = @Sendable (TimeInterval) async throws -> Void
+
+    /// Returns nil when the first segment gets no answer (helper missing or outdated).
+    static func capture(segments: Int, isCurrent: @escaping @Sendable () -> Bool, segment: Segment,
+                        wait: Wait = { try await Task.sleep(for: .seconds($0)) },
+                        progress: @MainActor (Int) -> Void = { _ in }) async -> FileActivityPayload? {
+        var output = ""
+        for index in 1...max(1, segments) {
+            guard !Task.isCancelled else { break }
+            guard isCurrent() else {
+                return FileActivityPayload(output: output, error: "The process exited or its PID was reused; the trace stops after \(index - 1) segments.")
+            }
+            await progress(index)
+            var result = await segment()
+            var attempts = 0
+            while result == nil, index > 1, attempts < retries, !Task.isCancelled {
+                attempts += 1
+                do { try await wait(retryDelay) } catch { break }
+                result = await segment()
+            }
+            guard let result else {
+                if index == 1 { return nil }
+                return FileActivityPayload(output: output, error: "The helper stopped answering after \(index - 1) segments.")
+            }
+            if segments > 1 { output += "--- Segment \(index) of \(segments) ---\n" }
+            output += result.output
+            if !output.hasSuffix("\n") && !output.isEmpty { output += "\n" }
+            if output.utf8.count > outputLimit {
+                return FileActivityPayload(output: String(decoding: output.utf8.prefix(outputLimit), as: UTF8.self),
+                                           error: "Output limited to 4 MB; the trace stopped after \(index) segments.")
+            }
+            if let error = result.error { return FileActivityPayload(output: output, error: error) }
+        }
+        return FileActivityPayload(output: output)
+    }
+}

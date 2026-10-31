@@ -17,7 +17,8 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
         self.network = network
     }
 
-    func setNetworkSamplingVisible(_ visible: Bool) async {
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async {
+        await network.setInterval(interval)
         await network.setVisible(visible && !Capabilities.isSandboxed)
     }
 

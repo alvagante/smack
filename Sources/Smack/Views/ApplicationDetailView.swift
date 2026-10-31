@@ -160,7 +160,7 @@ struct ApplicationDetailView: View {
             tile("CPU", Formatting.percent(app.cpuUsage))
             tile("Memory", unavailable(app.memoryBytes == 0, Formatting.bytes(app.memoryBytes)))
             tile("Disk Read / Write", unavailable(app.diskReadRate == 0 && app.diskWriteRate == 0, "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"))
-            tile("Network In / Out", app.networkThroughput?.formatted ?? "Unavailable")
+            tile("Network In / Out", app.networkThroughput?.formatted ?? store.networkRateFallback)
             tile("Energy Impact", unavailable(app.energyImpact == nil, app.energyImpact.map { $0.formatted() } ?? "Unavailable"))
             tile("Wakeups", unavailable(app.wakeupsPerSecond == 0, Formatting.wakeups(app.wakeupsPerSecond)))
             tile("Processes", "\(app.processes.count)")
@@ -221,7 +221,7 @@ struct ApplicationDetailView: View {
     }
 
     private func footnote(_ app: ApplicationMetrics) -> String {
-        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every five seconds and includes observable TCP and UDP traffic." }
+        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every \(Int(store.settingsStore.settings.processNetworkRateSeconds)) seconds and includes observable TCP and UDP traffic." }
         let names = Set(app.processes.map(\.name)).count
         let shown = min(names, Self.programLimit)
         return names > shown
