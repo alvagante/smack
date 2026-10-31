@@ -246,6 +246,8 @@ final class HomebrewMonitor: ObservableObject {
     var section = BrewSection.installed
     private var source: String?
     private var detailDates: [BrewSection: Date] = [:]
+    /// From the Inventory cache setting.
+    var cache = InventoryCachePreset.standard
 
     init(collector: BrewCollector = BrewCollector(), locate: @escaping () -> String? = BrewCollector.executable) {
         self.collector = collector
@@ -257,8 +259,8 @@ final class HomebrewMonitor: ObservableObject {
         guard visible else { return }
         task = Task { [weak self] in
             guard let self else { return }
-            // Brew queries are expensive. Cache between panel opens for five minutes.
-            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > 300 {
+            // Brew queries are expensive. Cache between panel opens for the inventory cache lifetime.
+            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > cache.slowInventory {
                 await refresh(automatic: true)
             }
         }
@@ -273,7 +275,7 @@ final class HomebrewMonitor: ObservableObject {
         let current = snapshot
         let cached = section == .services ? current?.services != nil : section == .cleanup ? current?.cleanup != nil && current?.managedBytes != nil : current?.packages != nil
         let date = [.services, .cleanup].contains(section) ? detailDates[section] : current?.timestamp
-        if cached, let date, Date().timeIntervalSince(date) < 300, source == locate() { return }
+        if cached, let date, Date().timeIntervalSince(date) < cache.slowInventory, source == locate() { return }
         await refresh()
     }
 

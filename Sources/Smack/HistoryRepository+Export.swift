@@ -42,7 +42,7 @@ extension HistoryRepository {
         }
 
         let exportedEvents = includeEvents
-            ? try events(from: .distantPast, to: .distantFuture, kinds: nil, search: "", limit: Self.eventRowCap).reversed()
+            ? try events(from: .distantPast, to: .distantFuture, kinds: nil, search: "", limit: CollectionSettings.maximumEventRowsRange.upperBound).reversed()
             : []
 
         let data: Data

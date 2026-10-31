@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import Smack
 
 @Test func validationClampsCustomIntervalsAndRetention() {
@@ -247,4 +248,110 @@ final class SpyUserDefaults: UserDefaults {
     #expect(decoded.eventRetentionDays == 7)
     #expect(decoded.recordConnectionEvents == false)
     #expect(decoded.showEventsOnCharts)
+}
+
+/// Upgrading must not change behavior: every setting added after 0.7.0 defaults to the value that was hard-coded.
+@Test func settingsWithoutTuningKeysKeepPreviousBehavior() throws {
+    let legacy = #"{"trigger":"Click","retentionDays":9}"#
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: Data(legacy.utf8))
+    #expect(decoded.retentionDays == 9)
+    #expect(decoded.liveRefreshSeconds == 1)
+    #expect(decoded.constrainedPowerMultiplier == 1)
+    #expect(decoded.processNetworkRateEnabled)
+    #expect(decoded.processNetworkRateSeconds == 5)
+    #expect(decoded.maximumEventRows == 100_000)
+    #expect(decoded.dockerRefreshSeconds == 15)
+    #expect(decoded.dockerLiveStats)
+    #expect(decoded.devProjectFolders.isEmpty)
+    #expect(decoded.devScanDepth == 4)
+    #expect(decoded.excludedAgents.isEmpty)
+    #expect(decoded.customAgentFolders.isEmpty)
+    #expect(decoded.fileActivitySeconds == 5)
+    #expect(decoded.hiddenPages.isEmpty)
+    #expect(decoded.inventoryCache == .standard)
+    #expect(decoded.inventoryCache.dockerInventory == 60)
+    #expect(decoded.inventoryCache.slowInventory == 300)
+    let budget = decoded.memoryBudget
+    #expect(budget == .standard)
+    #expect(budget.profileOutputBytes == 16 * 1024 * 1024)
+    #expect(budget.devInspectionBytes == 16_000_000)
+    #expect(budget.iconCount == 256)
+    #expect(budget.iconBytes == 16 * 1024 * 1024)
+    #expect(budget.fileFactsEntries == 200)
+}
+
+@Test func tuningSettingsClampAndRoundTrip() throws {
+    var settings = CollectionSettings()
+    settings.liveRefreshSeconds = 3
+    settings.constrainedPowerMultiplier = 5
+    settings.processNetworkRateSeconds = 0.5
+    settings.maximumEventRows = 5
+    settings.dockerRefreshSeconds = 7
+    settings.devScanDepth = 40
+    settings.fileActivitySeconds = 11
+    settings.devProjectFolders = ["/a", "relative", "/a"]
+    settings.excludedAgents = ["zed", "claude", "zed"]
+    settings.hiddenPages = [.installedApps, .docker, .docker]
+    settings.validate()
+    #expect(settings.liveRefreshSeconds == 1)
+    #expect(settings.constrainedPowerMultiplier == 1)
+    #expect(settings.processNetworkRateSeconds == 2)
+    #expect(settings.maximumEventRows == 10_000)
+    #expect(settings.dockerRefreshSeconds == 15)
+    #expect(settings.devScanDepth == 8)
+    #expect(settings.fileActivitySeconds == 5)
+    #expect(settings.devProjectFolders == ["/a"])
+    #expect(settings.excludedAgents == ["claude", "zed"])
+    #expect(settings.hiddenPages == [.docker, .installedApps])
+
+    settings.memoryBudget = .large
+    settings.inventoryCache = .long
+    settings.dockerRefreshSeconds = 0
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded == settings)
+}
+
+@Test func unknownTuningValuesFallBackWithoutLosingOtherSettings() throws {
+    let json = #"{"retentionDays":12,"memoryBudget":"Huge","inventoryCache":"Forever","hiddenPages":["Docker","Nope"]}"#
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: Data(json.utf8))
+    #expect(decoded.retentionDays == 12)
+    #expect(decoded.memoryBudget == .standard)
+    #expect(decoded.inventoryCache == .standard)
+    #expect(decoded.hiddenPages == [.docker])
+}
+
+@Test func schedulerStretchesBackgroundIntervalsOnlyWhenConstrained() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+    let constrained = Mutex(false)
+    var settings = CollectionSettings()
+    settings.backgroundSystemInterval = nil
+    settings.backgroundProcessInterval = nil
+    settings.backgroundNetworkInterval = nil
+    let client = PrivilegedSamplingClient()
+    let scheduler = CollectionScheduler(
+        systemCollector: SystemCollector(),
+        processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+        inventoryCollector: InventoryCollector(privileged: client),
+        networkPortCollector: NetworkPortCollector(privileged: client),
+        history: history, settings: settings,
+        onSystem: { _ in }, onProcesses: { _ in },
+        isPowerConstrained: { constrained.withLock { $0 } }
+    )
+    #expect(await scheduler.sleepInterval(background: 10) == 10)
+    constrained.withLock { $0 = true }
+    #expect(await scheduler.sleepInterval(background: 10) == 10)
+    settings.constrainedPowerMultiplier = 4
+    settings.liveRefreshSeconds = 2
+    await scheduler.update(settings: settings)
+    #expect(await scheduler.sleepInterval(background: 10) == 40)
+    #expect(await scheduler.sleepInterval(background: nil) == nil)
+    constrained.withLock { $0 = false }
+    #expect(await scheduler.sleepInterval(background: 10) == 10)
+    await scheduler.setVisible(true)
+    #expect(await scheduler.sleepInterval(background: 10) == 2)
+    #expect(await scheduler.sleepInterval(background: 10, live: 5) == 5)
+    await scheduler.setVisible(false)
 }

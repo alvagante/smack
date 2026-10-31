@@ -371,4 +371,20 @@ struct DockerMonitorTests {
         }
     }
 
+
+    @Test func liveStatsOffSkipsTheStatsCommand() async {
+        let collector = DockerCollector(run: { _, args in
+            switch args.first {
+            case "info": return .init(status: 0, output: Self.engine, error: "")
+            case "container" where args[1] == "ls": return .init(status: 0, output: "abc\n", error: "")
+            case "container" where args[1] == "inspect": return .init(status: 0, output: Self.containers, error: "")
+            default:
+                Issue.record("Unexpected command with stats off: \(args)")
+                return .unavailable("Unexpected command")
+            }
+        })
+        let snapshot = await collector.collect(executable: "/docker", details: true, section: .containers, stats: false)
+        #expect(snapshot.stats.isEmpty)
+        #expect(snapshot.warnings.isEmpty)
+    }
 }

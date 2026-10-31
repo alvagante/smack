@@ -240,7 +240,7 @@ struct ProcessDetailView: View {
                             ? "Unavailable in App Sandbox"
                             : Formatting.bytes(process.memoryBytes)
                     )
-                    KeyValueRow(key: "Network In / Out", value: process.networkThroughput?.formatted ?? "Unavailable")
+                    KeyValueRow(key: "Network In / Out", value: process.networkThroughput?.formatted ?? store.networkRateFallback)
                     KeyValueRow(key: "Threads", value: String(process.threadCount))
                     KeyValueRow(
                         key: "Interrupt wakeups",

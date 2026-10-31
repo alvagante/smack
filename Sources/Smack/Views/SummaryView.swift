@@ -34,15 +34,19 @@ struct SummaryView: View {
                     }
                 }
                 .frame(height: 120)
-                HStack(spacing: 12) {
-                    DockerSummaryTile(model: store.dockerModel) { store.route = .docker }
-                    HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew }
-                    DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments }
-                    AgentsSummaryTile(model: store.agentsModel) { store.route = .agents }
-                    UserHomeSummaryTile { store.route = .userHome }
-                    InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps }
+                let settings = store.settingsStore.settings
+                // Hidden pages drop their tile; with none left the row goes too, instead of leaving a blank strip.
+                if SummaryPage.allCases.contains(where: settings.shows) {
+                    HStack(spacing: 12) {
+                        if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
+                        if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
+                        if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
+                        if settings.shows(.agents) { AgentsSummaryTile(model: store.agentsModel) { store.route = .agents } }
+                        if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
+                        if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
+                    }
+                    .frame(height: 120)
                 }
-                .frame(height: 120)
             }
             .padding(14)
         }

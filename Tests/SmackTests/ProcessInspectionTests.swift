@@ -130,3 +130,33 @@ private func argumentBuffer(_ arguments: [String], environment: [String] = []) -
     #expect(result.status == 0, "log rejected inspection arguments: \(result.error)")
     #expect(!result.timedOut)
 }
+
+private actor SegmentScript {
+    var replies: [FileActivityPayload?]
+    var calls = 0
+    init(_ replies: [FileActivityPayload?]) { self.replies = replies }
+    func next() -> FileActivityPayload? {
+        calls += 1
+        return replies.isEmpty ? nil : replies.removeFirst()
+    }
+}
+
+@Test func fileActivityTraceJoinsSegmentsAndRetriesRefusedFollowUps() async {
+    let script = SegmentScript([FileActivityPayload(output: "a"), nil, FileActivityPayload(output: "b"), FileActivityPayload(output: "c")])
+    let result = await FileActivityTrace.capture(segments: 3, isCurrent: { true }, segment: { await script.next() }, wait: { _ in })
+    #expect(result?.error == nil)
+    #expect(result?.output == "--- Segment 1 of 3 ---\na\n--- Segment 2 of 3 ---\nb\n--- Segment 3 of 3 ---\nc\n")
+    #expect(await script.calls == 4)
+}
+
+@Test func fileActivityTraceStopsOnHelperErrorOrMissingHelper() async {
+    let failing = SegmentScript([FileActivityPayload(output: "a"), FileActivityPayload(output: "", error: "boom")])
+    let result = await FileActivityTrace.capture(segments: 6, isCurrent: { true }, segment: { await failing.next() }, wait: { _ in })
+    #expect(result?.error == "boom")
+    #expect(await failing.calls == 2)
+    let missing = SegmentScript([])
+    #expect(await FileActivityTrace.capture(segments: 2, isCurrent: { true }, segment: { await missing.next() }, wait: { _ in }) == nil)
+    #expect(await missing.calls == 1)
+    let single = SegmentScript([FileActivityPayload(output: "x\n")])
+    #expect(await FileActivityTrace.capture(segments: 1, isCurrent: { true }, segment: { await single.next() })?.output == "x\n")
+}

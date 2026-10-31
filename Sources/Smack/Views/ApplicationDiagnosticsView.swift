@@ -1,11 +1,12 @@
+import Synchronization
 import AppKit
 import SwiftUI
 
 @MainActor
 final class ApplicationProfileModel: ObservableObject {
     /// Full output kept across all reports. Older reports keep their highlights and release their text first, so
-    /// Run All on a large process cannot hold five 16 MB dumps.
-    static let retainedOutputBudget = ProfileRunner.outputLimit
+    /// Run All on a large process cannot hold five full dumps.
+    static var retainedOutputBudget: Int { ProfileRunner.outputLimit }
 
     struct PendingRun: Equatable {
         var tools: [ProfileTool]

@@ -1,3 +1,4 @@
+import Synchronization
 import AppKit
 import Foundation
 
@@ -289,8 +290,8 @@ enum ProfileParser {
 // MARK: - Runner
 
 enum ProfileRunner {
-    /// Output kept per run; heap and vmmap dumps of large processes can be tens of megabytes.
-    static let outputLimit = 16 * 1024 * 1024
+    /// Output kept per run, from the Memory budget setting; heap and vmmap dumps of large processes can be tens of megabytes.
+    static var outputLimit: Int { MemoryBudget.current.withLock { $0 }.profileOutputBytes }
 
     static func run(_ tool: ProfileTool, pid: Int32) async -> ProfileReport {
         let started = Date()

@@ -5,7 +5,7 @@ import SQLite3
 /// maintenance, schema and export are extensions in the `HistoryRepository+*.swift` files.
 actor HistoryRepository {
     static let schemaVersion = 4
-    static let eventRowCap = 100_000
+    static let lastCompactedKey = "history.lastCompactedAt"
     static let eventPruneBatch = 10_000
     /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
     static let processHeartbeatInterval: TimeInterval = 60

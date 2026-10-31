@@ -27,6 +27,18 @@ struct AgentDefinition: Sendable {
     let locations: [AgentLocation]
 }
 
+extension AgentDefinition {
+    /// A user-chosen folder browsed with every catalog location that is relative to an agent root.
+    static func custom(folder: String) -> AgentDefinition {
+        var seen: Set<String> = []
+        let locations = catalog.flatMap(\.locations).filter {
+            !$0.homeRelative && seen.insert($0.category.rawValue + ":" + $0.path).inserted
+        }
+        return AgentDefinition(id: "custom:" + folder, name: "Custom: " + URL(fileURLWithPath: folder).lastPathComponent,
+                               roots: [folder], commands: [], locations: locations)
+    }
+}
+
 struct AgentArtifact: Identifiable, Sendable {
     let url: URL
     let category: AgentCategory
@@ -54,6 +66,7 @@ struct AgentCollector: Sendable {
     func discover(definitions: [AgentDefinition] = AgentDefinition.catalog) -> AgentSnapshot {
         let fm = FileManager.default
         func resolve(_ path: String) -> URL {
+            if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
             if path.hasPrefix(".config/"), let xdg = environment["XDG_CONFIG_HOME"], xdg.hasPrefix("/") {
                 return URL(fileURLWithPath: xdg).appendingPathComponent(String(path.dropFirst(8)))
             }
@@ -112,6 +125,26 @@ final class AgentMonitor: ObservableObject {
     @Published private(set) var loading = false
     private let collector: AgentCollector
     private var task: Task<Void, Never>?
+    /// From settings: catalog agents left out, and extra folders browsed as custom agents.
+    private(set) var excluded: Set<String> = []
+    private(set) var customFolders: [String] = []
+    var cache = InventoryCachePreset.standard
+    private var rerun = false
+
+    /// Applies agent settings; a change rediscovers only if discovery has already run.
+    func configure(excluded: [String], customFolders: [String], cache: InventoryCachePreset) {
+        self.cache = cache
+        let excluded = Set(excluded)
+        guard excluded != self.excluded || customFolders != self.customFolders else { return }
+        self.excluded = excluded
+        self.customFolders = customFolders
+        guard snapshot != nil || loading else { return }
+        Task { await refresh() }
+    }
+
+    var definitions: [AgentDefinition] {
+        AgentDefinition.catalog.filter { !excluded.contains($0.id) } + customFolders.map(AgentDefinition.custom)
+    }
 
     init(collector: AgentCollector = AgentCollector()) { self.collector = collector }
 
@@ -120,22 +153,27 @@ final class AgentMonitor: ObservableObject {
         guard visible else { return }
         task = Task { [weak self] in
             guard let self else { return }
-            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > 300 { await refresh() }
+            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > cache.slowInventory { await refresh() }
         }
     }
 
     func refresh() async {
-        guard !loading, !Capabilities.isSandboxed else { return }
+        guard !Capabilities.isSandboxed else { return }
+        // A refresh requested while one runs is queued, so the last exclusions and folders always win.
+        guard !loading else { rerun = true; return }
         loading = true
         defer { loading = false }
-        let collector = collector
-        let worker = Task.detached(priority: .utility) { collector.discover() }
-        let value = await withTaskCancellationHandler {
-            await worker.value
-        } onCancel: {
-            worker.cancel()
-        }
-        guard !Task.isCancelled else { return }
-        snapshot = value
+        repeat {
+            rerun = false
+            let collector = collector, definitions = definitions
+            let worker = Task.detached(priority: .utility) { collector.discover(definitions: definitions) }
+            let value = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            snapshot = value
+        } while rerun
     }
 }

@@ -63,15 +63,18 @@ enum ProcessNetworkCollector {
     }
 }
 
-/// One panel-owned sampling loop, independent of process/history collection cadence.
+/// One panel-owned sampling loop, independent of process/history collection cadence. It runs only while the panel
+/// is visible and an interval is set; a nil interval turns per-process rates off.
 actor ProcessNetworkSampler {
     typealias Collect = @Sendable () async -> ProcessNetworkSample?
     typealias Sleep = @Sendable (TimeInterval) async throws -> Void
     private let collect: Collect
     private let now: @Sendable () -> TimeInterval
     private let sleep: Sleep
-    private let interval: TimeInterval
-    private let maximumAge: TimeInterval
+    private var interval: TimeInterval?
+    /// A sample older than this many intervals is dropped instead of shown as current.
+    private let ageFactor: Double
+    private var maximumAge: TimeInterval { (interval ?? 0) * ageFactor }
     private var task: Task<Void, Never>?
     private var visible = false
     private var generation = 0
@@ -83,7 +86,7 @@ actor ProcessNetworkSampler {
          now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          sleep: @escaping Sleep = { try await Task.sleep(for: .seconds($0)) }) {
         self.interval = interval
-        self.maximumAge = maximumAge
+        self.ageFactor = maximumAge / max(interval, 0.001)
         self.collect = collect
         self.now = now
         self.sleep = sleep
@@ -92,6 +95,17 @@ actor ProcessNetworkSampler {
     func setVisible(_ value: Bool) async {
         guard value != visible else { return }
         visible = value
+        await restart()
+    }
+
+    /// Changing the interval while visible restarts the loop at the new cadence; nil stops it.
+    func setInterval(_ value: TimeInterval?) async {
+        guard value != interval else { return }
+        interval = value
+        await restart()
+    }
+
+    private func restart() async {
         generation += 1
         let generation = generation
         let previous = task
@@ -102,8 +116,8 @@ actor ProcessNetworkSampler {
         await previous?.value
         guard self.generation == generation else { return }
         task = nil
-        guard value else { return }
-        let collect = collect, now = now, sleep = sleep, interval = interval
+        guard visible, let interval else { return }
+        let collect = collect, now = now, sleep = sleep
         task = Task { [weak self] in
             while !Task.isCancelled {
                 let started = now()

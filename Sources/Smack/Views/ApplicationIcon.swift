@@ -1,13 +1,11 @@
+import Synchronization
 import AppKit
 import SwiftUI
 
 @MainActor
 private enum ApplicationIconCache {
     private static let images: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 256
-        cache.totalCostLimit = 16 * 1024 * 1024
-        return cache
+        NSCache<NSString, NSImage>()
     }()
 
     private static func key(_ path: String) -> NSString {
@@ -22,6 +20,10 @@ private enum ApplicationIconCache {
         thumbnail.lockFocus()
         image.draw(in: NSRect(x: 0, y: 0, width: 64, height: 64))
         thumbnail.unlockFocus()
+        // Applied on every insert so a Memory budget change takes effect without a relaunch.
+        let budget = MemoryBudget.current.withLock { $0 }
+        images.countLimit = budget.iconCount
+        images.totalCostLimit = budget.iconBytes
         images.setObject(thumbnail, forKey: key, cost: 128 * 128 * 4)
     }
 

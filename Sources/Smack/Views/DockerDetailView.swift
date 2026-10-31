@@ -166,7 +166,8 @@ struct DockerDetailView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
                 containerFilterCard(.running, count: snapshot.runningCount, image: "shippingbox")
                 containerFilterCard(.stopped, count: snapshot.stoppedCount, image: "pause.circle")
-                metric("Container memory", value: snapshot.containerMemoryBytes.map(Formatting.bytes) ?? "Unavailable", image: "memorychip")
+                metric("Container memory", value: snapshot.containerMemoryBytes.map(Formatting.bytes) ?? (model.liveStats ? "Unavailable" : "Off"), image: "memorychip")
+                    .help(model.liveStats ? "" : "Live container statistics are off in Settings › Local Environment.")
             }
             if groups.isEmpty { emptyState(known: snapshot.containers != nil) }
             ForEach(groups, id: \.name) { group in

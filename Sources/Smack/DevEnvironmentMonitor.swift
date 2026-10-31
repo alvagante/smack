@@ -1,3 +1,4 @@
+import Synchronization
 import Foundation
 
 // Discovery reads directory entries only. Runtime commands are deferred until an environment is opened.
@@ -91,7 +92,7 @@ struct DevEnvironmentCollector: Sendable {
 
     static func discover(home: String = FileManager.default.homeDirectoryForCurrentUser.path,
                          environment: [String: String] = ProcessInfo.processInfo.environment,
-                         folders: [String] = [], includeSystem: Bool = true) -> DevDiscovery {
+                         folders: [String] = [], includeSystem: Bool = true, depth: Int = 4) -> DevDiscovery {
         let fm = FileManager.default
         var snapshot = DevDiscovery()
         let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
@@ -159,6 +160,7 @@ struct DevEnvironmentCollector: Sendable {
         bin(home + "/.dotnet", ".NET user installation")
         if let venv = environment["VIRTUAL_ENV"] { bin(venv + "/bin", "Active virtualenv") }
         // Explicit project roots only: never crawl the entire home directory or dependency caches.
+        let maximumDepth = depth
         let ignored: Set<String> = [".git", "node_modules", "vendor", "target", ".build", "Library", "__pycache__", "site-packages"]
         for folder in folders {
             guard !Task.isCancelled else { break }
@@ -166,7 +168,7 @@ struct DevEnvironmentCollector: Sendable {
             bin(folder, "Custom folder")
             var remaining = 10_000
             func scan(_ directory: String, depth: Int) {
-                guard depth <= 4, remaining > 0, !Task.isCancelled else { return }
+                guard depth <= maximumDepth, remaining > 0, !Task.isCancelled else { return }
                 remaining -= 1
                 bin(directory + "/bin", "Project / virtualenv")
                 if fm.fileExists(atPath: directory + "/pyvenv.cfg") { return }
@@ -304,24 +306,32 @@ final class DevEnvironmentMonitor: ObservableObject {
     private var task: Task<Void, Never>?
     private var generation = 0
     private var inspectionOrder: [String] = []
-    private let inspectionBudget: Int
+    /// Fixed by tests; otherwise read from the Memory budget setting on each inspection.
+    private let fixedInspectionBudget: Int?
+    private var inspectionBudget: Int { fixedInspectionBudget ?? MemoryBudget.current.withLock { $0 }.devInspectionBytes }
 
     private func cost(_ value: DevInspection) -> Int {
         value.version.utf8.count + value.reports.reduce(0) { $0 + $1.title.utf8.count + $1.command.utf8.count + $1.output.utf8.count }
     }
     private let collector: DevEnvironmentCollector
-    private let discover: @Sendable ([String]) async -> DevDiscovery
+    private let discover: @Sendable ([String], Int) async -> DevDiscovery
+    /// Project folder scan depth, from settings.
+    private(set) var depth = 4
+    var cache = InventoryCachePreset.standard
+    /// Persists folders added from the page; settings then call `configure`, which rescans.
+    var onFoldersChanged: (([String]) -> Void)?
+    private var rerun = false
 
-    init(collector: DevEnvironmentCollector = DevEnvironmentCollector(), inspectionBudget: Int = 16_000_000,
-         discover: @escaping @Sendable ([String]) async -> DevDiscovery = { folders in
-             let worker = Task.detached(priority: .utility) { DevEnvironmentCollector.discover(folders: folders) }
+    init(collector: DevEnvironmentCollector = DevEnvironmentCollector(), inspectionBudget: Int? = nil,
+         discover: @escaping @Sendable ([String], Int) async -> DevDiscovery = { folders, depth in
+             let worker = Task.detached(priority: .utility) { DevEnvironmentCollector.discover(folders: folders, depth: depth) }
              return await withTaskCancellationHandler {
                  await worker.value
              } onCancel: {
                  worker.cancel()
              }
          }) {
-        self.inspectionBudget = inspectionBudget
+        fixedInspectionBudget = inspectionBudget
         self.collector = collector
         self.discover = discover
     }
@@ -331,26 +341,45 @@ final class DevEnvironmentMonitor: ObservableObject {
         guard visible else { return }
         task = Task { [weak self] in
             guard let self else { return }
-            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > 300 { await refresh() }
+            if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > cache.slowInventory { await refresh() }
         }
     }
 
     func addFolder(_ path: String) async {
         guard !folders.contains(path) else { return }
-        folders.append(path)
-        await refresh()
+        if let onFoldersChanged {
+            onFoldersChanged(folders + [path])
+        } else {
+            folders.append(path)
+            await refresh()
+        }
     }
 
+    /// Applies saved project folders and scan depth; a change rescans only if discovery has already run.
+    func configure(folders: [String], depth: Int, cache: InventoryCachePreset) {
+        self.cache = cache
+        guard folders != self.folders || depth != self.depth else { return }
+        self.folders = folders
+        self.depth = depth
+        guard snapshot != nil || loading else { return }
+        Task { await refresh() }
+    }
+
+    /// A refresh requested while one runs is queued, so the last folders and depth always win.
     func refresh() async {
-        guard !loading, !Capabilities.isSandboxed else { return }
+        guard !Capabilities.isSandboxed else { return }
+        guard !loading else { rerun = true; return }
         loading = true
-        generation += 1
         defer { loading = false }
-        let value = await discover(folders)
-        guard !Task.isCancelled else { return }
-        snapshot = value
-        inspections = [:]
-        inspectionOrder = []
+        repeat {
+            rerun = false
+            generation += 1
+            let value = await discover(folders, depth)
+            guard !Task.isCancelled else { return }
+            snapshot = value
+            inspections = [:]
+            inspectionOrder = []
+        } while rerun
     }
 
     func inspect(_ item: DevEnvironment) async {
