@@ -5,7 +5,7 @@ struct ResourceDetailView: View {
     let resource: ResourceKind
     var body: some View {
         switch resource {
-        case .cpu, .memory, .network, .disk: ResourceInsightView(store: store, resource: resource)
+        case .cpu, .memory, .network, .disk, .gpu: ResourceInsightView(store: store, resource: resource)
         default: otherResource
         }
     }
@@ -13,21 +13,26 @@ struct ResourceDetailView: View {
     private var otherResource: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: resource.rawValue)
                 switch resource {
-                case .cpu, .memory, .network, .disk:
+                case .cpu, .memory, .network, .disk, .gpu:
                     EmptyView()
                 case .storage:
                     StorageView(store: store)
                 case .battery:
-                    if let battery = store.system?.battery {
-                        KeyValueRow(key: "Charge", value: battery.chargePercent.map { Formatting.percent($0) } ?? "Unavailable")
-                        KeyValueRow(key: "Power", value: battery.isCharging ? "Charging" : "Battery")
-                        KeyValueRow(key: "Time Remaining", value: Formatting.duration(battery.timeRemaining))
-                        KeyValueRow(key: "Health", value: battery.health ?? "Unavailable")
-                        KeyValueRow(key: "Cycle Count", value: battery.cycleCount.map(String.init) ?? "Unavailable")
-                    } else { Text("No battery is available on this Mac.").foregroundStyle(.secondary) }
+                    HStack(spacing: 16) {
+                        ResourceTitle(title: "Battery", systemImage: "battery.100", color: .green)
+                        if let battery = store.system?.battery {
+                            DetailStatsGrid(stats: [
+                                ResourceStat(title: "Charge", systemImage: "battery.100", value: battery.chargePercent.map(Formatting.percent) ?? "Unavailable"),
+                                ResourceStat(title: "Power", systemImage: "bolt.fill", value: battery.isCharging ? "Charging" : "Battery"),
+                                ResourceStat(title: "Time remaining", systemImage: "clock", value: Formatting.duration(battery.timeRemaining)),
+                                ResourceStat(title: "Health", systemImage: "heart", value: battery.health ?? "Unavailable"),
+                                ResourceStat(title: "Cycle count", systemImage: "arrow.trianglehead.2.clockwise.rotate.90", value: battery.cycleCount.map(String.init) ?? "Unavailable")
+                            ], color: .green)
+                        } else { Text("No battery is available on this Mac.").foregroundStyle(.secondary) }
+                    }
                 case .thermal:
+                    ResourceTitle(title: "Thermal", systemImage: "thermometer.medium", color: .red)
                     // One container, so the appear and disappear handlers fire once rather than per row.
                     VStack(alignment: .leading, spacing: 12) { thermalContent }
                         .onAppear { store.setTemperaturesWanted(true) }
@@ -39,7 +44,9 @@ struct ResourceDetailView: View {
 
     @ViewBuilder
     private var thermalContent: some View {
-        ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
+        MetricCard(title: "Thermal pressure", systemImage: "thermometer.medium", color: .red) {
+            ThermalIndicator(condition: store.system?.thermalCondition ?? .unavailable)
+        }
         Text("Thermal State is macOS’s coarse thermal-pressure classification, not a temperature measurement.")
             .foregroundStyle(.secondary)
         SectionHeader(title: "Sensors")
@@ -56,6 +63,13 @@ struct ResourceDetailView: View {
                  ? "Sensor temperatures are not available in the App Store version."
                  : "No temperature sensors are available on this Mac.")
                 .foregroundStyle(.secondary)
+        }
+        if Capabilities.flavor != .appStore, let fans = store.system?.fans, !fans.isEmpty {
+            SectionHeader(title: "Fans")
+            ForEach(fans) { fan in
+                KeyValueRow(key: "Fan \(fan.id + 1)", value: fan.rpm > 0 ? "\(fan.rpm.formatted(.number.precision(.fractionLength(0)))) rpm" : "Off")
+            }
+            Text("Read from the System Management Controller.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

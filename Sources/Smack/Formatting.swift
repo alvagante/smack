@@ -26,6 +26,18 @@ enum Formatting {
         "\(max(0, value).formatted(.number.precision(.fractionLength(1))))/s"
     }
 
+    /// Process wakeups for lists: "—" when the sandbox cannot read them (they then read as zero).
+    static func processWakeups(_ value: Double) -> String {
+        if Capabilities.isSandboxed, value == 0 { return "—" }
+        return wakeups(value)
+    }
+
+    /// Process energy impact for lists: "—" when unavailable or unreadable in the sandbox.
+    static func energy(_ value: Double?) -> String {
+        if Capabilities.isSandboxed, value == nil || value == 0 { return "—" }
+        return value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
+    }
+
     static func pressure(_ value: MemoryPressure) -> String {
         value == .unavailable ? "Unavailable" : value.rawValue.capitalized
     }

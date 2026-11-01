@@ -7,7 +7,7 @@ struct UserHomeSummaryTile: View {
     var body: some View {
         if !Capabilities.isSandboxed {
             Button(action: open) {
-                MetricCard(title: "User home", systemImage: "house") {
+                MetricCard(title: "User home", systemImage: "house", color: .pink, isSummary: true) {
                     Text("Settings and dotfiles").font(.title3.weight(.semibold))
                     Text("Browse configurations and contents")
                         .font(.caption).foregroundStyle(.secondary)
@@ -36,16 +36,25 @@ struct UserHomeDetailView: View {
     }
     private var current: HomeEntry? { entries.first { $0.id == selected } }
 
+    private var overview: some View {
+        DetailStatsGrid(stats: [
+            ResourceStat(title: "Entries", systemImage: "list.bullet", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.count)),
+            ResourceStat(title: "Folders", systemImage: "folder", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.filter(\.isDirectory).count)),
+            ResourceStat(title: "Symbolic links", systemImage: "link", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.filter(\.isSymbolicLink).count))
+        ], color: .pink)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder").font(.title2.weight(.semibold))
+                    ResourceTitle(title: rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder", color: .pink)
                     Text((rootDirectory ?? model.collector.home).path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
+                overview
                 Spacer()
                 if model.loading { ProgressView().controlSize(.small) }
-                Button("Refresh") { selected = nil; refreshID += 1 }
+                RefreshButton { selected = nil; refreshID += 1 }
             }.padding()
             Divider()
             HStack(spacing: 0) {
@@ -87,7 +96,7 @@ struct UserHomeDetailView: View {
                     HStack {
                         Text("\(entries.count) entries").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([current?.url ?? directory]) }
+                        ToolbarIconButton(title: "Reveal in Finder", systemImage: "folder", color: .blue) { NSWorkspace.shared.activateFileViewerSelecting([current?.url ?? directory]) }
                             .controlSize(.small)
                             .help(current == nil ? "Reveal this folder in Finder" : "Reveal the selection in Finder")
                     }

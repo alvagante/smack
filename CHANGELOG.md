@@ -6,6 +6,7 @@ All notable changes to Smack are documented in this file.
 
 ### Added
 
+- Add a GPU page, opened from the GPU reading on Summary: device utilization with Live, 1h, 24h and 7d charts; live renderer and tiler lines; GPU memory in use and allocated, and recoveries since boot. Apple GPU process time has Apps/All scopes, live row graphs and detail navigation. Process counters are read only while the page is visible and never saved to history; unsupported or unreadable counters show as unavailable.
 - Add tuning settings, all defaulting to the previous fixed behavior:
   - **Collection:** refresh period while the panel is open (1, 2 or 5 s); per-process network rates on or off, with their interval (2-60 s, default 5); a battery and Low Power Mode slowdown that stretches background intervals 2, 4 or 8 times; and a Memory budget (Small, Standard or Large) for profiling output, development runtime inspections, application icons and signature facts.
   - **Local Environment pane (direct build):**
@@ -20,9 +21,28 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- Redesign the Application page: the app icon and name with version, bundle ID and running time, with CPU, Memory, GPU and Energy cards beside the title (below it on a narrow panel) and colored Reveal and Kill buttons; colored cards for disk, network, wakeups and processes. A live GPU chart joins the resource charts, and the charts fill the row. New cards:
+  - **CPU by process:** one bar per process in the style of the CPU page's core bars, with cores in use and share of the Mac.
+  - **GPU:** the app's driver-reported GPU time with device utilization.
+  - **About:** version, build, category, architectures, minimum macOS, agent or regular app, bundle and executable paths, main PID, start time, users and copyright, read from Info.plist without privileges.
+- Process pages of an application's process start with that application's header; its name opens the Application page.
+- Redesign the CPU page: a title with the processor and core layout and a load status badge; current usage beside load average, SoC temperature, fan speed (direct build), process and thread counts, and uptime; a User/System/Idle breakdown; per-core usage grouped by performance level, filling the card width; 1, 5 and 15 minute load averages as bars against the core count. The whole page now scrolls, so the process list is no longer squeezed under the chart.
+- The process list on the CPU, Memory, Network and Disk pages toggles between Apps (applications with their own icon) and All (adding system agents, helpers and background processes). CPU rows also show share of the whole Mac, a live average and thread counts.
+- Redesign the Memory, Network and Disk pages like the CPU page: a title with a summary and status, a stats row, the chart and cards.
+  - **Memory:** status from memory pressure; used, available, app, wired, compressed, swap and GPU memory; a composition bar; shaded bands on the chart for time at warning or critical pressure (live and history); a swap graph on the same time axis; share of the live window at each pressure level.
+  - **Network:** in and out with live-window peaks; interfaces with a routable address or traffic, busiest first, with their addresses (link-local-only tunnels are counted, not listed).
+  - **Disk:** read and write with peaks; bytes read and written since boot, per disk and in total; free space; a capacity bar per volume.
+- CPU page: a GPU stat (utilization, renderer, tiler, GPU memory) when the Mac reports it, and Energy and Wakeups columns. Click the CPU, Energy or Wakeups header to sort; Wakeups also works on 1h, 24h and 7d.
+- Process lists show column headers on every resource page, drop secondary columns when the panel is narrow, and mark background processes that run as another account (root, system daemons). Memory rows add share of RAM; Disk rows split read and write.
+- The Thermal State page lists fan speeds (direct build).
+- Row graphs on the CPU, Memory, Network and Disk pages fill the free width and share the main chart's time axis. Both show thin time guides at round local times (every 10-30 s live, 5 minutes over 1 hour, hourly over 24 hours, every 12 hours over 7 days); hovering a row graph shows the time and value.
 - Redesign Settings in the macOS System Settings layout: a sidebar of panes and grouped forms, with an info button for help and the live cost under each label.
 - Rename the Background Collection pane to Collection; it also covers sampling while the panel is open.
 - Show "Off" instead of "Unavailable" for per-process network rates when they are turned off.
+
+### Fixed
+
+- Disk names show the BSD name and model ("disk0 · APPLE SSD AP4096Z") instead of "IOBlockStorageDriver-<id>".
 
 ## [0.7.0] - 2026-10-31
 

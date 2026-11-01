@@ -8,7 +8,7 @@ struct DockerSummaryTile: View {
     var body: some View {
         if model.installed {
             Button(action: open) {
-                MetricCard(title: "Docker", systemImage: "shippingbox") {
+                MetricCard(title: "Docker", systemImage: "shippingbox", color: .blue, isSummary: true) {
                     Text(model.snapshot?.runningCount.map { "\($0) running" } ?? (model.snapshot == nil && model.loading ? "Collecting…" : "Unavailable"))
                         .font(.title3.weight(.semibold))
                     Text(model.snapshot?.openPortCount.map { "\($0) open ports" } ?? (model.snapshot == nil && model.loading ? "Checking engine" : "Engine unreachable"))
@@ -54,17 +54,36 @@ struct DockerDetailView: View {
         }
     }
 
+    private var overview: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { overviewCards }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
+                overviewCards
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var overviewCards: some View {
+        containerFilterCard(.running, count: model.snapshot?.runningCount, image: "play.fill")
+            .frame(minWidth: 120)
+        containerFilterCard(.stopped, count: model.snapshot?.stoppedCount, image: "stop.fill")
+            .frame(minWidth: 120)
+        metric("Open ports", value: model.snapshot?.openPortCount.map(String.init) ?? "Unavailable", image: "network")
+            .frame(minWidth: 120)
+        metric("Container memory", value: model.snapshot?.containerMemoryBytes.map(Formatting.bytes) ?? (model.liveStats ? "Unavailable" : "Off"), image: "memorychip")
+            .frame(minWidth: 120)
+            .help(model.liveStats ? "" : "Live container statistics are off in Settings › Local Environment.")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("Docker", systemImage: "shippingbox").font(.title2.weight(.semibold))
-                Spacer()
-                if let timestamp = model.snapshot?.timestamp {
-                    Text(timestamp, style: .time).font(.caption).foregroundStyle(.secondary)
-                }
-                Button { Task { await model.refresh() } } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
+                ResourceTitle(title: "Docker", systemImage: "shippingbox", color: .blue,
+                              subtitle: model.snapshot.map { "Checked " + $0.timestamp.formatted(date: .omitted, time: .shortened) })
+                overview
+                RefreshButton { Task { await model.refresh() } }
                 .disabled(model.loading || model.busy)
                 if model.loading { ProgressView().controlSize(.small) }
             }
@@ -163,12 +182,6 @@ struct DockerDetailView: View {
     @ViewBuilder private func content(_ snapshot: DockerSnapshot) -> some View {
         switch section {
         case .containers:
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
-                containerFilterCard(.running, count: snapshot.runningCount, image: "shippingbox")
-                containerFilterCard(.stopped, count: snapshot.stoppedCount, image: "pause.circle")
-                metric("Container memory", value: snapshot.containerMemoryBytes.map(Formatting.bytes) ?? (model.liveStats ? "Unavailable" : "Off"), image: "memorychip")
-                    .help(model.liveStats ? "" : "Live container statistics are off in Settings › Local Environment.")
-            }
             if groups.isEmpty { emptyState(known: snapshot.containers != nil) }
             ForEach(groups, id: \.name) { group in
                 GroupBox {
@@ -305,8 +318,8 @@ struct DockerDetailView: View {
     }
 
     private func containerFilterCard(_ filter: DockerContainerFilter, count: Int?, image: String) -> some View {
-        Button { containerFilter = filter } label: {
-            metric(filter.rawValue, value: count.map(String.init) ?? "Unavailable", image: image)
+        Button { section = .containers; containerFilter = filter } label: {
+            metric(filter == .stopped ? "Stopped" : filter.rawValue, value: count.map(String.init) ?? "Unavailable", image: image)
                 .overlay {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(containerFilter == filter ? Color.accentColor : .clear, lineWidth: 2)
@@ -318,7 +331,7 @@ struct DockerDetailView: View {
     }
 
     private func inspectButton(_ kind: DockerObjectKind, id: String, name: String) -> some View {
-        Button("Inspect") { inspectionTarget = DockerInspectionTarget(kind: kind, identifier: id, name: name) }
+        ToolbarIconButton(title: "Inspect", systemImage: "magnifyingglass", color: .blue) { inspectionTarget = DockerInspectionTarget(kind: kind, identifier: id, name: name) }
             .accessibilityLabel("Inspect \(name)")
     }
 
@@ -348,7 +361,7 @@ struct DockerDetailView: View {
     }
 
     private func metric(_ title: String, value: String, image: String) -> some View {
-        MetricCard(title: title, systemImage: image) {
+        MetricCard(title: title, systemImage: image, color: .blue) {
             Text(value).font(.title2.weight(.semibold)).monospacedDigit()
         }.frame(height: 85)
     }
@@ -435,12 +448,12 @@ struct DockerInspectionView: View {
                         .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 Spacer()
-                Button("Refresh") { refreshID += 1 }.disabled(loading)
-                Button("Copy") {
+                RefreshButton { refreshID += 1 }.disabled(loading)
+                ToolbarIconButton(title: "Copy", systemImage: "doc.on.doc", color: .blue) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(output, forType: .string)
                 }.disabled(loading || error != nil)
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                ToolbarIconButton(title: "Done", systemImage: "checkmark", color: .green) { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Divider()
             if loading {

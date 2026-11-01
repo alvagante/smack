@@ -15,6 +15,9 @@ enum Capabilities {
     static let flavor: DistributionFlavor = .direct
 #endif
 
+    static var supportsControlSocket: Bool { flavor == .direct }
+    static var supportsPostureChecks: Bool { flavor == .direct }
+    static var supportsPersistenceWatching: Bool { flavor == .direct }
     static var isSandboxed: Bool { flavor == .appStore }
     static var supportsPrivilegedSampling: Bool { flavor == .direct }
     static var supportsNativeMenuBarIcons: Bool { flavor == .direct }

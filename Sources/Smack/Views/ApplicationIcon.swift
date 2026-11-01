@@ -30,10 +30,7 @@ private enum ApplicationIconCache {
     static func image(bundleIdentifier: String?, executablePath: String?) -> NSImage {
 
         let bundleURL = bundleIdentifier.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-        let executableBundleURL = executablePath.flatMap { path -> URL? in
-            guard let range = path.range(of: ".app/Contents/") else { return nil }
-            return URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app")
-        }
+        let executableBundleURL = executablePath.flatMap(ApplicationReadings.bundleURL(executablePath:))
         let key = key((executableBundleURL ?? bundleURL)?.path ?? "generic-application")
         if let image = images.object(forKey: key) { return image }
         let image = (executableBundleURL ?? bundleURL).map { NSWorkspace.shared.icon(forFile: $0.path) }

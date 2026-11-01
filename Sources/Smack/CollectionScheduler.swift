@@ -20,7 +20,10 @@ actor CollectionScheduler {
     private let activity: any ActivityRecording
     private var settings: CollectionSettings
     private var visible = false
-    private var temperaturesWanted = false
+    /// Pages currently showing sensor readings; counted so overlapping appear/disappear calls never cancel out.
+    private var sensorClients = 0
+    /// GPU pages on screen; per-process GPU time is read only while one is.
+    private var gpuProcessClients = 0
     private var systemTask: Task<Void, Never>?
     private var processTask: Task<Void, Never>?
     private var inventoryTask: Task<Void, Never>?
@@ -65,7 +68,11 @@ actor CollectionScheduler {
     }
 
     func setTemperaturesWanted(_ value: Bool) {
-        temperaturesWanted = value
+        sensorClients = max(0, sensorClients + (value ? 1 : -1))
+    }
+
+    func setGPUProcessesWanted(_ value: Bool) {
+        gpuProcessClients = max(0, gpuProcessClients + (value ? 1 : -1))
     }
 
     func setVisible(_ value: Bool) async {
@@ -137,7 +144,10 @@ actor CollectionScheduler {
 
     private func runSystemLoop() async {
         while !Task.isCancelled {
-            let sample = systemCollector.collectSystemSample(includeTemperatures: visible && temperaturesWanted)
+            let sample = systemCollector.collectSystemSample(
+                includeTemperatures: visible && sensorClients > 0,
+                includeGPUProcesses: visible && gpuProcessClients > 0
+            )
             onSystem(sample)
             await history.save(system: sample)
             await deliver(await activity.record(system: sample, settings: settings))

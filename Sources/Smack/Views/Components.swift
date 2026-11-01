@@ -4,17 +4,22 @@ import Charts
 struct MetricCard<Content: View>: View {
     let title: String
     let systemImage: String
+    var color: Color = .accentColor
+    var isSummary = false
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            content
+            HStack(spacing: 7) {
+                ResourceIcon(systemImage: systemImage, color: color, size: 24)
+                Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 6) { content }
+                .frame(maxWidth: .infinity, maxHeight: isSummary ? .infinity : nil, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
+        .frame(height: isSummary ? 138 : nil)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14)
@@ -240,5 +245,60 @@ struct GlassBackground: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.alphaValue = opacity
+    }
+}
+
+
+struct ToolbarIconButton: View {
+    let title: String
+    let systemImage: String
+    var color: Color = .blue
+    var isLoading = false
+    var hint: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if isLoading {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+            }
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(ToolbarIconButtonStyle(color: color))
+        .accessibilityLabel(title)
+        .hoverHint(hint ?? title)
+    }
+}
+
+private struct ToolbarIconButtonStyle: ButtonStyle {
+    let color: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .background(color.gradient, in: RoundedRectangle(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.2), lineWidth: 1)
+            }
+            .shadow(color: color.opacity(isEnabled ? 0.2 : 0), radius: 3, y: 2)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+    }
+}
+
+struct RefreshButton: View {
+    var isLoading = false
+    var hint: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        ToolbarIconButton(title: "Refresh", systemImage: "arrow.clockwise", color: .green,
+                          isLoading: isLoading, hint: hint, action: action)
     }
 }

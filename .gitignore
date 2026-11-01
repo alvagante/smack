@@ -1,4 +1,6 @@
 .build/
+.build-appstore/
+.swiftpm/
 .DS_Store
 *.xcuserstate
 dist/

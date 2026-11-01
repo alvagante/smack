@@ -58,15 +58,13 @@ struct NetworkPortsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                switch model.mode {
-                case .listening:
-                    summary("Listening", value: store.networkPorts?.ports.count, color: .primary)
-                    summary("External", value: store.networkPorts?.externalCount, color: .orange)
-                    summary("Localhost", value: store.networkPorts?.localhostCount, color: .green)
-                case .allConnections:
-                    summary("Applications", value: connectionGroups.count, color: .primary)
-                    summary("Total", value: store.networkPorts?.totalConnectionCount, color: .primary)
-                }
+                ResourceTitle(title: "Network connections", systemImage: "cable.connector", color: .cyan)
+                DetailStatsGrid(stats: [
+                    ResourceStat(title: "Listening", systemImage: "ear", value: store.networkPorts.map { String($0.ports.count) } ?? "Unavailable"),
+                    ResourceStat(title: "External", systemImage: "network", value: store.networkPorts.map { String($0.externalCount) } ?? "Unavailable"),
+                    ResourceStat(title: "Localhost", systemImage: "house", value: store.networkPorts.map { String($0.localhostCount) } ?? "Unavailable"),
+                    ResourceStat(title: "Connections", systemImage: "point.3.connected.trianglepath.dotted", value: store.networkPorts.map { String($0.totalConnectionCount) } ?? "Unavailable")
+                ], color: .cyan)
                 Spacer()
                 if let timestamp = store.networkPorts?.timestamp {
                     Text(timestamp, style: .time)
@@ -74,15 +72,7 @@ struct NetworkPortsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Button {
-                    store.loadNetworkPorts()
-                } label: {
-                    if store.networkPortsLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                }
+                RefreshButton(isLoading: store.networkPortsLoading) { store.loadNetworkPorts() }
                 .disabled(store.networkPortsLoading)
             }
             .padding()
@@ -276,18 +266,6 @@ struct NetworkPortsView: View {
                 }
             }
             .listStyle(.plain)
-        }
-    }
-
-    private func summary(_ title: String, value: Int?, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value.map(String.init) ?? "—")
-                .font(.title2.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(color)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

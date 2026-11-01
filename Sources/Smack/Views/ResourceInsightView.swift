@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Charts
 
@@ -34,6 +35,54 @@ final class ResourceInsightViewModel: ObservableObject {
     @Published var loading = false
     @Published var selectedDate: Date?
     @Published var showAll = false
+    @Published var scope = ProcessScope.apps
+    /// CPU page only: order rows by CPU, energy impact or wakeups. Reset when the resource changes.
+    @Published var sort = InsightSort.resource
+    /// End of the loaded history range; fixed at load so the time axis does not drift between redraws.
+    @Published var historyEnd: Date?
+}
+
+/// Row order on the CPU page. Energy has no history, so it falls back to CPU on 1h, 24h and 7d.
+enum InsightSort: String, CaseIterable, Identifiable {
+    case resource = "CPU"
+    case energy = "Energy"
+    case wakeups = "Wakeups"
+
+    var id: Self { self }
+}
+
+/// Which rows the process list shows: applications people recognise, or everything that was sampled.
+enum ProcessScope: String, CaseIterable, Identifiable {
+    case apps = "Apps"
+    case all = "All"
+
+    var id: Self { self }
+}
+
+/// "Apps" are what a user recognises by icon: Dock applications, plus menu-bar and agent applications installed
+/// outside the system folders. System agents (WindowManager, MenuBarAgent), XPC services and daemons are not.
+enum UserApplications {
+    @MainActor static func processIdentifiers() -> Set<Int32> {
+        Set(NSWorkspace.shared.runningApplications
+            .filter { isUserApplication(policy: $0.activationPolicy, bundlePath: $0.bundleURL?.path) }
+            .map(\.processIdentifier))
+    }
+
+    static func isUserApplication(policy: NSApplication.ActivationPolicy, bundlePath: String?) -> Bool {
+        switch policy {
+        case .regular:
+            return true
+        case .accessory:
+            guard let bundlePath, bundlePath.hasSuffix(".app") else { return false }
+            return !["/System/", "/Library/Apple/"].contains { bundlePath.hasPrefix($0) }
+        default:
+            return false
+        }
+    }
+
+    static func contains(_ application: ApplicationMetrics, in identifiers: Set<Int32>) -> Bool {
+        application.processes.contains { identifiers.contains($0.identity.pid) }
+    }
 }
 
 /// One charted line of a resource: which stored metric feeds it and how it is converted for display.
@@ -42,7 +91,7 @@ private struct InsightSeries: Identifiable {
     let title: String
     let color: Color
     let metric: SystemMetric
-    let live: (LiveMetricPoint) -> Double
+    let live: (LiveMetricPoint) -> Double?
     /// Converts the stored history value into the charted unit.
     let history: (Double) -> Double
     let format: (Double) -> String
@@ -65,6 +114,8 @@ private struct InsightSeries: Identifiable {
                 InsightSeries(title: "Read", color: .orange, metric: .diskReadRate, live: \.diskReadRate, history: { $0 }, format: Formatting.rate),
                 InsightSeries(title: "Write", color: .pink, metric: .diskWriteRate, live: \.diskWriteRate, history: { $0 }, format: Formatting.rate),
             ]
+        case .gpu:
+            return [InsightSeries(title: "GPU", color: .indigo, metric: .gpuUtilization, live: \.gpuUsage, history: { $0 }, format: Formatting.percent)]
         default:
             return []
         }
@@ -95,6 +146,17 @@ struct InsightRow: Identifiable {
     let isBackground: Bool
     let value: Double
     var throughput: ProcessNetworkThroughput? = nil
+    /// Live rows only: threads across the row's processes.
+    var threads: Int? = nil
+    /// Live rows only; nil when the sampler cannot read it.
+    var energy: Double? = nil
+    /// Live wakeups per second, or the range average for history rows.
+    var wakeups: Double? = nil
+    /// Live disk rates, shown as separate columns on the Disk page.
+    var readRate: Double? = nil
+    var writeRate: Double? = nil
+    /// Account of a background process when it is not the current user (root, `_`-prefixed daemons).
+    var owner: String? = nil
     /// Live rows open the application or process detail.
     let route: AppRoute?
     /// History rows open the running application's detail, or else that program in Historical Data.
@@ -106,6 +168,10 @@ struct ResourceInsightView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ResourceInsightViewModel
     let resource: ResourceKind
+    /// Width of the process list, so secondary columns can drop out before the row graphs get too narrow.
+    @State private var listWidth: CGFloat = 0
+    /// Below about 1000 pt the CPU cards stack, so per-core bars keep a readable width.
+    private var isNarrowPage: Bool { listWidth > 0 && listWidth < 1000 }
 
     init(store: MonitorStore, resource: ResourceKind) {
         self.store = store
@@ -113,36 +179,188 @@ struct ResourceInsightView: View {
         model = store.resourceInsightViewModel
     }
 
-    private var series: [InsightSeries] { InsightSeries.series(for: resource) }
+    private var series: [InsightSeries] {
+        let base = InsightSeries.series(for: resource)
+        guard resource == .gpu, model.range == .live else { return base }
+        return base + [
+            InsightSeries(title: "Renderer", color: .purple, metric: .gpuUtilization, live: \.gpuRendererUsage, history: { $0 }, format: Formatting.percent),
+            InsightSeries(title: "Tiler", color: .mint, metric: .gpuUtilization, live: \.gpuTilerUsage, history: { $0 }, format: Formatting.percent),
+        ]
+    }
     var hasProcessList: Bool { resource != .network || !Capabilities.isSandboxed }
-    private var usesLiveProcessRows: Bool { resource == .network || model.range == .live }
+    /// Network and GPU rows are always live: their per-process figures are never stored.
+    private var usesLiveProcessRows: Bool { resource == .network || resource == .gpu || model.range == .live }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            controls
-            HStack(alignment: .top, spacing: 12) {
-                chart.frame(height: 200)
-                details.frame(width: 240)
+        // One scroll for the whole page, so the process list is not squeezed below the chart.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                switch resource {
+                case .cpu: cpuOverview
+                case .memory: memoryOverview
+                case .network: networkOverview
+                case .gpu: gpuOverview
+                default: diskOverview
+                }
+                Divider()
+                if hasProcessList {
+                    processSection
+                } else {
+                    networkSection
+                }
             }
-            Divider()
-            if hasProcessList {
-                processSection
-            } else {
-                networkSection
-            }
+            .padding()
         }
-        .padding()
         .task(id: "\(resource.id)-\(model.range.rawValue)") { await reload() }
-        .onChange(of: resource) { model.showAll = false }
+        .onChange(of: resource) {
+            model.showAll = false
+            model.sort = .resource
+        }
         .onAppear { model.showAll = false }
     }
 
-    // MARK: Controls
+    // MARK: CPU
 
-    private var controls: some View {
+    private var cpuOverview: some View {
+        let cpu = store.system?.cpu
+        return VStack(alignment: .leading, spacing: 12) {
+            titleRow { CPUTitle(cpu: cpu, thermal: store.system?.thermalCondition, topology: .current) }
+            CPUStatsRow(store: store)
+            chart.frame(height: 170)
+            let cores = cpu?.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount
+            if isNarrowPage {
+                HStack(alignment: .top, spacing: 12) {
+                    CPUBreakdownCard(cpu: cpu)
+                    CPULoadCard(cpu: cpu, coreCount: cores).frame(width: 190)
+                }
+                .frame(height: 118)
+                CPUCoresCard(cpu: cpu, topology: .current).frame(height: 118)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    CPUBreakdownCard(cpu: cpu).frame(maxWidth: 300)
+                    CPUCoresCard(cpu: cpu, topology: .current)
+                    CPULoadCard(cpu: cpu, coreCount: cores).frame(width: 190)
+                }
+                .frame(height: 118)
+            }
+        }
+    }
+
+    // MARK: Memory, Network, Disk
+
+    private var memoryOverview: some View {
+        let memory = store.system?.memory
+        return VStack(alignment: .leading, spacing: 12) {
+            titleRow {
+                ResourceTitle(title: "Memory", systemImage: "memorychip", color: .purple,
+                              subtitle: memory.map { "\(Formatting.bytes($0.totalBytes)) of memory" }, status: MemoryReadings.status(memory?.pressure))
+            }
+            MemoryStatsRow(memory: memory, gpu: store.system?.gpu)
+            chart.frame(height: 150)
+            swapStrip
+            HStack(alignment: .top, spacing: 12) {
+                MemoryCompositionCard(memory: memory)
+                MemoryPressureCard(memory: memory, recent: store.recentMetrics.points).frame(maxWidth: 340)
+            }
+            .frame(height: 112)
+        }
+    }
+
+    private var networkOverview: some View {
+        let system = store.system
+        return VStack(alignment: .leading, spacing: 12) {
+            titleRow {
+                ResourceTitle(title: "Network", systemImage: "network", color: .cyan,
+                              subtitle: system.map { interfaceSummary($0.interfaces) }, status: nil)
+            }
+            NetworkStatsRow(system: system, recent: store.recentMetrics.points)
+            chart.frame(height: 170)
+            NetworkInterfacesCard(interfaces: system?.interfaces ?? [])
+        }
+    }
+
+    private var diskOverview: some View {
+        let system = store.system
+        return VStack(alignment: .leading, spacing: 12) {
+            titleRow {
+                ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: .orange,
+                              subtitle: system.map { "\(DiskReadings.devices($0.disks).count) disks · \($0.volumes.count) volumes" }, status: nil)
+            }
+            DiskStatsRow(system: system, recent: store.recentMetrics.points)
+            chart.frame(height: 170)
+            HStack(alignment: .top, spacing: 12) {
+                DiskDevicesCard(disks: DiskReadings.devices(system?.disks ?? []))
+                VolumesCard(volumes: system?.volumes ?? []).frame(maxWidth: 340)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var gpuOverview: some View {
+        let system = store.system
+        return VStack(alignment: .leading, spacing: 12) {
+            titleRow {
+                ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: .indigo,
+                              subtitle: GPUReadings.subtitle(name: system?.gpuName, cores: system?.gpuCoreCount), status: GPUReadings.status(system?.gpu))
+            }
+            GPUStatsRow(store: store)
+            if model.range == .live {
+                HStack { ForEach(lines) { line in legendChip(line) } }
+            }
+            chart.frame(height: 170)
+            HStack(alignment: .top, spacing: 12) {
+                GPUWorkCard(gpu: system?.gpu)
+                GPUMemoryCard(gpu: system?.gpu).frame(maxWidth: 340)
+            }
+            .frame(height: 100)
+        }
+    }
+
+    private func interfaceSummary(_ interfaces: [InterfaceSample]) -> String {
+        let active = NetworkReadings.activeInterfaces(interfaces)
+        guard !active.isEmpty else { return "No active interfaces" }
+        return active.prefix(2).map { "\($0.name) \(NetworkReadings.preferredAddresses($0).first ?? "")" }.joined(separator: " · ")
+    }
+
+    /// Title, legend chips and range picker. Chips name the lines when there are several, and add the range peak
+    /// on history ranges.
+    private func titleRow<Title: View>(@ViewBuilder title: () -> Title) -> some View {
         HStack(spacing: 8) {
-            ForEach(lines) { line in legendChip(line) }
+            title()
             Spacer(minLength: 8)
+            if model.range != .live || (series.count > 1 && resource != .gpu) { ForEach(lines) { line in legendChip(line) } }
+            rangePicker
+        }
+    }
+
+    /// Swap used on the same time axis as the memory chart; separate because swap can exceed physical memory.
+    private var swapStrip: some View {
+        let points: [HistoricalPoint] = model.range == .live
+            ? store.recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.swapUsedBytes, peak: $0.swapUsedBytes) }
+            : model.points[.swapUsedBytes] ?? []
+        return HStack(spacing: 8) {
+            Label("Swap", systemImage: "arrow.left.arrow.right").font(.caption).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
+            TimeSeriesStrip(series: [TimeSeries(id: "Swap", color: .purple.opacity(0.7), points: points)], domain: chartDomain,
+                            format: { Formatting.bytes(UInt64(max(0, $0))) }, height: 34)
+        }
+    }
+
+    /// Memory pressure over the charted range: live samples, or the stored history (peak per bucket).
+    private var pressureBands: [PressureBand] {
+        guard resource == .memory else { return [] }
+        let points: [HistoricalPoint] = model.range == .live
+            ? store.recentMetrics.points.compactMap { point in point.memoryPressure.map { HistoricalPoint(timestamp: point.timestamp, average: $0, peak: $0) } }
+            : model.points[.memoryPressure] ?? []
+        return PressureBand.bands(points)
+    }
+
+    /// Extra stored metrics a page draws besides its chart lines.
+    private var extraHistoryMetrics: [SystemMetric] {
+        resource == .memory ? [.swapUsedBytes, .memoryPressure] : []
+    }
+
+    private var rangePicker: some View {
+        HStack(spacing: 8) {
             if model.loading { ProgressView().controlSize(.small) }
             Picker("Range", selection: $model.range) {
                 ForEach(InsightRange.allCases) { Text($0.rawValue).tag($0) }
@@ -173,8 +391,8 @@ struct ResourceInsightView: View {
         series.map { item in
             let source: [HistoricalPoint]
             if model.range == .live {
-                source = store.recentMetrics.points.map {
-                    let value = item.live($0)
+                source = store.recentMetrics.points.compactMap {
+                    guard let value = item.live($0) else { return nil }
                     return HistoricalPoint(timestamp: $0.timestamp, average: value, peak: value)
                 }
             } else {
@@ -193,8 +411,13 @@ struct ResourceInsightView: View {
     private var chart: some View {
         let lines = lines
         let format = lines.first?.series.format ?? Formatting.percent
-        let percentScale = resource == .cpu || resource == .memory
+        let percentScale = resource == .cpu || resource == .memory || resource == .gpu
+        let bands = pressureBands
         return Chart {
+            ForEach(bands) { band in
+                RectangleMark(xStart: .value("Start", band.start), xEnd: .value("End", band.end))
+                    .foregroundStyle((band.level >= 2 ? Color.red : Color.orange).opacity(0.12))
+            }
             ForEach(lines) { line in
                 ForEach(line.samples) { sample in
                     LineMark(x: .value("Time", sample.timestamp), y: .value("Value", sample.value), series: .value("Series", "\(line.id)#\(sample.segment)"))
@@ -215,6 +438,14 @@ struct ResourceInsightView: View {
             }
         }
         .chartXSelection(value: $model.selectedDate)
+        .chartXScale(domain: chartDomain)
+        .chartPlotStyle { $0.clipped() }
+        .chartXAxis {
+            AxisMarks(values: TimeGrid.dates(in: chartDomain)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(.secondary.opacity(0.3))
+            }
+            AxisMarks(values: .automatic(desiredCount: 6)) { _ in AxisValueLabel() }
+        }
         .chartYScale(domain: 0...yUpperBound(lines, percentScale: percentScale))
         .chartYAxis {
             AxisMarks { value in
@@ -229,6 +460,23 @@ struct ResourceInsightView: View {
                 Text(model.range == .live ? "No samples yet" : "No history in this range").foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Time axis shared by the chart and the row graphs, so their time guides line up: the live window, or the
+    /// selected range ending at load time.
+    func timeDomain(live: Bool) -> ClosedRange<Date>? {
+        if live {
+            guard let first = store.recentMetrics.points.first?.timestamp, let last = store.recentMetrics.points.last?.timestamp,
+                  last > first else { return nil }
+            return first...last
+        }
+        guard let hours = model.range.hours else { return nil }
+        let end = model.historyEnd ?? Date()
+        return end.addingTimeInterval(-hours * 3600)...end
+    }
+
+    private var chartDomain: ClosedRange<Date> {
+        timeDomain(live: model.range == .live) ?? Date().addingTimeInterval(-60)...Date()
     }
 
     private func yUpperBound(_ lines: [InsightLine], percentScale: Bool) -> Double {
@@ -268,45 +516,23 @@ struct ResourceInsightView: View {
         return closest
     }
 
-    // MARK: Details beside the chart
-
-    @ViewBuilder private var details: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            switch resource {
-            case .cpu:
-                Text("Total system CPU is normalized to 0–100%. Application values can exceed 100% across cores.")
-                    .font(.caption).foregroundStyle(.secondary)
-            case .memory:
-                if let memory = store.system?.memory {
-                    KeyValueRow(key: "App Memory", value: Formatting.bytes(memory.appBytes))
-                    KeyValueRow(key: "Wired", value: Formatting.bytes(memory.wiredBytes))
-                    KeyValueRow(key: "Compressed", value: Formatting.bytes(memory.compressedBytes))
-                    KeyValueRow(key: "Swap Used", value: Formatting.bytes(memory.swapUsedBytes))
-                }
-            case .network:
-                ForEach(store.system?.interfaces ?? []) { item in
-                    KeyValueRow(key: item.name, value: "↓ \(Formatting.rate(item.receiveRate))  ↑ \(Formatting.rate(item.sendRate))")
-                }
-            case .disk:
-                ForEach(store.system?.disks ?? []) { item in
-                    KeyValueRow(key: item.name, value: "R \(Formatting.rate(item.readRate))  W \(Formatting.rate(item.writeRate))")
-                }
-            default:
-                EmptyView()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
     // MARK: Process list
 
-    var rows: [InsightRow] {
+    /// Rows for the current range and scope, heaviest first. `userApplications` overrides the running-application
+    /// lookup for the Apps scope.
+    func rows(userApplications: Set<Int32>? = nil) -> [InsightRow] {
         let hours = usesLiveProcessRows ? nil : model.range.hours
+        let allScope = model.scope == .all
+        let userPIDs = allScope ? [] : (userApplications ?? UserApplications.processIdentifiers())
+        func included(_ application: ApplicationMetrics?) -> Bool {
+            allScope || application.map { UserApplications.contains($0, in: userPIDs) } == true
+        }
         var rows: [InsightRow]
         if let hours {
             let minutes = hours * 60
-            rows = model.programs.map { program in
+            rows = model.programs.compactMap { program in
                 let application = store.processes?.applications.first { $0.name == program.name }
+                guard included(application) else { return nil }
                 return InsightRow(
                     id: program.name,
                     name: program.name,
@@ -315,13 +541,14 @@ struct ResourceInsightView: View {
                     executablePath: application?.executablePath,
                     isBackground: false,
                     value: historicalValue(program, minutes: minutes),
+                    wakeups: program.wakeupsTotal / minutes,
                     route: nil,
                     program: program.name
                 )
             }
             rows = rows.filter { $0.value > 0 }
         } else if let snapshot = store.processes {
-            rows = snapshot.applications.map { application in
+            rows = snapshot.applications.filter(included).map { application in
                 InsightRow(
                     id: application.id,
                     name: application.name,
@@ -329,13 +556,18 @@ struct ResourceInsightView: View {
                     bundleIdentifier: application.bundleIdentifier,
                     executablePath: application.executablePath,
                     isBackground: false,
-                    value: liveValue(cpu: application.cpuUsage, memory: application.memoryBytes, read: application.diskReadRate, write: application.diskWriteRate, network: application.networkThroughput),
+                    value: liveValue(id: application.id, cpu: application.cpuUsage, memory: application.memoryBytes, read: application.diskReadRate, write: application.diskWriteRate, network: application.networkThroughput),
                     throughput: application.networkThroughput,
+                    threads: application.processes.reduce(0) { $0 + $1.threadCount },
+                    energy: application.energyImpact,
+                    wakeups: application.wakeupsPerSecond,
+                    readRate: application.diskReadRate,
+                    writeRate: application.diskWriteRate,
                     route: .application(application.id),
                     program: nil
                 )
             }
-            if store.settingsStore.settings.showBackgroundProcesses {
+            if allScope {
                 rows += snapshot.backgroundProcesses.map { process in
                     InsightRow(
                         id: process.id,
@@ -344,8 +576,14 @@ struct ResourceInsightView: View {
                         bundleIdentifier: nil,
                         executablePath: nil,
                         isBackground: true,
-                        value: liveValue(cpu: process.cpuUsage, memory: process.memoryBytes, read: process.diskReadRate, write: process.diskWriteRate, network: process.networkThroughput),
+                        value: liveValue(id: process.id, cpu: process.cpuUsage, memory: process.memoryBytes, read: process.diskReadRate, write: process.diskWriteRate, network: process.networkThroughput),
                         throughput: process.networkThroughput,
+                        threads: process.threadCount,
+                        energy: process.energyImpact,
+                        wakeups: process.wakeupsPerSecond,
+                        readRate: process.diskReadRate,
+                        writeRate: process.diskWriteRate,
+                        owner: process.userName.flatMap { $0 == currentUser ? nil : $0 },
                         route: .process(process.id),
                         program: nil
                     )
@@ -354,14 +592,33 @@ struct ResourceInsightView: View {
         } else {
             rows = []
         }
-        return rows.filter { $0.value >= 0 }.sorted { $0.value > $1.value }
+        let key = effectiveSort
+        return rows.filter { $0.value >= 0 }.sorted { sortValue($0, key) > sortValue($1, key) }
     }
 
-    private func liveValue(cpu: Double, memory: UInt64, read: Double, write: Double, network: ProcessNetworkThroughput?) -> Double {
+    private var currentUser: String { NSUserName() }
+
+    /// The chosen order where it applies: CPU page only, and never Energy on history ranges.
+    var effectiveSort: InsightSort {
+        guard resource == .cpu else { return .resource }
+        return model.sort == .energy && !usesLiveProcessRows ? .resource : model.sort
+    }
+
+    private func sortValue(_ row: InsightRow, _ key: InsightSort) -> Double {
+        switch key {
+        case .resource: row.value
+        case .energy: row.energy ?? 0
+        case .wakeups: row.wakeups ?? 0
+        }
+    }
+
+    /// -1 hides the row: no network sample, or no GPU connection.
+    private func liveValue(id: String, cpu: Double, memory: UInt64, read: Double, write: Double, network: ProcessNetworkThroughput?) -> Double {
         switch resource {
         case .cpu: cpu
         case .memory: Double(memory)
         case .network: network?.total ?? -1
+        case .gpu: store.currentGPUUsage(id) ?? -1
         default: read + write
         }
     }
@@ -377,9 +634,17 @@ struct ResourceInsightView: View {
 
     private func format(_ value: Double) -> String {
         switch resource {
-        case .cpu: Formatting.percent(value)
+        case .cpu, .gpu: Formatting.percent(value)
         case .memory: Formatting.bytes(UInt64(max(0, value)))
         default: model.range == .live ? Formatting.rate(value) : "\(Formatting.bytes(UInt64(max(0, value)))) total"
+        }
+    }
+
+    private var sortName: String {
+        switch effectiveSort {
+        case .resource: metricName
+        case .energy: "energy impact"
+        case .wakeups: "wakeups"
         }
     }
 
@@ -388,41 +653,188 @@ struct ResourceInsightView: View {
         case .cpu: "CPU"
         case .memory: "memory"
         case .network: "network activity"
+        case .gpu: "GPU"
         default: "disk activity"
         }
     }
 
     private var processSection: some View {
-        let rows = rows
+        let rows = rows()
         let shown = model.showAll ? rows : Array(rows.prefix(ResourceInsightViewModel.topCount))
         return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(model.showAll ? "All processes by \(metricName)" : "Top \(shown.count) by \(metricName)").font(.headline)
+            HStack(spacing: 8) {
+                Text(model.showAll ? "\(model.scope == .apps ? "All apps" : "All processes") by \(sortName)" : (shown.isEmpty ? "Apps by \(sortName)" : "Top \(shown.count) by \(sortName)")).font(.headline)
                 Text(usesLiveProcessRows ? "now" : "average over \(model.range.rawValue)").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                if let counts = scopeCounts { Text(counts).font(.caption).foregroundStyle(.secondary) }
+                Picker("Show", selection: $model.scope) {
+                    ForEach(ProcessScope.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
+                .help("Apps lists applications with their own icon; All adds system agents, helpers and background processes.")
                 if rows.count > ResourceInsightViewModel.topCount {
                     Button(model.showAll ? "Show top \(ResourceInsightViewModel.topCount)" : "Show all (\(rows.count))") { model.showAll.toggle() }
                         .controlSize(.small)
                 }
+            }
+            if resource == .gpu {
+                Text("Live GPU time per application from the GPU driver, while this page is open; good for comparing apps, not an exact load (see the column help). The chart range applies to the system GPU; per-app GPU use is not recorded.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if resource == .network {
                 Text("Live receive/send rates by application, summed across observable processes. The chart range applies to system totals; per-app network history is not recorded.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if shown.isEmpty {
-                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(model.loading ? "Loading…" : (resource == .network ? (store.settingsStore.settings.processNetworkRateEnabled ? "No network samples available. Only processes with observable TCP or UDP sockets are listed." : "Per-process network rates are off. Turn them on in Settings › Collection.") : "No process data for this range.")))
+                ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(emptyMessage))
                     .frame(maxWidth: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(shown) { row in
-                            rowView(row)
-                            Divider()
-                        }
+                columnHeader
+                LazyVStack(spacing: 0) {
+                    ForEach(shown) { row in
+                        rowView(row)
+                        Divider()
                     }
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
+    }
+
+    var emptyMessage: String {
+        if model.loading { return "Loading…" }
+        switch resource {
+        case .network:
+            return store.settingsStore.settings.processNetworkRateEnabled
+                ? "No network samples available. Only processes with observable TCP or UDP sockets are listed."
+                : "Per-process network rates are off. Turn them on in Settings › Collection."
+        case .gpu:
+            switch store.system?.gpuProcessStatus ?? .inactive {
+            case .inactive, .warmingUp: return "Reading GPU clients…"
+            case .unavailable: return "Per-process GPU time is unavailable. It requires readable Apple GPU driver counters."
+            case .available:
+                return model.scope == .apps
+                    ? "No application used the GPU in the live window. Switch to All to include background processes."
+                    : "No process used the GPU in the live window."
+            }
+        default:
+            return model.scope == .apps
+                ? "No application data for this range. Switch to All to include background processes."
+                : "No process data for this range."
+        }
+    }
+
+    /// "7 apps · 76 other" for live rows: how many sampled entries the Apps scope hides.
+    private var scopeCounts: String? {
+        guard usesLiveProcessRows, let snapshot = store.processes else { return nil }
+        let pids = UserApplications.processIdentifiers()
+        let apps = snapshot.applications.filter { UserApplications.contains($0, in: pids) }.count
+        let other = snapshot.applications.count - apps + snapshot.backgroundProcesses.count
+        return "\(apps) apps · \(other) other"
+    }
+
+    // MARK: Row columns
+
+    /// One value column of the process list: header, width and the main and caption text of a row.
+    private struct RowColumn: Identifiable {
+        var id: String { title }
+        let title: String
+        let width: CGFloat
+        var help: String? = nil
+        var sort: InsightSort? = nil
+        var emphasized = false
+        let text: (InsightRow) -> (main: String, caption: String?)
+    }
+
+    /// Under about 1000 pt (the panel can be 720 wide) the secondary columns drop out so the graphs stay readable.
+    private var isCompact: Bool { listWidth > 0 && listWidth < 1000 }
+    private var nameColumnWidth: CGFloat { isCompact ? 170 : 210 }
+
+    private var columns: [RowColumn] {
+        let live = usesLiveProcessRows
+        let wide = !isCompact
+        switch resource {
+        case .cpu:
+            let cores = Double(max(1, store.system?.cpu.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount))
+            var columns = [
+                RowColumn(title: "CPU", width: 86, help: "Usage of one core is 100%; \"of Mac\" divides by all \(Int(cores)) cores.", sort: .resource, emphasized: true) {
+                    (format($0.value), "\(Formatting.percent($0.value / cores)) of Mac")
+                },
+            ]
+            if live {
+                columns.append(RowColumn(title: "Energy", width: 60, help: "Energy impact as macOS estimates it; higher drains the battery faster.", sort: .energy) {
+                    (Formatting.energy($0.energy), nil)
+                })
+            }
+            columns.append(RowColumn(title: "Wakeups", width: 76, help: "Times per second the process woke a core from idle; frequent wakeups cost battery even at low CPU.", sort: .wakeups) {
+                ($0.wakeups.map(Formatting.processWakeups) ?? "–", nil)
+            })
+            if live, wide {
+                columns.append(RowColumn(title: "Avg (live)", width: 76, help: "CPU averaged over the live window shown in the row graph.") { row in
+                    let points = store.recentProcessPoints[row.id] ?? []
+                    return (points.isEmpty ? "–" : format(points.reduce(0) { $0 + $1.cpuUsage } / Double(points.count)), nil)
+                })
+                columns.append(RowColumn(title: "Threads", width: 58) { ($0.threads.map { $0.formatted() } ?? "–", nil) })
+            }
+            return columns
+        case .memory:
+            let physical = Double(max(1, ProcessInfo.processInfo.physicalMemory))
+            var columns = [
+                RowColumn(title: "Memory", width: 90, emphasized: true) { (format($0.value), nil) },
+                RowColumn(title: "Of RAM", width: 64, help: "Share of the Mac's physical memory.") { (Formatting.percent($0.value / physical * 100), nil) },
+            ]
+            if live, wide {
+                columns.append(RowColumn(title: "Avg (live)", width: 84, help: "Memory averaged over the live window shown in the row graph.") { row in
+                    let points = store.recentProcessPoints[row.id] ?? []
+                    return (points.isEmpty ? "–" : format(points.reduce(0) { $0 + $1.memoryBytes } / Double(points.count)), nil)
+                })
+            }
+            return columns
+        case .gpu:
+            var columns = [RowColumn(title: "GPU time", width: 80, help: GPUReadings.processTimeHelp, emphasized: true) { (format($0.value), nil) }]
+            if !isCompact {
+                columns.append(RowColumn(title: "Avg (live)", width: 80, help: "GPU averaged over the live window shown in the row graph.") { row in
+                    let points = store.recentGPUPoints[row.id] ?? []
+                    return (points.isEmpty ? "–" : format(points.reduce(0) { $0 + $1.average } / Double(points.count)), nil)
+                })
+            }
+            return columns
+        case .network:
+            return [RowColumn(title: "Throughput", width: 200, emphasized: true) { ($0.throughput?.formatted ?? "Unavailable", nil) }]
+        default:
+            guard live else { return [RowColumn(title: "Moved", width: 130, emphasized: true) { (format($0.value), nil) }] }
+            return [
+                RowColumn(title: "Read", width: 90) { ($0.readRate.map(Formatting.rate) ?? "–", nil) },
+                RowColumn(title: "Write", width: 90) { ($0.writeRate.map(Formatting.rate) ?? "–", nil) },
+            ]
+        }
+    }
+
+    private var columnHeader: some View {
+        HStack(spacing: 10) {
+            Text(model.scope == .apps ? "App" : "App or process").frame(width: nameColumnWidth, alignment: .leading).padding(.leading, 38)
+            Spacer(minLength: 0)
+            ForEach(columns) { column in
+                Group {
+                    if let sort = column.sort, resource == .cpu {
+                        Button { model.sort = sort } label: {
+                            HStack(spacing: 2) {
+                                Text(column.title)
+                                if effectiveSort == sort { Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)) }
+                            }
+                            .foregroundStyle(effectiveSort == sort ? .primary : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text(column.title)
+                    }
+                }
+                .frame(width: column.width, alignment: .trailing)
+                .help(column.help ?? "")
+            }
+            Color.clear.frame(width: 10)
+        }
+        .font(.caption).foregroundStyle(.secondary)
     }
 
     private func rowView(_ row: InsightRow) -> some View {
@@ -434,16 +846,31 @@ struct ResourceInsightView: View {
                     ApplicationIcon(bundleIdentifier: row.bundleIdentifier, executablePath: row.executablePath, size: 28)
                 }
                 VStack(alignment: .leading) {
-                    Text(row.name).lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(row.name).lineLimit(1)
+                        if let owner = row.owner {
+                            Text(owner).font(.caption2).foregroundStyle(.secondary)
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(.quaternary, in: Capsule())
+                                .help("Runs as \(owner), not as you.")
+                        }
+                    }
                     if let detail = row.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
                 }
-                .frame(minWidth: 160, idealWidth: 240, maxWidth: 280, alignment: .leading)
-                // Equal flexible siblings: the graph takes half of the free width.
-                Sparkline(series: sparkline(for: row), minHeight: 22, maxHeight: 32)
-                    .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32)
-                Color.clear.frame(maxWidth: .infinity, maxHeight: 32)
-                Text(resource == .network ? (row.throughput?.formatted ?? "Unavailable") : format(row.value)).monospacedDigit().foregroundStyle(.secondary).frame(width: resource == .network ? 200 : 110, alignment: .trailing)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                .frame(width: nameColumnWidth, alignment: .leading)
+                TimeSeriesStrip(series: timeSeries(for: row), domain: timeDomain(live: usesLiveProcessRows), format: seriesFormat)
+                    .frame(minWidth: 80, maxWidth: .infinity)
+                ForEach(columns) { column in
+                    let text = column.text(row)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(text.main).fontWeight(column.emphasized ? .semibold : .regular)
+                            .foregroundStyle(column.emphasized ? .primary : .secondary)
+                        if let caption = text.caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
+                    }
+                    .monospacedDigit().lineLimit(1)
+                    .frame(width: column.width, alignment: .trailing)
+                }
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).frame(width: 10)
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
@@ -471,26 +898,47 @@ struct ResourceInsightView: View {
         return snapshot.backgroundProcesses.first { $0.name == program }.map { .process($0.id) }
     }
 
-    func sparkline(for row: InsightRow) -> [SparklineSeries] {
-        let live = usesLiveProcessRows
-        let livePoints = live ? (store.recentProcessPoints[row.id] ?? []) : []
-        let history = live ? [:] : (model.rowHistory[historyKey(row)] ?? [:])
-        func values(_ metric: ProcessMetric, live: KeyPath<LiveProcessPoint, Double>) -> [Double] {
-            self.model.range == .live ? livePoints.map { $0[keyPath: live] } : (history[metric] ?? []).map(\.average)
+    /// Row graph lines, clipped to the shared time axis.
+    func timeSeries(for row: InsightRow) -> [TimeSeries] {
+        let domain = timeDomain(live: usesLiveProcessRows)
+        func clipped(_ points: [HistoricalPoint]) -> [HistoricalPoint] {
+            guard let domain else { return points }
+            return points.filter { domain.contains($0.timestamp) }
+        }
+        func line(_ id: String, _ color: Color, live: (LiveProcessPoint) -> Double?, history metric: ProcessMetric?) -> TimeSeries {
+            let points: [HistoricalPoint]
+            if usesLiveProcessRows {
+                points = (store.recentProcessPoints[row.id] ?? []).compactMap { point in
+                    live(point).map { HistoricalPoint(timestamp: point.timestamp, average: $0, peak: $0) }
+                }
+            } else {
+                points = metric.flatMap { model.rowHistory[historyKey(row)]?[$0] } ?? []
+            }
+            return TimeSeries(id: id, color: color, points: clipped(points))
         }
         switch resource {
-        case .cpu: return [SparklineSeries(values: values(.cpuUsage, live: \.cpuUsage), color: .blue)]
-        case .memory: return [SparklineSeries(values: values(.memoryBytes, live: \.memoryBytes), color: .purple)]
+        case .cpu: return [line("CPU", .blue, live: \.cpuUsage, history: .cpuUsage)]
+        case .memory: return [line("Memory", .purple, live: \.memoryBytes, history: .memoryBytes)]
+        case .gpu: return [TimeSeries(id: "GPU", color: .indigo, points: clipped(store.recentGPUPoints[row.id] ?? []))]
         case .network:
             return [
-                SparklineSeries(values: livePoints.compactMap { $0.networkThroughput?.receiveRate }, color: .cyan),
-                SparklineSeries(values: livePoints.compactMap { $0.networkThroughput?.sendRate }, color: .mint),
+                line("In", .cyan, live: { $0.networkThroughput?.receiveRate }, history: nil),
+                line("Out", .mint, live: { $0.networkThroughput?.sendRate }, history: nil),
             ]
         default:
             return [
-                SparklineSeries(values: values(.diskReadRate, live: \.diskReadRate), color: .orange),
-                SparklineSeries(values: values(.diskWriteRate, live: \.diskWriteRate), color: .pink),
+                line("Read", .orange, live: \.diskReadRate, history: .diskReadRate),
+                line("Write", .pink, live: \.diskWriteRate, history: .diskWriteRate),
             ]
+        }
+    }
+
+    /// Row graph readout: the sampled value, which is a rate for disk and network on every range.
+    private func seriesFormat(_ value: Double) -> String {
+        switch resource {
+        case .cpu, .gpu: Formatting.percent(value)
+        case .memory: Formatting.bytes(UInt64(max(0, value)))
+        default: Formatting.rate(value)
         }
     }
 
@@ -519,11 +967,12 @@ struct ResourceInsightView: View {
             model.loading = false
             return
         }
+        model.historyEnd = Date()
         model.loading = true
         defer { model.loading = false }
         var result: [SystemMetric: [HistoricalPoint]] = [:]
-        for item in series {
-            result[item.metric] = HistoricalPoint.downsampled(await store.systemHistory(item.metric, hours: hours), limit: ResourceInsightViewModel.pointLimit)
+        for metric in series.map(\.metric) + extraHistoryMetrics {
+            result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, hours: hours), limit: ResourceInsightViewModel.pointLimit)
         }
         guard !Task.isCancelled else { return }
         model.points = result

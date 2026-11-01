@@ -7,7 +7,7 @@ struct ActivityDiffCard: View {
 
     var body: some View {
         Button(action: open) {
-            MetricCard(title: "What changed", systemImage: "list.bullet.rectangle") {
+            MetricCard(title: "What changed", systemImage: "list.bullet.rectangle", color: .mint, isSummary: true) {
                 VStack(alignment: .leading, spacing: 3) {
                     if store.activityDiffUnavailable {
                         Label("Change summary unavailable", systemImage: "exclamationmark.triangle")

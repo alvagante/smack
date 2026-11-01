@@ -8,7 +8,7 @@ struct AgentsSummaryTile: View {
     var body: some View {
         if !Capabilities.isSandboxed {
             Button(action: open) {
-                MetricCard(title: "Agents", systemImage: "sparkles") {
+                MetricCard(title: "Agents", systemImage: "sparkles", color: .purple, isSummary: true) {
                     Text(model.snapshot.map { "\($0.agents.count) agents detected" } ?? (model.loading ? "Discovering…" : "Explore AI agents"))
                         .font(.title3.weight(.semibold))
                     Text(model.snapshot.map { $0.agents.isEmpty ? "No local agent installations found" : $0.agents.map(\.name).joined(separator: ", ") }
@@ -40,19 +40,28 @@ struct AgentDetailView: View {
     private var artifacts: [AgentArtifact] { current?.artifacts.filter { $0.category == category } ?? [] }
     private var artifact: AgentArtifact? { artifacts.first { $0.id == selectedArtifact } ?? artifacts.first }
 
+    private var overview: some View {
+        DetailStatsGrid(stats: [
+            ResourceStat(title: "Agents", systemImage: "sparkles", value: model.snapshot.map { String($0.agents.count) } ?? "Unavailable"),
+            ResourceStat(title: "Executables", systemImage: "terminal", value: model.snapshot.map { String($0.agents.filter { $0.executable != nil }.count) } ?? "Unavailable"),
+            ResourceStat(title: "Artifacts", systemImage: "doc.text", value: model.snapshot.map { String($0.agents.reduce(0) { $0 + $1.artifacts.count }) } ?? "Unavailable")
+        ], color: .purple)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Agents", systemImage: "sparkles").font(.title2.weight(.semibold))
+                    ResourceTitle(title: "Agents", systemImage: "sparkles", color: .purple)
                     if let snapshot = model.snapshot {
                         Text("\(snapshot.agents.count) detected · Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                overview
                 Spacer()
                 if model.loading { ProgressView().controlSize(.small) }
-                Button("Refresh") { Task { await model.refresh() } }.disabled(model.loading)
+                RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
             }.padding()
             Divider()
             HStack(spacing: 0) {
@@ -116,7 +125,7 @@ struct AgentDetailView: View {
                                     Text(item.url.path).font(.caption.monospaced()).textSelection(.enabled)
                                     Spacer()
                                     if !item.isDirectory { WrapToggle(wrap: $wrap) }
-                                    Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+                                    ToolbarIconButton(title: "Reveal in Finder", systemImage: "folder", color: .blue) { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
                                 }
                                 if item.isDirectory {
                                     UserHomeDetailView(model: browser, rootDirectory: item.url).id(item.id)

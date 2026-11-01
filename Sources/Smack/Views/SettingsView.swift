@@ -305,6 +305,12 @@ struct SettingsView: View {
                 Toggle(isOn: binding(\.recordStartupEvents)) {
                     SettingsLabel("Startup items", help: "Login items, launch agents and daemons added, removed or changed.", subtitle: "<1 KB/h")
                 }
+                Toggle(isOn: binding(\.recordAlertEvents)) {
+                    SettingsLabel("Alerts", help: "Fired alerts, including suppressed notifications.")
+                }
+                Toggle(isOn: binding(\.recordSecurityEvents)) {
+                    SettingsLabel("Security", help: "Security posture and persistence file changes.")
+                }
                 Toggle(isOn: binding(\.recordSystemEvents)) {
                     SettingsLabel("System", help: "Volumes, sleep/wake, power source, thermal and memory pressure.", subtitle: "<1 KB/h")
                 }
@@ -619,7 +625,7 @@ struct PrivilegedSamplingSection: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     if controller.isWorking { ProgressView().controlSize(.small) }
-                    Button("Check Again") { Task { await controller.refresh() } }
+                    RefreshButton { Task { await controller.refresh() } }
                 }
                 HStack(spacing: 8) {
                     if controller.mode == .legacyInstall {

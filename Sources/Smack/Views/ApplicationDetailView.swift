@@ -30,6 +30,7 @@ final class ApplicationDetailViewModel: ObservableObject {
     /// Identities shown when the user asked to kill; non-nil while the confirmation is open.
     @Published var killTargets: [ProcessIdentity]?
     @Published var killMessage: String?
+    @Published var bundleInfo: ApplicationBundleInfo?
 }
 
 @MainActor
@@ -58,6 +59,7 @@ struct ApplicationDetailView: View {
                     header(app)
                     statTiles(app)
                     graphs(app)
+                    cards(app)
                     tabBar
                     tabContent(app)
                 }
@@ -71,10 +73,20 @@ struct ApplicationDetailView: View {
             await store.loadApplicationInventory(for: app, refresh: model.refreshCount > 0)
         }
         .task(id: "\(id)-\(model.range.rawValue)") { await loadHistory() }
+        .task(id: id) {
+            guard let app = store.application(id: id) else { return }
+            let path = app.executablePath, bundleIdentifier = app.bundleIdentifier
+            let info = await Task.detached(priority: .utility) {
+                ApplicationBundleInfo.load(executablePath: path, bundleIdentifier: bundleIdentifier)
+            }.value
+            guard !Task.isCancelled else { return }
+            model.bundleInfo = info
+        }
         .onChange(of: id) {
             model.filter = ""
             model.killTargets = nil
             model.killMessage = nil
+            model.bundleInfo = nil
             profile.reset()
         }
     }
@@ -88,30 +100,88 @@ struct ApplicationDetailView: View {
         }
     }
 
+    /// Title and actions beside the key figures; on a narrow panel the figures move under the title.
     private func headerRow(_ app: ApplicationMetrics) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            ApplicationIcon(application: app, size: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(app.name).font(.title2.bold())
-                if let bundle = app.bundleIdentifier { Text(bundle).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                if let path = app.executablePath { Text(path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
-                if Capabilities.supportsProcessTermination {
-                    Button("Kill Process") {
-                        model.killMessage = nil
-                        model.killTargets = app.processes.map(\.identity)
-                    }
-                    .controlSize(.small)
-                    .disabled(model.killTargets != nil)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 16) {
+                title(app).layoutPriority(1)
+                Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    ForEach(keyStats(app)) { ResourceStatCard(stat: $0).frame(width: 128) }
                 }
-                if let path = app.executablePath {
-                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                        .controlSize(.small)
+                actions(app)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    title(app)
+                    Spacer(minLength: 8)
+                    actions(app)
+                }
+                DetailStatsGrid(stats: keyStats(app), color: .blue)
+            }
+        }
+    }
+
+    private func title(_ app: ApplicationMetrics) -> some View {
+        HStack(spacing: 10) {
+            ApplicationIcon(application: app, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.name).font(.title2.bold()).lineLimit(1)
+                let subtitle = [model.bundleInfo?.version.map { "Version \($0)" }, app.bundleIdentifier].compactMap { $0 }
+                if !subtitle.isEmpty {
+                    Text(subtitle.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1).textSelection(.enabled)
+                }
+                if let start = ApplicationReadings.startTime(app) {
+                    Text("Running for \(CPUReadings.uptime(Date().timeIntervalSince(start)))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .help("Since \(start.formatted(date: .abbreviated, time: .standard)), when its oldest running process started.")
                 }
             }
         }
+    }
+
+    private func actions(_ app: ApplicationMetrics) -> some View {
+        HStack(spacing: 6) {
+            if let path = model.bundleInfo?.bundlePath ?? app.executablePath {
+                ToolbarIconButton(title: "Reveal in Finder", systemImage: "folder", color: .blue) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+            }
+            if Capabilities.supportsProcessTermination {
+                ToolbarIconButton(title: "Kill", systemImage: "xmark.octagon", color: .red, hint: "Kill \(app.name)…") {
+                    model.killMessage = nil
+                    model.killTargets = app.processes.map(\.identity)
+                }
+                .disabled(model.killTargets != nil)
+            }
+        }
+    }
+
+    /// Figures beside the title: what the application costs right now.
+    private func keyStats(_ app: ApplicationMetrics) -> [ResourceStat] {
+        let cores = store.system?.cpu.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount
+        let gpuStatus = store.system?.gpuProcessStatus ?? .inactive
+        return [
+            ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(app.cpuUsage),
+                         detail: "\(Formatting.percent(ApplicationReadings.machineShare(cpuUsage: app.cpuUsage, coreCount: cores))) of Mac",
+                         help: "Summed over all processes; one core is 100%.", color: .blue),
+            ResourceStat(title: "Memory", systemImage: "memorychip", value: unavailable(app.memoryBytes == 0, Formatting.bytes(app.memoryBytes)),
+                         detail: memoryShare(app), help: "Physical footprint summed over all processes.", color: .purple),
+            ResourceStat(title: "GPU", systemImage: "cpu.fill", value: ApplicationReadings.gpuValue(store.currentGPUUsage(app.id), status: gpuStatus),
+                         detail: store.system?.gpu.utilizationPercent.map { "device \(Formatting.percent($0))" },
+                         help: GPUReadings.processTimeHelp, color: .indigo),
+            ResourceStat(title: "Energy", systemImage: "bolt.fill", value: unavailable(app.energyImpact == nil, app.energyImpact.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "–"),
+                         detail: "impact", help: "Energy impact summed over all processes, as Activity Monitor reports it.", color: .yellow),
+        ]
+    }
+
+    private func memoryShare(_ app: ApplicationMetrics) -> String? {
+        guard let total = store.system?.memory.totalBytes, total > 0, app.memoryBytes > 0 else { return nil }
+        return "\(Formatting.percent(Double(app.memoryBytes) / Double(total) * 100)) of RAM"
+    }
+
+    private func unavailable(_ hidden: Bool, _ value: String) -> String {
+        Capabilities.isSandboxed && hidden ? "Unavailable in App Sandbox" : value
     }
 
     /// Confirmation and outcome of a kill, shown inside the window instead of a modal alert.
@@ -153,29 +223,37 @@ struct ApplicationDetailView: View {
     }
 
     private func statTiles(_ app: ApplicationMetrics) -> some View {
-        func unavailable(_ hidden: Bool, _ value: String) -> String {
-            Capabilities.isSandboxed && hidden ? "Unavailable in App Sandbox" : value
-        }
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
-            tile("CPU", Formatting.percent(app.cpuUsage))
-            tile("Memory", unavailable(app.memoryBytes == 0, Formatting.bytes(app.memoryBytes)))
-            tile("Disk Read / Write", unavailable(app.diskReadRate == 0 && app.diskWriteRate == 0, "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"))
-            tile("Network In / Out", app.networkThroughput?.formatted ?? store.networkRateFallback)
-            tile("Energy Impact", unavailable(app.energyImpact == nil, app.energyImpact.map { $0.formatted() } ?? "Unavailable"))
-            tile("Wakeups", unavailable(app.wakeupsPerSecond == 0, Formatting.wakeups(app.wakeupsPerSecond)))
-            tile("Processes", "\(app.processes.count)")
-            tile("Threads", "\(app.processes.reduce(0) { $0 + $1.threadCount })")
-        }
+        let threads = app.processes.reduce(0) { $0 + $1.threadCount }
+        let interrupts = app.processes.reduce(0) { $0 + $1.interruptWakeupsPerSecond }
+        return DetailStatsGrid(stats: [
+            ResourceStat(title: "Disk read / write", systemImage: "internaldrive",
+                         value: unavailable(app.diskReadRate == 0 && app.diskWriteRate == 0, "\(Formatting.rate(app.diskReadRate)) / \(Formatting.rate(app.diskWriteRate))"),
+                         color: .orange),
+            ResourceStat(title: "Network in / out", systemImage: "network", value: app.networkThroughput?.formatted ?? store.networkRateFallback, color: .cyan),
+            ResourceStat(title: "Wakeups", systemImage: "alarm", value: unavailable(app.wakeupsPerSecond == 0, Formatting.wakeups(app.wakeupsPerSecond)),
+                         detail: app.wakeupsPerSecond > 0 ? "\(Formatting.wakeups(interrupts)) interrupt" : nil,
+                         help: "Interrupt and package idle wakeups per second. Frequent wakeups keep the CPU out of low-power states.", color: .teal),
+            ResourceStat(title: "Processes", systemImage: "square.stack.3d.up", value: "\(app.processes.count)",
+                         detail: "\(threads.formatted()) threads", color: .green),
+        ], color: .blue)
     }
 
-    private func tile(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.callout.weight(.semibold)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.8)
+    /// CPU by process, GPU, and bundle facts.
+    private func cards(_ app: ApplicationMetrics) -> some View {
+        let cores = store.system?.cpu.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount
+        let cpu = ApplicationCPUCard(app: app, coreCount: cores) { store.route = .process($0.id) }
+        let gpu = ApplicationGPUCard(store: store, app: app)
+        return VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    cpu.frame(minWidth: 360)
+                    gpu.frame(width: 260)
+                }
+                VStack(spacing: 12) { cpu; gpu }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            ApplicationAboutCard(app: app, info: model.bundleInfo)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: Graphs
@@ -183,7 +261,7 @@ struct ApplicationDetailView: View {
     private func graphs(_ app: ApplicationMetrics) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Resource Usage").font(.title3.bold())
+                Label { Text("Resource Usage").font(.title3.bold()) } icon: { ResourceIcon(systemImage: "chart.xyaxis.line", color: .blue, size: 24) }
                 if model.historyLoading { ProgressView().controlSize(.small) }
                 Spacer()
                 Picker("Range", selection: $model.range) {
@@ -191,18 +269,37 @@ struct ApplicationDetailView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top), count: 4), spacing: 12) {
-                AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
-                AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
-                AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
-                if model.range == .live, app.networkThroughput != nil {
-                    AppMetricChart(title: "Network", lines: networkLines(app), format: Formatting.rate)
-                }
-                if model.range != .live {
-                    AppMetricChart(title: "Wakeups", lines: [line("Wakeups", .teal, .wakeups, app)], format: Formatting.wakeups)
-                }
+            let count = chartCount(app)
+            // Every chart in one row when it fits, then three or two per row.
+            ViewThatFits(in: .horizontal) {
+                chartGrid(app, columns: count)
+                if count > 3 { chartGrid(app, columns: 3) }
+                chartGrid(app, columns: 2)
             }
             Text(footnote(app)).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var showsLiveGPU: Bool { model.range == .live && store.system?.gpuProcessStatus == .available }
+
+    private func chartCount(_ app: ApplicationMetrics) -> Int {
+        3 + (model.range == .live ? (app.networkThroughput != nil ? 1 : 0) + (showsLiveGPU ? 1 : 0) : 1)
+    }
+
+    private func chartGrid(_ app: ApplicationMetrics, columns: Int) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 190), spacing: 12, alignment: .top), count: max(1, columns)), spacing: 12) {
+            AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
+            AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
+            AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
+            if model.range == .live, app.networkThroughput != nil {
+                AppMetricChart(title: "Network", lines: networkLines(app), format: Formatting.rate)
+            }
+            if showsLiveGPU {
+                AppMetricChart(title: "GPU", lines: [AppChartLine(title: "GPU", color: .indigo, points: store.recentGPUPoints[app.id] ?? [])], format: Formatting.percent)
+            }
+            if model.range != .live {
+                AppMetricChart(title: "Wakeups", lines: [line("Wakeups", .teal, .wakeups, app)], format: Formatting.wakeups)
+            }
         }
     }
 
@@ -221,7 +318,7 @@ struct ApplicationDetailView: View {
     }
 
     private func footnote(_ app: ApplicationMetrics) -> String {
-        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every \(Int(store.settingsStore.settings.processNetworkRateSeconds)) seconds and includes observable TCP and UDP traffic." }
+        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every \(Int(store.settingsStore.settings.processNetworkRateSeconds)) seconds and includes observable TCP and UDP traffic. GPU is driver-reported process time, live only." }
         let names = Set(app.processes.map(\.name)).count
         let shown = min(names, Self.programLimit)
         return names > shown
@@ -332,7 +429,7 @@ struct ApplicationDetailView: View {
             HStack(spacing: 8) {
                 TextField("Filter", text: $model.filter).textFieldStyle(.roundedBorder)
                 if store.applicationInventoryLoading { ProgressView().controlSize(.small) }
-                Button("Refresh") { model.refreshCount += 1 }.controlSize(.small)
+                RefreshButton { model.refreshCount += 1 }.controlSize(.small)
             }
             if let inventory = store.applicationInventory {
                 if inventory.isPartial {
@@ -446,7 +543,7 @@ struct ApplicationDetailView: View {
 
     @ViewBuilder
     private func provenanceTab(_ app: ApplicationMetrics) -> some View {
-        if let main = mainProcess(app) {
+        if let main = ApplicationReadings.mainProcess(app) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Main process: \(main.name) (\(main.identity.pid))").font(.caption).foregroundStyle(.secondary)
                 ProvenanceSection(store: store, process: main)
@@ -455,10 +552,6 @@ struct ApplicationDetailView: View {
         } else {
             Text("No process to inspect.").foregroundStyle(.secondary)
         }
-    }
-
-    private func mainProcess(_ app: ApplicationMetrics) -> ProcessMetrics? {
-        app.processes.first { $0.executablePath == app.executablePath } ?? app.processes.first
     }
 
     private func processesList(_ app: ApplicationMetrics) -> some View {

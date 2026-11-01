@@ -32,7 +32,7 @@ struct ProcessTreeList: View {
                     metric(Formatting.percent(process.cpuUsage), metricWidth)
                     metric(Capabilities.isSandboxed && process.memoryBytes == 0 ? "—" : Formatting.bytes(process.memoryBytes), metricWidth)
                     metric(Capabilities.isSandboxed && process.diskReadRate + process.diskWriteRate == 0 ? "—" : Formatting.rate(process.diskReadRate + process.diskWriteRate), diskWidth)
-                    metric(process.energyImpact.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—", metricWidth)
+                    metric(Formatting.energy(process.energyImpact), metricWidth)
                     metric(ApplicationListView.wakeups(process.wakeupsPerSecond), wakeupsWidth)
                 } else {
                     Spacer().frame(width: metricWidth * 3 + diskWidth + wakeupsWidth - metricWidth)
