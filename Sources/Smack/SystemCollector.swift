@@ -39,6 +39,17 @@ enum SystemCollectorMath {
         return normalizedPercentage(Double(user + system + nice) * 100 / Double(total))
     }
 
+    /// User (with nice) and system percentages of the tick delta; nil when no ticks elapsed.
+    static func cpuBreakdown(current: SystemCollectorCPUTicks, previous: SystemCollectorCPUTicks) -> (user: Double, system: Double)? {
+        let user = wrappingDifference(current: current.user, previous: previous.user)
+        let system = wrappingDifference(current: current.system, previous: previous.system)
+        let idle = wrappingDifference(current: current.idle, previous: previous.idle)
+        let nice = wrappingDifference(current: current.nice, previous: previous.nice)
+        let total = Double(user + system + idle + nice)
+        guard total > 0 else { return nil }
+        return (normalizedPercentage(Double(user + nice) * 100 / total), normalizedPercentage(Double(system) * 100 / total))
+    }
+
     static func normalizedPercentage(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(100, max(0, value))
@@ -63,6 +74,8 @@ final class SystemCollector: SystemMetricsCollecting {
 
     private let lock = NSLock()
     private let gpuName: String
+    private let gpuCoreCount: Int?
+    private let gpuProcessReader = GPUProcessReader()
     private var aggregateCPUTicks: SystemCollectorCPUTicks?
     private var coreCPUTicks: [SystemCollectorCPUTicks]?
     private var networkCounters: [String: NetworkCounters] = [:]
@@ -78,6 +91,7 @@ final class SystemCollector: SystemMetricsCollecting {
     private static let acceleratorRetryInterval: TimeInterval = 60
 #if SMACK_APP_STORE
     private func readTemperatures() -> [TemperatureSensor] { [] }
+    private func readFans() -> [FanSample] { [] }
 #else
     /// Created on first use, so the IOHID client exists only once someone opened the thermal page.
     private var thermalSensors: ThermalSensorReader?
@@ -85,14 +99,31 @@ final class SystemCollector: SystemMetricsCollecting {
         if thermalSensors == nil { thermalSensors = ThermalSensorReader() }
         return thermalSensors?.read() ?? []
     }
+    /// Created on first use, like `thermalSensors`.
+    private var fanReader: SMCFanReader?
+    private func readFans() -> [FanSample] {
+        if fanReader == nil { fanReader = SMCFanReader() }
+        return fanReader?.read() ?? []
+    }
 #endif
 
     init() {
         gpuName = Self.readGPUName()
+        gpuCoreCount = Self.readGPUCoreCount()
     }
 
     deinit {
         if acceleratorService != 0 { IOObjectRelease(acceleratorService) }
+    }
+
+    /// Apple silicon publishes `gpu-core-count` on `AGXAccelerator`; nil elsewhere.
+    private static func readGPUCoreCount() -> Int? {
+        guard let matching = IOServiceMatching("AGXAccelerator") else { return nil }
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        return (IORegistryEntryCreateCFProperty(service, "gpu-core-count" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? NSNumber)?.intValue
     }
 
     private static func readGPUName() -> String {
@@ -109,7 +140,7 @@ final class SystemCollector: SystemMetricsCollecting {
         }
     }
 
-    func collectSystemSample(includeTemperatures: Bool) -> SystemSample {
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample {
         lock.lock()
         defer { lock.unlock() }
 
@@ -122,6 +153,14 @@ final class SystemCollector: SystemMetricsCollecting {
         let battery = collectBattery()
         let gpu = collectGPU(now: now)
         let temperatures = includeTemperatures ? readTemperatures() : nil
+        let fans = includeTemperatures ? readFans() : nil
+        let gpuProcesses: [Int32: Double]?
+        if includeGPUProcesses {
+            gpuProcesses = gpuProcessReader.read(accelerator: acceleratorService, now: now)
+        } else {
+            gpuProcessReader.reset()
+            gpuProcesses = nil
+        }
 
         return SystemSample(
             timestamp: Date(),
@@ -134,7 +173,11 @@ final class SystemCollector: SystemMetricsCollecting {
             thermalCondition: thermalCondition,
             gpuName: gpuName,
             gpu: gpu,
-            temperatures: temperatures
+            gpuCoreCount: gpuCoreCount,
+            gpuProcesses: gpuProcesses,
+            gpuProcessStatus: gpuProcessReader.status,
+            temperatures: temperatures,
+            fans: fans
         )
     }
 
@@ -192,7 +235,9 @@ final class SystemCollector: SystemMetricsCollecting {
             utilizationPercent: device ?? renderer ?? tiler,
             rendererUtilizationPercent: renderer,
             tilerUtilizationPercent: tiler,
-            inUseMemoryBytes: bytes("In use system memory") ?? bytes("Alloc system memory")
+            inUseMemoryBytes: bytes("In use system memory") ?? bytes("Alloc system memory"),
+            allocatedMemoryBytes: bytes("Alloc system memory"),
+            recoveryCount: (statistics["recoveryCount"] as? NSNumber)?.intValue
         )
     }
 
@@ -220,9 +265,11 @@ final class SystemCollector: SystemMetricsCollecting {
 
     private func collectCPU() -> CPUSample {
         var totalUsage = 0.0
+        var breakdown: (user: Double, system: Double)?
         if let current = readAggregateCPUTicks() {
             if let previous = aggregateCPUTicks {
                 totalUsage = SystemCollectorMath.cpuUsage(current: current, previous: previous) ?? 0
+                breakdown = SystemCollectorMath.cpuBreakdown(current: current, previous: previous)
             }
             aggregateCPUTicks = current
         }
@@ -239,7 +286,12 @@ final class SystemCollector: SystemMetricsCollecting {
             coreCPUTicks = current
         }
 
-        return CPUSample(totalUsage: totalUsage, coreUsage: coreUsage)
+        var loads = [Double](repeating: 0, count: 3)
+        let loadAverage = getloadavg(&loads, 3) == 3 ? loads : []
+        return CPUSample(
+            totalUsage: totalUsage, coreUsage: coreUsage,
+            userUsage: breakdown?.user ?? 0, systemUsage: breakdown?.system ?? 0, loadAverage: loadAverage
+        )
     }
 
     private func readAggregateCPUTicks() -> SystemCollectorCPUTicks? {
@@ -506,6 +558,18 @@ final class SystemCollector: SystemMetricsCollecting {
     }
 
     private func diskName(for service: io_registry_entry_t, identifier: UInt64) -> String {
+        // The BSD name and model live on the driver's IOMedia child, for example "disk0" and "APPLE SSD AP4096Z Media".
+        var child = io_registry_entry_t()
+        if IORegistryEntryGetChildEntry(service, kIOServicePlane, &child) == KERN_SUCCESS {
+            defer { IOObjectRelease(child) }
+            if let name = copyStringProperty("BSD Name", from: child), !name.isEmpty {
+                var buffer = [CChar](repeating: 0, count: 128)
+                let media = IORegistryEntryGetName(child, &buffer) == KERN_SUCCESS
+                    ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
+                let model = media.hasSuffix(" Media") ? String(media.dropLast(6)) : media
+                return model.isEmpty ? name : "\(name) · \(model)"
+            }
+        }
         var current = service
         IOObjectRetain(current)
         defer { IOObjectRelease(current) }

@@ -17,13 +17,14 @@ struct StorageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Storage").font(.title2.bold())
-                        Text("Find what takes up space").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "internaldrive").font(.title).foregroundStyle(.cyan)
+                HStack(spacing: 16) {
+                    ResourceTitle(title: "Storage", systemImage: "externaldrive", color: .indigo,
+                                  subtitle: "Find what takes up space")
+                    DetailStatsGrid(stats: [
+                        ResourceStat(title: "Used", systemImage: "internaldrive.fill", value: store.system.map { Formatting.bytes($0.volumes.reduce(UInt64(0)) { $0 &+ $1.usedBytes }) } ?? "Unavailable"),
+                        ResourceStat(title: "Available", systemImage: "internaldrive", value: store.system.map { Formatting.bytes($0.volumes.reduce(UInt64(0)) { $0 &+ $1.availableBytes }) } ?? "Unavailable"),
+                        ResourceStat(title: "Volumes", systemImage: "externaldrive", value: store.system.map { String($0.volumes.count) } ?? "Unavailable")
+                    ], color: .indigo)
                 }
                 volumes
                 scanControls
@@ -87,15 +88,12 @@ struct StorageView: View {
             .disabled(model.isScanning)
             Spacer(minLength: 8)
             if model.isScanning {
-                Button("Cancel") { model.cancel() }
+                ToolbarIconButton(title: "Cancel scan", systemImage: "stop.fill", color: .orange) { model.cancel() }
             } else {
                 if model.result != nil {
-                    Button("Clear Results") { model.clearResults() }
+                    ToolbarIconButton(title: "Clear results", systemImage: "xmark", color: .secondary) { model.clearResults() }
                 }
-                Button(action: startScan) {
-                    Label(model.result == nil ? "Scan" : "Rescan", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.borderedProminent)
+                ToolbarIconButton(title: model.result == nil ? "Scan" : "Rescan", systemImage: "arrow.clockwise", color: .green, action: startScan)
             }
         }
     }

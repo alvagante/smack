@@ -8,7 +8,7 @@ struct DevEnvironmentSummaryTile: View {
     var body: some View {
         if !Capabilities.isSandboxed {
             Button(action: open) {
-                MetricCard(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right") {
+                MetricCard(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal, isSummary: true) {
                     Text(model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"))
                         .font(.title3.weight(.semibold))
                     Text(model.snapshot.map { "\(Set($0.environments.map(\.language)).count) languages detected" } ?? "Languages, packages and paths")
@@ -38,24 +38,33 @@ struct DevEnvironmentDetailView: View {
     }
     private var current: DevEnvironment? { environments.first { $0.id == selected } ?? environments.first }
 
+    private var overview: some View {
+        DetailStatsGrid(stats: [
+            ResourceStat(title: "Installations", systemImage: "terminal", value: model.snapshot.map { String($0.environments.count) } ?? "Unavailable"),
+            ResourceStat(title: "Languages", systemImage: "chevron.left.forwardslash.chevron.right", value: model.snapshot.map { String(Set($0.environments.map(\.language)).count) } ?? "Unavailable"),
+            ResourceStat(title: "On PATH", systemImage: "point.topleft.down.to.point.bottomright.curvepath", value: model.snapshot.map { String($0.environments.filter(\.onPath).count) } ?? "Unavailable")
+        ], color: .teal)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Dev environments", systemImage: "chevron.left.forwardslash.chevron.right").font(.title2.weight(.semibold))
+                    ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal)
                     if let snapshot = model.snapshot {
                         Text("\(snapshot.environments.count) installations · Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                overview
                 Spacer()
                 if model.loading { ProgressView().controlSize(.small) }
-                Button("Discovery scope and limitations") { showingDiscoveryScope.toggle() }
+                ToolbarIconButton(title: "Discovery scope and limitations", systemImage: "info.circle", color: .teal) { showingDiscoveryScope.toggle() }
                     .popover(isPresented: $showingDiscoveryScope, arrowEdge: .bottom) {
                         discoveryScope
                     }
-                Button("Add project folder…", action: addFolder).disabled(model.loading)
-                Button("Refresh") { Task { await model.refresh() } }.disabled(model.loading || model.inspecting != nil)
+                ToolbarIconButton(title: "Add project folder…", systemImage: "folder.badge.plus", color: .blue, action: addFolder).disabled(model.loading)
+                RefreshButton { Task { await model.refresh() } }.disabled(model.loading || model.inspecting != nil)
             }.padding()
             Divider()
             HStack(alignment: .top, spacing: 0) {

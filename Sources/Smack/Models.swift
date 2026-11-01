@@ -3,6 +3,19 @@ import Foundation
 struct CPUSample: Sendable, Equatable {
     var totalUsage: Double
     var coreUsage: [Double]
+    /// User (including nice) and system shares of the same tick window as `totalUsage`; idle is the rest.
+    var userUsage: Double = 0
+    var systemUsage: Double = 0
+    /// 1, 5 and 15 minute load averages; empty when unavailable.
+    var loadAverage: [Double] = []
+
+    var idleUsage: Double { max(0, 100 - userUsage - systemUsage) }
+}
+
+/// One fan's current speed from the SMC; 0 rpm means the fan is stopped.
+struct FanSample: Sendable, Equatable, Identifiable {
+    var id: Int
+    var rpm: Double
 }
 
 enum MemoryPressure: String, Sendable, Codable {
@@ -25,6 +38,9 @@ struct GPUSample: Sendable, Equatable {
     var rendererUtilizationPercent: Double?
     var tilerUtilizationPercent: Double?
     var inUseMemoryBytes: UInt64?
+    var allocatedMemoryBytes: UInt64? = nil
+    /// GPU recoveries (resets after a hang) since boot.
+    var recoveryCount: Int? = nil
 }
 
 struct MemorySample: Sendable, Equatable {
@@ -80,6 +96,10 @@ enum ThermalCondition: String, Sendable, Codable {
     case nominal, fair, serious, critical, unavailable
 }
 
+enum GPUProcessStatus: Sendable {
+    case inactive, warmingUp, available, unavailable
+}
+
 struct SystemSample: Sendable {
     var timestamp: Date
     var cpu: CPUSample
@@ -91,9 +111,16 @@ struct SystemSample: Sendable {
     var thermalCondition: ThermalCondition
     var gpuName: String
     var gpu = GPUSample()
+    var gpuCoreCount: Int? = nil
+    /// Driver GPU time per pid as a percent of elapsed wall time, read only while the GPU page is open.
+    /// Nil when not read, unavailable or warming up; empty when no process used the GPU.
+    var gpuProcesses: [Int32: Double]? = nil
+    var gpuProcessStatus: GPUProcessStatus = .inactive
     /// Hardware sensor readings, read only while the thermal page is open; nil when not read, empty when
     /// unavailable (App Store build, unsupported hardware).
     var temperatures: [TemperatureSensor]?
+    /// Fan speeds, read together with `temperatures`; nil when not read, empty when the Mac has no readable fans.
+    var fans: [FanSample]?
 
     var receiveRate: Double { interfaces.reduce(0) { $0 + $1.receiveRate } }
     var sendRate: Double { interfaces.reduce(0) { $0 + $1.sendRate } }
@@ -480,6 +507,12 @@ struct LiveMetricPoint: Identifiable, Sendable {
     var sendRate: Double
     var diskReadRate: Double
     var diskWriteRate: Double
+    var swapUsedBytes: Double = 0
+    var gpuUsage: Double? = nil
+    var gpuRendererUsage: Double? = nil
+    var gpuTilerUsage: Double? = nil
+    /// `MemoryPressure.historyValue`: 0 normal, 1 warning, 2 critical; nil when unavailable.
+    var memoryPressure: Double? = nil
 }
 
 struct LiveMetricHistory {
@@ -498,6 +531,8 @@ struct LiveMetricHistory {
 
 /// One process-or-application sample kept for the live sparklines in resource detail.
 struct LiveProcessPoint: Sendable {
+    /// The process snapshot's time, so row graphs share the time axis of the system chart.
+    var timestamp: Date
     var networkThroughput: ProcessNetworkThroughput? = nil
     var cpuUsage: Double
     var memoryBytes: Double

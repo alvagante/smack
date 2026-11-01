@@ -1,6 +1,6 @@
 # Spec 004: Alerts, Automation Surface and Security Posture
 
-Status: draft
+Status: in progress (Phase 1 foundation implemented)
 Target release: 0.8.0
 Date: 2026-10-31
 Branch base: `main`
@@ -526,9 +526,11 @@ Today an older helper simply fails the request; callers show "Update the helper"
 
 ### Phase 1: models, settings, event kinds
 
-- New event kinds and groups, settings keys and decoder defaults.
-- `AlertRule` and related models, `AlertRuleStore` with templates.
-- Tests: decoding old settings, unknown rule preservation, corrupt file recovery.
+- [x] New event kinds and groups, settings keys and decoder defaults.
+- [x] `AlertRule` and related models, `AlertRuleStore` with templates.
+- [x] Tests: decoding old settings, unknown rule preservation, corrupt file recovery.
+- [ ] Connect the store callback to `CollectionScheduler.update(rules:)` in Phase 2, when the engine exists.
+- [ ] Present the recovery notice in the Phase 2 Alerts settings UI.
 
 ### Phase 2: alert engine and delivery
 
@@ -638,3 +640,54 @@ Integration and manual:
 3. CLI `--format` options beyond table and JSON Lines (CSV, TSV)?
 4. Should posture include `bputil` secure boot policy via the helper? It needs root and Apple-silicon-specific parsing.
 5. App Intents spike result: _pending_.
+
+
+## 14. Session log
+
+### 2026-11-01: Phase 1 foundation
+
+Scope: Phase 1 only. Preconditions accepted as completed by the user. Worked on the existing
+`080` branch and preserved unrelated staged and unstaged changes. Phase 0 engineering spikes
+remain unverified; this session does not claim App Intents, watcher performance or socket validation.
+
+Implemented:
+
+- `AlertModels.swift`: system/process metrics, comparisons, matchers, event predicates,
+  navigation targets, rule validation and ten disabled templates.
+- Unknown rule kinds, metrics and event kinds become disabled/unavailable rules. Their complete
+  original JSON object is retained on save, including future top-level fields. JSON formatting
+  and key order may change; values are preserved.
+- `AlertRuleStore.swift`: ordered rules, atomic writes, injected file path and change callback,
+  corrupt-file backup and disabled-template recovery, dismissible recovery notice, and save errors.
+  Failed writes do not publish edits. No notification APIs are used by models or tests.
+- Alerts/Security event groups, titles and symbols; independent recording switches in Activity settings.
+- Settings decoder defaults, explicit null encoding for disabled posture schedules, and the three
+  direct-only capability gates from section 5.12. Posture intervals clamp to 60 seconds through 24 hours.
+- Seven tests covering templates, validation, unknown payload preservation, store persistence/order,
+  failed writes, corruption recovery, legacy settings and event metadata.
+
+Validation:
+
+- `swift test`: 336 tests passed in 14 suites, including the seven new tests.
+- `swift build --product Smack -Xswiftc -DSMACK_APP_STORE`: passed.
+- `git diff --check`: passed.
+
+Implementation notes for Phase 2:
+
+- The store is not yet instantiated by the app. Instantiate it once, connect its initial snapshot and
+  change callback to the scheduler without restarting sampling, and surface errors/recovery notices.
+- `AlertTarget` stores a URL; route it through the Phase 3 navigation-only parser.
+- Rule JSON currently uses Swift Codable's associated-value representation for `AlertRule.Kind`.
+- Metric units: ratios are 0...1; CPU, battery and GPU are percentages; memory pressure is
+  normal=0, warning=1, critical=2; thermal is nominal=0 through critical=3.
+  Process CPU may exceed 100%. Map the existing sample representations explicitly in the engine.
+- The posture-regression template expects `details["regression"] == "true"`; the Phase 5 producer
+  must emit that field for pass-to-warn/fail transitions.
+- Unknown rules stay disabled in memory; their original enabled field is retained in persisted JSON
+  for a future version that understands them. The editor must show them as unavailable.
+- Notifications, scheduler evaluation, Alerts UI, pause/snooze delivery, and all Phases 3-7 remain pending.
+- No files were staged or committed by this session.
+
+Next session: implement Phase 2 as a coherent unit, starting with the timestamp-based engine and its
+tests, then scheduler wiring, dispatcher/storm controls and Alerts settings UI. Keep Phase 0 spike
+results explicitly pending until measured, and update this session log with validation and carry-over work.

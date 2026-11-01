@@ -8,7 +8,7 @@ struct InstalledAppsSummaryTile: View {
     var body: some View {
         if !Capabilities.isSandboxed {
             Button(action: open) {
-                MetricCard(title: "Installed apps", systemImage: "square.grid.3x3") {
+                MetricCard(title: "Installed apps", systemImage: "square.grid.3x3", color: .teal, isSummary: true) {
                     Text(model.snapshot.map { "\($0.apps.count) apps" } ?? (model.loading ? "Discovering…" : "Browse installed apps"))
                         .font(.title3.weight(.semibold))
                     Text(model.snapshot.map { value in
@@ -53,6 +53,14 @@ struct InstalledAppsDetailView: View {
         selected.contains { $0.sizeBytes == nil } ? "size unavailable" : Formatting.bytes(selectedBytes)
     }
     private var appsLabel: String { selected.count == 1 ? "1 App" : "\(selected.count) Apps" }
+
+    private var overview: some View {
+        DetailStatsGrid(stats: [
+            ResourceStat(title: "Applications", systemImage: "square.grid.3x3", value: model.snapshot.map { String($0.apps.count) } ?? "Unavailable"),
+            ResourceStat(title: "App storage", systemImage: "internaldrive", value: model.snapshot.flatMap { $0.measured || $0.apps.contains { $0.sizeBytes != nil } ? Formatting.bytes($0.totalBytes) : nil } ?? "Not measured", detail: model.snapshot?.measured == true ? "All apps measured" : "Measured so far"),
+            ResourceStat(title: "Volume used", systemImage: "chart.pie", value: model.snapshot?.volumeUsedFraction.map { Formatting.percent($0 * 100) } ?? "Unavailable")
+        ], color: .teal)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -105,7 +113,7 @@ struct InstalledAppsDetailView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Label("Installed apps", systemImage: "square.grid.3x3").font(.title2.weight(.semibold))
+                ResourceTitle(title: "Installed apps", systemImage: "square.grid.3x3", color: .teal)
                 if let snapshot = model.snapshot {
                     Text("\(snapshot.apps.count) apps · \(Formatting.bytes(snapshot.totalBytes))\(snapshot.measured ? "" : " measured so far")")
                         .font(.caption).foregroundStyle(.secondary)
@@ -113,6 +121,7 @@ struct InstalledAppsDetailView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            overview
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
                 HStack {
@@ -124,8 +133,8 @@ struct InstalledAppsDetailView: View {
                             .background(.quaternary, in: Capsule())
                             .help("Space used on the volume holding /Applications")
                     }
-                    Button("Measure sizes") { sizing = true; request += 1 }.disabled(model.loading || model.measuring || model.busy)
-                    Button("Refresh") { sizing = false; request += 1 }.disabled(model.loading || model.measuring || model.busy)
+                    ToolbarIconButton(title: "Measure sizes", systemImage: "internaldrive", color: .teal) { sizing = true; request += 1 }.disabled(model.loading || model.measuring || model.busy)
+                    RefreshButton { sizing = false; request += 1 }.disabled(model.loading || model.measuring || model.busy)
                 }
                 HStack {
                     TextField("Search apps", text: $query).textFieldStyle(.roundedBorder).frame(width: 220)

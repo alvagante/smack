@@ -2,12 +2,16 @@ import Foundation
 import SmackIPC
 
 protocol SystemMetricsCollecting: AnyObject {
-    /// `includeTemperatures` reads hardware sensors, which costs an IOHID service walk; only the thermal page needs it.
-    func collectSystemSample(includeTemperatures: Bool) -> SystemSample
+    /// `includeTemperatures` reads hardware sensors and fans, which costs an IOHID service walk; only the thermal and
+    /// CPU pages need it. `includeGPUProcesses` walks the GPU driver's clients for per-process GPU time (GPU page).
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample
 }
 
 extension SystemMetricsCollecting {
-    func collectSystemSample() -> SystemSample { collectSystemSample(includeTemperatures: false) }
+    func collectSystemSample() -> SystemSample { collectSystemSample(includeTemperatures: false, includeGPUProcesses: false) }
+    func collectSystemSample(includeTemperatures: Bool) -> SystemSample {
+        collectSystemSample(includeTemperatures: includeTemperatures, includeGPUProcesses: false)
+    }
 }
 
 protocol ProcessMetricsCollecting: AnyObject, Sendable {

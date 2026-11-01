@@ -6,6 +6,7 @@ enum ResourceKind: String, CaseIterable, Identifiable {
     case memory = "Memory"
     case network = "Network"
     case disk = "Disk Activity"
+    case gpu = "GPU"
     case storage = "Storage"
     case battery = "Battery"
     case thermal = "Thermal State"
@@ -60,6 +61,8 @@ final class MonitorStore: ObservableObject {
     private var launchdCache: (timestamp: Date, index: [String: LaunchdMatch])?
     /// Recent samples per application and background-process ID, bounded by `LiveMetricHistory`'s capacity.
     private(set) var recentProcessPoints: [String: [LiveProcessPoint]] = [:]
+    /// Live GPU percent per application and background-process ID while the GPU page is open; never stored.
+    private(set) var recentGPUPoints: [String: [HistoricalPoint]] = [:]
 
     var recentCPU: [HistoricalPoint] {
         recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
@@ -176,9 +179,15 @@ final class MonitorStore: ObservableObject {
         route = previous
     }
 
-    /// The thermal page asks for sensor readings while it is on screen.
+    /// Pages showing temperatures or fans (Thermal State, CPU) ask for sensor readings while on screen; every
+    /// `true` must be balanced by one `false`.
     func setTemperaturesWanted(_ wanted: Bool) {
         Task { await scheduler.setTemperaturesWanted(wanted) }
+    }
+
+    /// The GPU page asks for per-process GPU time while it is on screen; balance every `true` with one `false`.
+    func setGPUProcessesWanted(_ wanted: Bool) {
+        Task { await scheduler.setGPUProcessesWanted(wanted) }
     }
 
     func setVisible(_ visible: Bool) {
@@ -294,6 +303,12 @@ final class MonitorStore: ObservableObject {
 
     func receive(_ sample: SystemSample) {
         system = sample
+        // Samples carry GPU clients only while a GPU page is open; once they stop, the live window is dropped.
+        if let gpu = sample.gpuProcesses {
+            recordGPUPoints(gpu, at: sample.timestamp)
+        } else if !recentGPUPoints.isEmpty {
+            recentGPUPoints = [:]
+        }
         let memoryUsage = sample.memory.totalBytes > 0
             ? Double(sample.memory.usedBytes) / Double(sample.memory.totalBytes) * 100
             : 0
@@ -304,7 +319,12 @@ final class MonitorStore: ObservableObject {
             receiveRate: sample.receiveRate,
             sendRate: sample.sendRate,
             diskReadRate: sample.diskReadRate,
-            diskWriteRate: sample.diskWriteRate
+            diskWriteRate: sample.diskWriteRate,
+            swapUsedBytes: Double(sample.memory.swapUsedBytes),
+            gpuUsage: sample.gpu.utilizationPercent,
+            gpuRendererUsage: sample.gpu.rendererUtilizationPercent,
+            gpuTilerUsage: sample.gpu.tilerUtilizationPercent,
+            memoryPressure: sample.memory.pressure.historyValue
         ))
     }
 
@@ -330,6 +350,7 @@ final class MonitorStore: ObservableObject {
         }
         for application in snapshot.applications {
             append(application.id, LiveProcessPoint(
+                timestamp: snapshot.timestamp,
                 networkThroughput: application.networkThroughput,
                 cpuUsage: application.cpuUsage,
                 memoryBytes: Double(application.memoryBytes),
@@ -339,6 +360,7 @@ final class MonitorStore: ObservableObject {
         }
         for process in snapshot.backgroundProcesses {
             append(process.id, LiveProcessPoint(
+                timestamp: snapshot.timestamp,
                 networkThroughput: process.networkThroughput,
                 cpuUsage: process.cpuUsage,
                 memoryBytes: Double(process.memoryBytes),
@@ -350,6 +372,32 @@ final class MonitorStore: ObservableObject {
             recentProcessPoints.removeValue(forKey: id)
         }
     }
+
+    /// GPU percent per pid, summed per application and per background process of the latest snapshot. Rows whose
+    /// processes hold no GPU connection get no point, so the GPU list shows only GPU users.
+    private func recordGPUPoints(_ byPID: [Int32: Double], at timestamp: Date) {
+        guard let snapshot = processes else { return }
+        let capacity = recentMetrics.capacity
+        var seen = Set<String>()
+        func append(_ id: String, _ value: Double) {
+            seen.insert(id)
+            recentGPUPoints[id, default: []].append(HistoricalPoint(timestamp: timestamp, average: value, peak: value))
+            let excess = recentGPUPoints[id, default: []].count - capacity
+            if excess > 0 { recentGPUPoints[id, default: []].removeFirst(excess) }
+        }
+        for application in snapshot.applications {
+            let values = application.processes.compactMap { byPID[$0.identity.pid] }
+            if !values.isEmpty || recentGPUPoints[application.id] != nil { append(application.id, values.reduce(0, +)) }
+        }
+        for process in snapshot.backgroundProcesses {
+            let value = byPID[process.identity.pid]
+            if value != nil || recentGPUPoints[process.id] != nil { append(process.id, value ?? 0) }
+        }
+        for id in recentGPUPoints.keys where !seen.contains(id) { recentGPUPoints.removeValue(forKey: id) }
+    }
+
+    /// Latest GPU percent per row, nil for rows without a GPU connection.
+    func currentGPUUsage(_ id: String) -> Double? { recentGPUPoints[id]?.last?.average }
 
     func receive(_ snapshot: NetworkPortSnapshot) {
         networkPorts = snapshot
@@ -373,6 +421,11 @@ final class MonitorStore: ObservableObject {
 
     func application(id: String) -> ApplicationMetrics? {
         processes?.applications.first { $0.id == id }
+    }
+
+    /// The application a process belongs to; nil for background processes.
+    func application(containingProcess id: String) -> ApplicationMetrics? {
+        ApplicationReadings.application(containing: id, in: processes)
     }
 
     func process(id: String) -> ProcessMetrics? {

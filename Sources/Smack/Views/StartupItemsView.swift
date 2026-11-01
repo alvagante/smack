@@ -7,7 +7,7 @@ struct StartupSummaryCard: View {
 
     var body: some View {
         Button(action: open) {
-            MetricCard(title: "Startup", systemImage: "sunrise") {
+            MetricCard(title: "Startup", systemImage: "sunrise", color: .yellow, isSummary: true) {
                 if let items = model.inventory?.items.filter({ $0.category != .apple }) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(items.filter(\.isEnabled).count) enabled")
@@ -48,9 +48,12 @@ struct StartupItemsView: View {
         let items = visibleItems
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                summary("Enabled", value: items.filter(\.isEnabled).count, color: .green)
-                summary("Disabled", value: items.filter { !$0.isEnabled }.count, color: .secondary)
-                summary("Running", value: items.filter { $0.pid != nil }.count, color: .primary)
+                ResourceTitle(title: "Startup", systemImage: "sunrise", color: .yellow)
+                DetailStatsGrid(stats: [
+                    ResourceStat(title: "Enabled", systemImage: "checkmark.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter(\.isEnabled).count)),
+                    ResourceStat(title: "Disabled", systemImage: "pause.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { !$0.isEnabled }.count)),
+                    ResourceStat(title: "Running", systemImage: "play.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { $0.pid != nil }.count))
+                ], color: .yellow)
                 Spacer()
                 if let timestamp = model.inventory?.timestamp {
                     Text(timestamp, style: .time)
@@ -58,17 +61,11 @@ struct StartupItemsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Button { model.load() } label: {
-                    if model.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                }
+                RefreshButton(isLoading: model.isLoading, hint: model.inventory?.includesBackgroundTasks == true
+                    ? "Refresh: repeats the full scan; macOS asks for an administrator password again."
+                    : "Refresh: rescans items visible without a password.") { model.load() }
                 .disabled(model.isLoading)
-                .hoverHint(model.inventory?.includesBackgroundTasks == true
-                    ? "Repeats the full scan; macOS asks for an administrator password again."
-                    : "Rescans items visible without a password.")
+
             }
             .padding()
 
@@ -152,17 +149,7 @@ struct StartupItemsView: View {
         } message: { Text(model.error ?? "") }
     }
 
-    private func summary(_ title: String, value: Int, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(String(value))
-                .font(.title2.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(color)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
+
 }
 
 private struct StartupItemRow: View {

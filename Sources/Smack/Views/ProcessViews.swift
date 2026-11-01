@@ -49,6 +49,14 @@ struct ApplicationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                ResourceTitle(title: "Applications", systemImage: "app", color: .blue)
+                DetailStatsGrid(stats: [
+                    ResourceStat(title: "Applications", systemImage: "app", value: store.processes.map { String($0.applications.count) } ?? "Unavailable"),
+                    ResourceStat(title: "Background processes", systemImage: "terminal", value: store.processes.map { String($0.backgroundProcesses.count) } ?? "Unavailable"),
+                    ResourceStat(title: "App memory", systemImage: "memorychip", value: store.processes.map { Formatting.bytes($0.applications.reduce(UInt64(0)) { $0 &+ $1.memoryBytes }) } ?? "Unavailable")
+                ], color: .blue)
+            }.padding()
             HStack(spacing: 10) {
                 TextField("Search applications and processes", text: $model.query)
                     .textFieldStyle(.roundedBorder)
@@ -136,10 +144,7 @@ struct ApplicationListView: View {
     }
 
     /// Sandbox builds cannot read other processes' counters, so zero reads as unavailable.
-    static func wakeups(_ value: Double) -> String {
-        if Capabilities.isSandboxed, value == 0 { return "—" }
-        return Formatting.wakeups(value)
-    }
+    static func wakeups(_ value: Double) -> String { Formatting.processWakeups(value) }
 
     private func sortHeader(_ sort: ProcessSort) -> some View {
         Button { model.toggleSort(sort) } label: {
@@ -165,10 +170,7 @@ struct ApplicationListView: View {
             .frame(width: width, alignment: .trailing)
     }
 
-    private func energy(_ value: Double?) -> String {
-        if Capabilities.isSandboxed, value == nil || value == 0 { return "—" }
-        return value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
-    }
+    private func energy(_ value: Double?) -> String { Formatting.energy(value) }
 
     private func memory(_ value: UInt64) -> String {
         if Capabilities.isSandboxed, value == 0 { return "—" }
@@ -228,6 +230,9 @@ struct ProcessDetailView: View {
         ScrollView {
             if let process = store.process(id: id) {
                 LazyVStack(alignment: .leading, spacing: 12, pinnedViews: []) {
+                    if let app = store.application(containingProcess: process.id) {
+                        ApplicationHeader(app: app) { store.route = .application(app.id) }
+                    }
                     Text(process.name).font(.title2.bold())
                     KeyValueRow(key: "PID", value: String(process.identity.pid))
                     KeyValueRow(key: "Started", value: process.identity.startTime.formatted())
@@ -276,7 +281,7 @@ struct ProcessDetailView: View {
                             .id("\(process.id)#\(inspectionTab.rawValue)")
                     } else {
                         ProvenanceSection(store: store, process: process)
-                        Button("Refresh Live Inventory") { store.loadInventory(for: process) }
+                        RefreshButton(hint: "Refresh live inventory") { store.loadInventory(for: process) }
                         if store.inventoryLoading { ProgressView("Inspecting process…") }
                         if let inventory = store.inventory {
                             if !inventory.warnings.isEmpty {

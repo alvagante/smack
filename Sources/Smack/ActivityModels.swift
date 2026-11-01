@@ -13,15 +13,21 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
     case thermalPressureChanged
     case memoryPressureChanged
 
+    case alertFired, postureChanged, persistenceFileChanged
+
     enum Group: String, CaseIterable, Sendable {
         case processes = "Processes"
         case network = "Network"
         case startup = "Startup"
         case system = "System"
+        case alerts = "Alerts"
+        case security = "Security"
     }
 
     var group: Group {
         switch self {
+        case .alertFired: .alerts
+        case .postureChanged, .persistenceFileChanged: .security
         case .processStarted, .processExited: .processes
         case .listenerOpened, .listenerClosed, .connectionOpened, .connectionClosed,
              .networkInterfaceUp, .networkInterfaceDown, .networkAddressChanged: .network
@@ -33,6 +39,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
+        case .alertFired: "Alert fired"
+        case .postureChanged: "Security posture changed"
+        case .persistenceFileChanged: "Persistence file changed"
         case .processStarted: "Process started"
         case .processExited: "Process exited"
         case .listenerOpened: "Listener opened"
@@ -57,6 +66,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
 
     var systemImage: String {
         switch self {
+        case .alertFired: "bell.badge"
+        case .postureChanged: "shield.lefthalf.filled"
+        case .persistenceFileChanged: "doc.badge.gearshape"
         case .processStarted: "play.circle"
         case .processExited: "stop.circle"
         case .listenerOpened, .listenerClosed: "cable.connector"

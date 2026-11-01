@@ -57,7 +57,7 @@ struct ProcessInspectionView: View {
                 if tab == .fileActivity {
                     Button("Capture \(traceSeconds) Seconds") { capture = true; refresh += 1 }.disabled(loading)
                 } else {
-                    Button("Refresh") { refresh += 1 }.disabled(loading && !live)
+                    RefreshButton { refresh += 1 }.disabled(loading && !live)
                 }
             }
         }.controlSize(.small)

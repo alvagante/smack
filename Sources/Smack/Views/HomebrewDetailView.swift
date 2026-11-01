@@ -8,7 +8,7 @@ struct HomebrewSummaryTile: View {
     var body: some View {
         if model.installed {
             Button(action: open) {
-                MetricCard(title: "Homebrew", systemImage: "mug") {
+                MetricCard(title: "Homebrew", systemImage: "mug", color: .orange, isSummary: true) {
                     Text(model.snapshot?.packages.map { "\($0.count) installed" } ?? (model.loading ? "Collecting…" : "Installed count unavailable"))
                         .font(.title3.weight(.semibold))
                     Text(model.snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable")
@@ -42,6 +42,14 @@ struct HomebrewDetailView: View {
             (section != .updates || $0.isOutdated) &&
             (query.isEmpty || "\($0.name) \($0.fullName) \($0.description)".localizedCaseInsensitiveContains(query))
         }
+    }
+
+    private var overview: some View {
+        DetailStatsGrid(stats: [
+            ResourceStat(title: "Installed", systemImage: "mug", value: model.snapshot?.packages.map { String($0.count) } ?? "Unavailable"),
+            ResourceStat(title: "Updates", systemImage: "arrow.down.circle", value: model.snapshot?.updateCount.map(String.init) ?? "Unavailable"),
+            ResourceStat(title: "Tool storage", systemImage: "internaldrive", value: model.snapshot?.managedBytes.map(Formatting.bytes) ?? "Unavailable", detail: "Cellar only")
+        ], color: .orange)
     }
 
     var body: some View {
@@ -112,7 +120,7 @@ struct HomebrewDetailView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Label("Homebrew", systemImage: "mug").font(.title2.weight(.semibold))
+                ResourceTitle(title: "Homebrew", systemImage: "mug", color: .orange)
                 if let snapshot = model.snapshot, let packages = snapshot.packages {
                     Text("\(packages.filter { $0.kind == .formula }.count) tools · \(packages.filter { $0.kind == .cask }.count) apps")
                         .font(.caption).foregroundStyle(.secondary)
@@ -125,10 +133,11 @@ struct HomebrewDetailView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            overview
             Spacer()
             if blocked { ProgressView().controlSize(.small) }
-            Button("Refresh") { Task { await model.refresh() } }.disabled(blocked)
-            Button("Check for updates") {
+            RefreshButton { Task { await model.refresh() } }.disabled(blocked)
+            ToolbarIconButton(title: "Check for updates", systemImage: "arrow.down.circle", color: .orange) {
                 pending = BrewOperation(title: "Refresh Homebrew repositories?", arguments: ["update"])
             }.disabled(blocked)
         }.padding()
@@ -319,12 +328,12 @@ struct BrewPackageDetailView: View {
                     Text(package.fullName).font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Refresh") { refreshID += 1 }.disabled(loading)
-                Button("Copy") {
+                RefreshButton { refreshID += 1 }.disabled(loading)
+                ToolbarIconButton(title: "Copy", systemImage: "doc.on.doc", color: .blue) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(output, forType: .string)
                 }.disabled(loading || error != nil)
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                ToolbarIconButton(title: "Done", systemImage: "checkmark", color: .green) { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Picker("Details", selection: $read) {
                 ForEach(BrewPackageRead.allCases) { Text($0.rawValue).tag($0) }

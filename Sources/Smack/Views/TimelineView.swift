@@ -161,7 +161,16 @@ struct TimelineView: View {
     // MARK: Controls
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 16) {
+                ResourceTitle(title: "Timeline", systemImage: "list.bullet.rectangle", color: .mint,
+                              subtitle: "Changes " + model.windowPhrase)
+                DetailStatsGrid(stats: [
+                    ResourceStat(title: "Events", systemImage: "clock", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.loaded.count), detail: model.loaded.count == TimelineViewModel.fetchLimit ? "Read limit reached" : "In selected window"),
+                    ResourceStat(title: "Matching", systemImage: "line.3.horizontal.decrease.circle", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.filtered.count)),
+                    ResourceStat(title: "Kinds", systemImage: "square.stack", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(Set(model.loaded.map(\.kind)).count))
+                ], color: .mint)
+            }
             HStack(spacing: 8) {
                 Picker("Range", selection: Binding(get: { model.range }, set: { model.select(range: $0) })) {
                     ForEach(TimelineRange.allCases) { Text($0.rawValue).tag($0) }

@@ -9,15 +9,15 @@ struct SummaryView: View {
                 if store.system == nil {
                     ProgressView("Collecting system metrics…")
                 }
-                HStack(spacing: 12) {
+                LazyVGrid(columns: tileColumns, spacing: 12) {
                     cpuCard
+                    gpuCard
                     memoryCard
                     networkCard
                     diskCard
                 }
-                .frame(height: 138)
 
-                HStack(spacing: 12) {
+                LazyVGrid(columns: tileColumns, spacing: 12) {
                     if let volumes = store.system?.volumes, !volumes.isEmpty {
                         storageCard(volumes)
                     }
@@ -33,11 +33,10 @@ struct SummaryView: View {
                         StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems }
                     }
                 }
-                .frame(height: 120)
                 let settings = store.settingsStore.settings
                 // Hidden pages drop their tile; with none left the row goes too, instead of leaving a blank strip.
                 if SummaryPage.allCases.contains(where: settings.shows) {
-                    HStack(spacing: 12) {
+                    LazyVGrid(columns: tileColumns, spacing: 12) {
                         if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
                         if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
                         if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
@@ -45,16 +44,17 @@ struct SummaryView: View {
                         if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
                         if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
                     }
-                    .frame(height: 120)
                 }
             }
             .padding(14)
         }
     }
 
+    private let tileColumns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
+
     private var networkPortsCard: some View {
         Button { store.route = .networkPorts } label: {
-            MetricCard(title: "Network", systemImage: "cable.connector") {
+            MetricCard(title: "Network", systemImage: "cable.connector", color: .cyan, isSummary: true) {
                 if let ports = store.networkPorts {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(ports.ports.count) listening")
@@ -81,7 +81,7 @@ struct SummaryView: View {
 
     private var applicationsCard: some View {
         Button { store.route = .applications } label: {
-            MetricCard(title: "Applications", systemImage: "app") {
+            MetricCard(title: "Applications", systemImage: "app", color: .blue, isSummary: true) {
                 if let topApplication = store.processes?.applications.max(by: { $0.cpuUsage < $1.cpuUsage }) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 7) {
@@ -113,17 +113,33 @@ struct SummaryView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .monospacedDigit()
                 Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(store.system?.cpu.coreUsage.count ?? 0) cores")
-                    Text(gpuText)
-                        .foregroundStyle(store.system?.gpu.utilizationPercent == nil ? .tertiary : .secondary)
-                        .help("GPU utilization from the system accelerator")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                Text("\(store.system?.cpu.coreUsage.count ?? 0) cores")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.cpuUsage), color: .blue)], domain: 0...100)
         }
+    }
+
+    private var gpuCard: some View {
+        card(.gpu, image: "cpu.fill") {
+            HStack(alignment: .firstTextBaseline) {
+                Text(store.system?.gpu.utilizationPercent.map(Formatting.percent) ?? "Unavailable")
+                    .font(.system(size: 24, weight: .semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                if let cores = store.system?.gpuCoreCount {
+                    Text("\(cores) cores")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.compactMap(\.gpuUsage), color: .indigo)], domain: 0...100)
+        }
+        .help("GPU utilization from the system accelerator. Click for the GPU page.")
     }
 
     private var memoryCard: some View {
@@ -144,12 +160,6 @@ struct SummaryView: View {
             }
             Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.memoryUsage), color: .purple)], domain: 0...100)
         }
-    }
-
-    /// Unavailable GPU statistics read "Unavailable", never 0%.
-    private var gpuText: String {
-        guard let value = store.system?.gpu.utilizationPercent else { return "GPU Unavailable" }
-        return "GPU \(Formatting.percent(value))"
     }
 
     private var pressureBadge: some View {
@@ -251,8 +261,21 @@ struct SummaryView: View {
 
     private func card<Content: View>(_ resource: ResourceKind, image: String, @ViewBuilder content: () -> Content) -> some View {
         Button { store.route = .resource(resource) } label: {
-            MetricCard(title: resource.rawValue, systemImage: image, content: content)
+            MetricCard(title: resource.rawValue, systemImage: image, color: resourceColor(resource), isSummary: true, content: content)
         }
         .buttonStyle(.plain)
     }
+
+    private func resourceColor(_ resource: ResourceKind) -> Color {
+        switch resource {
+        case .cpu: .blue
+        case .gpu, .storage: .indigo
+        case .memory: .purple
+        case .network: .cyan
+        case .disk: .orange
+        case .battery: .green
+        case .thermal: .red
+        }
+    }
+
 }

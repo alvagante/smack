@@ -142,6 +142,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var recordNetworkEvents = true
     var recordStartupEvents = true
     var recordSystemEvents = true
+    var recordAlertEvents = true
+    var recordSecurityEvents = true
+    var postureCheckInterval: TimeInterval? = 6 * 3600
+    var watchPersistence = true
+    var controlSocketEnabled = true
     /// Sampling period for system and process metrics while the panel is visible.
     var liveRefreshSeconds: TimeInterval = 1
     /// Background intervals are multiplied by this on battery power or in Low Power Mode; 1 disables it.
@@ -192,6 +197,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case .network: return recordNetworkEvents
         case .startup: return recordStartupEvents
         case .system: return recordSystemEvents
+        case .alerts: return recordAlertEvents
+        case .security: return recordSecurityEvents
         }
     }
 
@@ -236,6 +243,12 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         customAgentFolders = Self.uniqueAbsolutePaths(customAgentFolders)
         excludedAgents = Array(Set(excludedAgents)).sorted()
         hiddenPages = SummaryPage.allCases.filter(hiddenPages.contains)
+        if let interval = postureCheckInterval {
+            postureCheckInterval = min(max(interval, 60), 86_400)
+        }
+        if !Capabilities.supportsControlSocket { controlSocketEnabled = false }
+        if !Capabilities.supportsPostureChecks { postureCheckInterval = nil }
+        if !Capabilities.supportsPersistenceWatching { watchPersistence = false }
         if !Capabilities.supportsPrivilegedSampling {
             privilegedSampling = false
         }
@@ -282,6 +295,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case recordNetworkEvents
         case recordStartupEvents
         case recordSystemEvents
+        case recordAlertEvents
+        case recordSecurityEvents
+        case postureCheckInterval
+        case watchPersistence
+        case controlSocketEnabled
         case liveRefreshSeconds
         case constrainedPowerMultiplier
         case processNetworkRateEnabled
@@ -297,6 +315,59 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case customAgentFolders
         case fileActivitySeconds
         case hiddenPages
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(trigger, forKey: .trigger)
+        try container.encode(hoverDelay, forKey: .hoverDelay)
+        try container.encode(hoverGracePeriod, forKey: .hoverGracePeriod)
+        try container.encode(backgroundSystemInterval, forKey: .backgroundSystemInterval)
+        try container.encode(backgroundProcessInterval, forKey: .backgroundProcessInterval)
+        try container.encode(backgroundInventoryInterval, forKey: .backgroundInventoryInterval)
+        try container.encode(backgroundNetworkSeconds, forKey: .backgroundNetworkSeconds)
+        try container.encode(backgroundNetworkEnabled, forKey: .backgroundNetworkEnabled)
+        try container.encode(showBackgroundProcesses, forKey: .showBackgroundProcesses)
+        try container.encode(showMenuBarItems, forKey: .showMenuBarItems)
+        try container.encode(launchAtLogin, forKey: .launchAtLogin)
+        try container.encode(glassMode, forKey: .glassMode)
+        try container.encode(glassOpacity, forKey: .glassOpacity)
+        try container.encode(fullResolutionHours, forKey: .fullResolutionHours)
+        try container.encode(retentionDays, forKey: .retentionDays)
+        try container.encode(historyStorageLimitMB, forKey: .historyStorageLimitMB)
+        try container.encode(recordProcessHistory, forKey: .recordProcessHistory)
+        try container.encode(processHistoryTopCount, forKey: .processHistoryTopCount)
+        try container.encode(processMinuteRetentionDays, forKey: .processMinuteRetentionDays)
+        try container.encode(privilegedSampling, forKey: .privilegedSampling)
+        try container.encode(panelSound, forKey: .panelSound)
+        try container.encode(eventRetentionDays, forKey: .eventRetentionDays)
+        try container.encode(recordConnectionEvents, forKey: .recordConnectionEvents)
+        try container.encode(showEventsOnCharts, forKey: .showEventsOnCharts)
+        try container.encode(recordActivity, forKey: .recordActivity)
+        try container.encode(recordProcessEvents, forKey: .recordProcessEvents)
+        try container.encode(recordNetworkEvents, forKey: .recordNetworkEvents)
+        try container.encode(recordStartupEvents, forKey: .recordStartupEvents)
+        try container.encode(recordSystemEvents, forKey: .recordSystemEvents)
+        try container.encode(recordAlertEvents, forKey: .recordAlertEvents)
+        try container.encode(recordSecurityEvents, forKey: .recordSecurityEvents)
+        try container.encode(postureCheckInterval, forKey: .postureCheckInterval)
+        try container.encode(watchPersistence, forKey: .watchPersistence)
+        try container.encode(controlSocketEnabled, forKey: .controlSocketEnabled)
+        try container.encode(liveRefreshSeconds, forKey: .liveRefreshSeconds)
+        try container.encode(constrainedPowerMultiplier, forKey: .constrainedPowerMultiplier)
+        try container.encode(processNetworkRateEnabled, forKey: .processNetworkRateEnabled)
+        try container.encode(processNetworkRateSeconds, forKey: .processNetworkRateSeconds)
+        try container.encode(maximumEventRows, forKey: .maximumEventRows)
+        try container.encode(memoryBudget, forKey: .memoryBudget)
+        try container.encode(dockerRefreshSeconds, forKey: .dockerRefreshSeconds)
+        try container.encode(dockerLiveStats, forKey: .dockerLiveStats)
+        try container.encode(inventoryCache, forKey: .inventoryCache)
+        try container.encode(devProjectFolders, forKey: .devProjectFolders)
+        try container.encode(devScanDepth, forKey: .devScanDepth)
+        try container.encode(excludedAgents, forKey: .excludedAgents)
+        try container.encode(customAgentFolders, forKey: .customAgentFolders)
+        try container.encode(fileActivitySeconds, forKey: .fileActivitySeconds)
+        try container.encode(hiddenPages, forKey: .hiddenPages)
     }
 
     /// Settings written before superuser sampling existed must keep their values instead of
@@ -341,6 +412,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         recordNetworkEvents = try container.decodeIfPresent(Bool.self, forKey: .recordNetworkEvents) ?? defaults.recordNetworkEvents
         recordStartupEvents = try container.decodeIfPresent(Bool.self, forKey: .recordStartupEvents) ?? defaults.recordStartupEvents
         recordSystemEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSystemEvents) ?? defaults.recordSystemEvents
+        recordAlertEvents = try container.decodeIfPresent(Bool.self, forKey: .recordAlertEvents) ?? defaults.recordAlertEvents
+        recordSecurityEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSecurityEvents) ?? defaults.recordSecurityEvents
+        watchPersistence = try container.decodeIfPresent(Bool.self, forKey: .watchPersistence) ?? defaults.watchPersistence
+        controlSocketEnabled = try container.decodeIfPresent(Bool.self, forKey: .controlSocketEnabled) ?? defaults.controlSocketEnabled
+        postureCheckInterval = container.contains(.postureCheckInterval) ? try container.decodeIfPresent(TimeInterval.self, forKey: .postureCheckInterval) : defaults.postureCheckInterval
         // Unknown enum values (written by a newer build) fall back to defaults instead of discarding every setting.
         liveRefreshSeconds = (try? container.decodeIfPresent(TimeInterval.self, forKey: .liveRefreshSeconds)) ?? defaults.liveRefreshSeconds
         constrainedPowerMultiplier = (try? container.decodeIfPresent(Int.self, forKey: .constrainedPowerMultiplier)) ?? defaults.constrainedPowerMultiplier
