@@ -4,7 +4,7 @@ import Testing
 
 @Test func alertTemplatesAreDisabledAndRoundTrip() throws {
     let rules = AlertRule.templates
-    #expect(rules.count == 10)
+    #expect(rules.count == 12)
     #expect(rules.allSatisfy { !$0.enabled })
     #expect(Set(rules.map(\.id)).count == rules.count)
     let decoded = try JSONDecoder().decode([AlertRule].self, from: JSONEncoder().encode(rules))
@@ -82,7 +82,7 @@ import Testing
     let store = AlertRuleStore(fileURL: url)
     #expect(store.errorMessage == nil)
     #expect(store.recoveryNotice != nil)
-    #expect(store.rules.count == 10)
+    #expect(store.rules.count == 12)
     #expect(store.rules.allSatisfy { !$0.enabled })
     let backups = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         .filter { $0.lastPathComponent.hasPrefix("alerts.json.corrupt-") }

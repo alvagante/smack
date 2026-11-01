@@ -25,6 +25,7 @@ struct AgentDefinition: Sendable {
     let roots: [String]
     let commands: [String]
     let locations: [AgentLocation]
+    var processMatcher: AgentProcessMatcher? = nil
 }
 
 extension AgentDefinition {
@@ -121,6 +122,7 @@ struct AgentCollector: Sendable {
 
 @MainActor
 final class AgentMonitor: ObservableObject {
+    @Published var sessions: [AgentSession] = []
     @Published private(set) var snapshot: AgentSnapshot?
     @Published private(set) var loading = false
     private let collector: AgentCollector

@@ -50,16 +50,11 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
-                ThermalDot(condition: store.system?.thermalCondition ?? .unavailable) { store.route = .resource(.thermal) }
-                Button { store.route = .history } label: { Image(systemName: "clock.arrow.circlepath") }
-                    .hoverHint("Historical Data")
-                    .accessibilityLabel("Historical Data")
+                Button { store.route = .baseline } label: { Image(systemName: "arrow.triangle.branch") }
+                    .accessibilityLabel("Baselines")
                 Button { store.route = .settings } label: { Image(systemName: "gear") }
                     .hoverHint("Settings")
                     .accessibilityLabel("Settings")
-                Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
-                    .hoverHint("System Details")
-                    .accessibilityLabel("System Details")
                 exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
@@ -83,11 +78,12 @@ struct MonitorRootView: View {
                 case .applications: ApplicationListView(store: store)
                 case .application(let id): ApplicationDetailView(store: store, id: id)
                 case .process(let id): ProcessDetailView(store: store, id: id)
+                case .devServers: DevServersView(store: store)
                 case .networkPorts: NetworkPortsView(store: store)
                 case .docker: DockerDetailView(model: store.dockerModel)
                 case .homebrew: HomebrewDetailView(model: store.homebrewModel)
                 case .devEnvironments: DevEnvironmentDetailView(model: store.devEnvironmentModel)
-                case .agents: AgentDetailView(model: store.agentsModel)
+                case .agents: AgentDetailView(model: store.agentsModel, store: store)
                 case .installedApps: InstalledAppsDetailView(model: store.installedAppsModel)
                 case .userHome: UserHomeDetailView(model: store.userHomeModel)
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
@@ -95,11 +91,11 @@ struct MonitorRootView: View {
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
+                case .baseline: BaselineView(store: store, model: store.baselines)
                 case .security:
                     SecurityView(store: store)
                 case .unavailable(let message):
                     ContentUnavailableView(message, systemImage: "lock")
-                case .advancedSystemDetails: AdvancedSystemDetailsView(store: store)
                 }
             }
             // Top-aligned and clipped so an oversized route never pushes the navigation header out of view.

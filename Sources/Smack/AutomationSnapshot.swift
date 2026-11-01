@@ -23,7 +23,7 @@ enum AutomationSnapshot {
     static var openURL: ((URL) -> Void)?
 
     static func response(_ request: ControlRequest) -> ControlResponse {
-        guard request.version == ControlProtocol.version else {
+        guard ControlProtocol.supports(request.version) else {
             return ControlResponse(error: .unsupportedVersion, requestedVersion: request.version)
         }
         guard (try? request.validate()) != nil else { return ControlResponse(error: .invalidRequest) }
@@ -66,6 +66,37 @@ enum AutomationSnapshot {
             records = snapshot.applications.prefix(request.limit).map {
                 ControlRecord(id: $0.id, title: $0.name, fields: ["cpuPercent": String($0.cpuUsage),
                     "memoryBytes": String($0.memoryBytes), "bundleIdentifier": $0.bundleIdentifier ?? ""])
+            }
+        case "agents":
+            guard !Capabilities.isSandboxed, store.processes != nil else { return ControlResponse(error: .unavailable) }
+            records = store.agentsModel.sessions.filter { $0.endedAt == nil }.prefix(request.limit).map { session in
+                ControlRecord(id: session.id, title: session.agentID, fields: [
+                    "agentID": session.agentID, "pid": String(session.root.pid),
+                    "startTime": session.startedAt.ISO8601Format(), "project": session.project?.name ?? "",
+                    "directory": session.project?.directory ?? "", "parentSession": session.parentSession ?? "",
+                    "cpuPercent": String(session.totals.cpu), "memoryBytes": String(session.totals.memory),
+                    "mcpServers": session.mcpServers.map(\.name).joined(separator: ", "),
+                    "listeners": session.listeners.map { String($0.port) }.joined(separator: ", "),
+                    "remoteHosts": session.remoteHosts.map(\.address).joined(separator: ", "),
+                    "log": session.log?.path ?? "",
+                    "session": (try? JSONEncoder().encode(session)).map { String(decoding: $0, as: UTF8.self) } ?? ""])
+            }
+        case "devservers", "who":
+            guard Capabilities.supportsNetworkPortInspection, let rows = store.devServers else {
+                return ControlResponse(error: .unavailable)
+            }
+            let matches = rows.filter { row in request.port == nil || row.ports.contains { Int($0.port) == request.port } }
+            if request.op == "who", matches.isEmpty { return ControlResponse(error: .notFound) }
+            records = matches.prefix(request.limit).map { row in
+                ControlRecord(id: row.id, title: row.project?.name ?? row.container?.name ?? row.processName, fields: [
+                    "pid": String(row.process.pid), "startTime": row.process.startTime.ISO8601Format(),
+                    "process": row.processName, "directory": row.project?.directory ?? "",
+                    "root": row.project?.root ?? "", "kind": row.project?.kind?.rawValue ?? "",
+                    "branch": row.project?.git?.branch ?? "", "commit": row.project?.git?.commit ?? "",
+                    "ports": row.ports.map { $0.localAddress }.joined(separator: ","),
+                    "containerID": row.container?.containerID ?? "", "container": row.container?.name ?? "",
+                    "composeProject": row.container?.composeProject ?? "",
+                    "composeWorkingDirectory": row.container?.composeWorkingDirectory ?? ""])
             }
         case "ports":
             guard Capabilities.supportsNetworkPortInspection, let snapshot = store.networkPorts else {
@@ -124,11 +155,12 @@ enum AutomationSnapshot {
     }
 
     static func query(_ request: ControlRequest) async -> ControlResponse {
-        guard request.version == ControlProtocol.version else {
+        guard ControlProtocol.supports(request.version) else {
             return ControlResponse(error: .unsupportedVersion, requestedVersion: request.version)
         }
         do { try request.validate() } catch { return ControlResponse(error: .invalidRequest) }
         guard let store else { return ControlResponse(error: .unavailable) }
+        if request.op == "baseline" { return await baselineResponse(request, store: store) }
         if request.op == "events" || request.op == "history" {
             let end = request.until.map(Date.init(timeIntervalSince1970:)) ?? Date()
             let start = request.since.map(Date.init(timeIntervalSince1970:)) ?? end.addingTimeInterval(-3600)
@@ -237,4 +269,52 @@ enum AutomationSnapshot {
         }
     }
 
+}
+
+extension AutomationSnapshot {
+    static func baselineResponse(_ request: ControlRequest, store: MonitorStore) async -> ControlResponse {
+        guard !Capabilities.isSandboxed else { return ControlResponse(error: .unavailable) }
+        do {
+            let repository = store.baselines.repository
+            var response = ControlResponse()
+            switch request.action {
+            case "create":
+                let ids = request.sections ?? BaselineDiff.rules.keys.sorted()
+                guard !ids.isEmpty, Set(ids).count == ids.count, ids.allSatisfy({ BaselineDiff.rules[$0] != nil }) else {
+                    throw ControlError.invalidRequest
+                }
+                let doc = try await store.captureBaseline(name: request.name ?? "Baseline", sections: ids)
+                let url = try await store.baselines.save(doc, settings: store.settingsStore.settings)
+                response.metadata = ["path": url.path]
+            case "list":
+                response.records = try await repository.list().map { url, doc in
+                    ControlRecord(id: url.lastPathComponent, title: doc.name,
+                                  fields: ["path": url.path, "capturedAt": doc.capturedAt.ISO8601Format(), "pinned": String(doc.pinned)])
+                }
+            case "export":
+                let doc = try await repository.load(request.base)
+                response.metadata = ["payload": String(decoding: try doc.encoded(), as: UTF8.self)]
+            case "diff":
+                let base: BaselineDocument
+                if let path = request.base, path.contains("/") {
+                    base = try await Task.detached { try BaselineDocument.read(URL(fileURLWithPath: path)) }.value
+                } else { base = try await repository.load(request.base) }
+                let against: BaselineDocument
+                if let path = request.against, path != "now" {
+                    against = try await Task.detached { try BaselineDocument.read(URL(fileURLWithPath: path)) }.value
+                } else {
+                    against = try await store.captureBaseline(name: "Now", sections: base.sections.keys.filter { BaselineDiff.rules[$0] != nil }.sorted())
+                }
+                let diff = BaselineDiff.compare(base, against)
+                response.metadata = ["payload": String(decoding: try diff.encoded(), as: UTF8.self),
+                                     "markdown": diff.markdown, "drift": String(diff.exitCode(strict: request.strict == true) == 2)]
+            default: throw ControlError.invalidRequest
+            }
+            return response
+        } catch {
+            var response = ControlResponse(error: (error as? ControlError) ?? .unavailable)
+            response.metadata = ["message": error.localizedDescription]
+            return response
+        }
+    }
 }

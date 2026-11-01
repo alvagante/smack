@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 
 enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
+    case agentSessionStarted, agentSessionEnded
     case processStarted, processExited
     case listenerOpened, listenerClosed
     case connectionOpened, connectionClosed
@@ -13,9 +14,10 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
     case thermalPressureChanged
     case memoryPressureChanged
 
-    case alertFired, postureChanged, persistenceFileChanged
+    case alertFired, postureChanged, persistenceFileChanged, driftDetected
 
     enum Group: String, CaseIterable, Sendable {
+        case agents = "Agents"
         case processes = "Processes"
         case network = "Network"
         case startup = "Startup"
@@ -26,8 +28,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
 
     var group: Group {
         switch self {
+        case .agentSessionStarted, .agentSessionEnded: .agents
         case .alertFired: .alerts
-        case .postureChanged, .persistenceFileChanged: .security
+        case .postureChanged, .persistenceFileChanged, .driftDetected: .security
         case .processStarted, .processExited: .processes
         case .listenerOpened, .listenerClosed, .connectionOpened, .connectionClosed,
              .networkInterfaceUp, .networkInterfaceDown, .networkAddressChanged: .network
@@ -39,7 +42,10 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
+        case .agentSessionStarted: "Agent session started"
+        case .agentSessionEnded: "Agent session ended"
         case .alertFired: "Alert fired"
+        case .driftDetected: "Baseline drift detected"
         case .postureChanged: "Security posture changed"
         case .persistenceFileChanged: "Persistence file changed"
         case .processStarted: "Process started"
@@ -66,7 +72,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
 
     var systemImage: String {
         switch self {
+        case .agentSessionStarted, .agentSessionEnded: "sparkles"
         case .alertFired: "bell.badge"
+        case .driftDetected: "arrow.triangle.branch"
         case .postureChanged: "shield.lefthalf.filled"
         case .persistenceFileChanged: "doc.badge.gearshape"
         case .processStarted: "play.circle"

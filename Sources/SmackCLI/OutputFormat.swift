@@ -13,7 +13,9 @@ enum CLIOutputFormat: String {
         switch op {
         case "status": names = "timestamp flavor appVersion appUptimeSeconds systemUptimeSeconds cpuPercent memoryUsedBytes memoryTotalBytes pressure swapUsedBytes thermal batteryPercent onBattery startupDiskFreeBytes helper alertsPausedUntil notificationAuthorization"
         case "ps": names = "pid cpuPercent memoryBytes timestamp startTime user bundleIdentifier diskReadRate diskWriteRate wakeupsPerSecond"
+        case "agents": names = "agentID pid startTime project directory parentSession cpuPercent memoryBytes mcpServers listeners remoteHosts log session"
         case "apps": names = "cpuPercent memoryBytes bundleIdentifier"
+        case "devservers", "who": names = "pid startTime process directory root kind branch commit ports containerID container composeProject composeWorkingDirectory"
         case "ports": names = "port pid address scope protocol timestamp clientCount clients"
         case "events": names = "kind timestamp severity"
         case "history": names = "timestamp average peak resolutionSeconds"

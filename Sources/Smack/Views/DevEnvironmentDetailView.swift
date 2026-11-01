@@ -120,7 +120,7 @@ struct DevEnvironmentDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Discovery scope and limitations").font(.headline)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Supports \(DevLanguage.allCases.map(\.rawValue).joined(separator: ", ")). Project scans stop at \(model.depth) directory levels (set in Settings) and skip dependency caches. Version-manager shims are skipped to avoid selecting or installing a runtime implicitly.")
+                    Text("Supports \(DevLanguage.allCases.map(\.rawValue).joined(separator: ", ")). Project scans stop at \(model.depth) directory levels (set in Settings › Development) and skip dependency caches. Version-manager shims are skipped to avoid selecting or installing a runtime implicitly.")
                     Text("Python uses isolated mode, excluding PYTHONPATH; user-site packages are listed separately. Ruby gems, Node global packages, R packages, Cargo binaries, OTP libraries and runtime search paths are queried where supported. Project dependencies and language-server environments are not inferred. Go modules and Rust crates are project-specific; cache paths and installed tools are shown instead. Missing tools and failed probes are reported explicitly.")
                     Text("Runtime probes execute the selected local installation with a 10-second limit per command. No login shell is loaded. Custom runtime startup hooks can still run.")
                     ForEach(model.folders, id: \.self) { Text("Project: " + $0).font(.caption.monospaced()) }

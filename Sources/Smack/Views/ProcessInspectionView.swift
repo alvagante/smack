@@ -171,7 +171,7 @@ struct ProcessInspectionView: View {
                       isCurrent: { ProcessInspection.isCurrent(identity) },
                       segment: { await controller.captureFileActivity(identity: identity) },
                       progress: { segment = $0 }) else {
-                message = "Enable superuser sampling in Settings and update the helper to capture file activity."
+                message = "Enable superuser sampling in Settings › Privileged Helper and update the helper to capture file activity."
                 return
             }
             guard !Task.isCancelled else { return }

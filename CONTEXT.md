@@ -257,8 +257,16 @@ A persisted user choice that changes what Smack collects, keeps, or shows.
 _Avoid_: Preference, option, config
 
 **Settings Pane**:
-One sidebar entry of Settings, holding every Setting for one concern.
+One sidebar entry of Settings, holding every Setting for one feature.
 _Avoid_: Tab, card, page
+
+**Performance Preset**:
+A named set (Standard, Light, Minimal) of the Settings that drive Smack's own CPU, memory and disk use. Never stored: Settings shows the preset the current values match, or Custom.
+_Avoid_: Profile (a Profiling Run or a configuration profile), mode
+
+**Show on Summary**:
+The master switch of a local environment Page: off drops its Summary tile and stops its discovery and background work.
+_Avoid_: Enable page, hide tile
 
 **Dependent Setting**:
 A Setting shown only while the switch it refines is on, such as Include connections under Network events.
@@ -268,21 +276,31 @@ _Avoid_: Sub-option, advanced setting
 
 Settings mirrors macOS System Settings: a sidebar of Settings Panes, each a grouped form of sections and rows. The building blocks and the step-by-step for adding a row are in the header comment of `Sources/Smack/Views/SettingsView.swift`.
 
-**Where a Setting goes.** Pick the pane by the concern it controls, not by the feature that introduced it:
+**Where a Setting goes.** Pick the pane by the feature it serves, so one feature's cost can be read and switched off in one place. Panes mirror Summary:
 
 | Pane | Owns |
 | --- | --- |
-| General | How the Panel opens, sound, login, process list scope, quit |
+| General | How the Panel opens, sound, login, quit |
 | Appearance | Display-only choices: glass, opacity, chart markers |
-| Collection | Live refresh and Network Rate while the Panel is visible; Background Collection, the battery slowdown, and the Memory Budget |
-| Superuser Sampling | The Privileged Helper and everything that needs it, including File Activity length |
-| Local Environment | Which inventory pages appear, the Inventory Cache, Docker refresh and statistics, Development Environment folders and depth, AI Agents to include |
-| Activity Timeline | Which Activity Events are recorded, how long, and how many at most |
-| Historical Data | Retention, resolution, size limits, export and delete |
-| Storage Usage | Measuring Storage Usage and compacting the database |
+| Performance | The Performance Preset, Live Refresh, Battery Slowdown, Memory Budget, Inventory Cache |
+| System | Background system sampling; system events |
+| Processes | Process list scope, background process sampling and inventories, process history, process events, File Activity length |
+| Network | Network Rate, background listening-port sampling, network and connection events |
+| Security | Posture checks, persistence monitoring, security and Startup Item events |
+| Development | Dev servers (Show on Summary, background collection, terminal, editor), Development Environments, Homebrew |
+| Docker | Show on Summary, refresh, live statistics |
+| AI Agents | Show on Summary, agents to look for, custom folders, session events and command line reveal |
+| Other Pages | Show on Summary for Installed Apps and User Home |
+| Alerts | Evaluation master switch, rules, alert events |
+| Activity Timeline | The recording master switch, retention and row cap; per-feature event switches live in each feature pane |
+| Historical Data | Retention, resolution, size limit, Storage Usage, compaction, export and delete |
+| Automation | CLI socket, App Intents, URL navigation |
+| Privileged Helper | Superuser Sampling and the helper's install state |
 | About | Version, author, license |
 
-Add a pane only when at least three Settings share a concern no existing pane covers. Keep panes grouped in the sidebar as Panel (General, Appearance), Collection (Collection, Superuser Sampling, Local Environment), Data (Activity Timeline, Historical Data, Storage Usage), About.
+A feature pane reads top to bottom as: Show on Summary (environment pages only), what is collected while the Panel is open, what is collected while it is closed, what is kept as history, and a final "Record on the Activity Timeline" section. A Setting appears in exactly one pane; other panes point to it in a footer instead of repeating it. Add a pane only for a new Summary feature or when at least three Settings share a concern no pane covers. Keep panes grouped in the sidebar as Panel (General, Appearance, Performance), Monitoring (System, Processes, Network, Security), Local environment (Development, Docker, AI Agents, Other Pages), Data (Alerts, Activity Timeline, Historical Data), Integrations (Automation, Privileged Helper), About.
+
+A Setting a Performance Preset sets must be added to `PerformancePreset.apply`, or left out on purpose; Security and Activity Timeline Settings stay out, because switching them off trades away coverage rather than resolution.
 
 **What a cost-related Setting must do.**
 - Its default reproduces the behavior from before it existed, so upgrading changes nothing.

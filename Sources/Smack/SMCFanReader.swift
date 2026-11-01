@@ -2,8 +2,8 @@ import Foundation
 import IOKit
 
 #if !SMACK_APP_STORE
-/// Reads fan speeds from the System Management Controller through the `AppleSMC` user client (keys `FNum` and
-/// `F<n>Ac`). The interface is undocumented: any failure, including a sandbox refusing the connection, degrades
+/// Reads fan speeds from the System Management Controller through the `AppleSMC` user client (keys `FNum`,
+/// `F<n>Ac`, `F<n>Mn` and `F<n>Mx`). The interface is undocumented: any failure, including a sandbox refusing the connection, degrades
 /// to "no fans". Never compiled into the App Store build.
 /// Not Sendable: `SystemCollector` owns it and calls it under its lock.
 final class SMCFanReader {
@@ -28,6 +28,8 @@ final class SMCFanReader {
     private static let keyInfoCommand: UInt8 = 9
 
     private var connection: io_connect_t = 0
+    /// Rated minimum and maximum per fan; fixed by hardware, so read once.
+    private var limits: [Int: (minimum: Double?, maximum: Double?)] = [:]
 
     init() {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
@@ -44,7 +46,10 @@ final class SMCFanReader {
     func read() -> [FanSample] {
         guard connection != 0, let count = value("FNum"), count > 0 else { return [] }
         return (0..<min(Int(count), 8)).compactMap { index in
-            value("F\(index)Ac").map { FanSample(id: index, rpm: max(0, $0)) }
+            guard let rpm = value("F\(index)Ac") else { return nil }
+            let limit = limits[index] ?? (value("F\(index)Mn").flatMap { $0 > 0 ? $0 : nil }, value("F\(index)Mx").flatMap { $0 > 0 ? $0 : nil })
+            limits[index] = limit
+            return FanSample(id: index, rpm: max(0, rpm), minimumRPM: limit.minimum, maximumRPM: limit.maximum)
         }
     }
 

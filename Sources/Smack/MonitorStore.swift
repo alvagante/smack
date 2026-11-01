@@ -20,6 +20,7 @@ enum AppRoute: Hashable {
     case application(String)
     case process(String)
     case networkPorts
+    case devServers
     case docker
     case homebrew
     case devEnvironments
@@ -31,8 +32,8 @@ enum AppRoute: Hashable {
     case history
     case settings
     case systemDetails
-    case advancedSystemDetails
     case security
+    case baseline
     case unavailable(String)
 }
 
@@ -46,6 +47,7 @@ final class MonitorStore: ObservableObject {
     @Published var route: AppRoute = .summary {
         didSet {
             guard route != oldValue else { return }
+            updateDevServerVisibility()
             if route != .applications { navigationFilters.banner = nil }
             if route == .summary {
                 routeHistory.removeAll()
@@ -80,6 +82,10 @@ final class MonitorStore: ObservableObject {
     private var applicationInventoryGeneration = 0
     /// Large applications (browsers) can have thousands of processes; only the biggest are inspected.
     static let applicationInventoryProcessLimit = 40
+    @Published private(set) var devServers: [DevServer]?
+    private let devServerCollector = DevServerCollector()
+    private var dockerObservation: AnyCancellable?
+    private var devServerTask: Task<Void, Never>?
     @Published private(set) var networkPorts: NetworkPortSnapshot?
     @Published private(set) var networkPortsLoading = false
     @Published var errorMessage: String?
@@ -125,8 +131,13 @@ final class MonitorStore: ObservableObject {
     @Published private(set) var navigationFilters = ViewFilters()
 
     func resolveDeepLink(_ url: URL) -> DeepLink {
-        DeepLinkParser.parse(url, resolveProcess: { self.process(pid: $0)?.id },
+        var link = DeepLinkParser.parse(url, resolveProcess: { self.process(pid: $0)?.id },
             resolveApplication: { bundle in self.processes?.applications.first { $0.bundleIdentifier == bundle }?.id })
+        if link.route == .networkPorts, let port = link.filters.port,
+           devServers?.contains(where: { $0.ports.contains(where: { $0.port == port }) }) == true {
+            link.route = .devServers
+        }
+        return link
     }
 
     func navigate(to url: URL, now: Date = Date()) {
@@ -168,6 +179,19 @@ final class MonitorStore: ObservableObject {
     let userHomeModel = UserHomeMonitor()
     let agentsModel = AgentMonitor()
     let installedAppsModel = InstalledAppsMonitor()
+    let baselines = BaselineModel()
+    func captureBaseline(name: String, sections: [String]? = nil) async throws -> BaselineDocument {
+        let settings = settingsStore.settings
+        let ids = sections ?? BaselineDiff.rules.keys.sorted()
+        async let profiles = ids.contains("profiles") ? scheduler.baselineProfiles() : nil
+        async let btm = ids.contains("startup") ? scheduler.baselineBackgroundTasks() : nil
+        let (profileValue, btmValue) = await (profiles, btm)
+        return try await BaselineCapture.capture(collectors: ids.map {
+            MachineBaselineCollector(id: $0, settings: settings, listeners: networkPorts, profiles: profileValue, backgroundTasks: btmValue)
+        }, name: name, progress: { [weak self] id, section in
+            await MainActor.run { self?.baselines.progress[id] = section.status.rawValue }
+        })
+    }
     private let scheduler: CollectionScheduler
     private var inventoryTask: Task<Void, Never>?
     private var networkPortsTask: Task<Void, Never>?
@@ -218,6 +242,10 @@ final class MonitorStore: ObservableObject {
         devEnvironmentModel.onFoldersChanged = { [weak settingsStore] folders in
             settingsStore?.update { $0.devProjectFolders = folders }
         }
+        dockerObservation = dockerModel.$snapshot.dropFirst().sink { [weak self] _ in
+            // Published delivers before assignment; read the new snapshot on the next actor turn.
+            Task { @MainActor [weak self] in self?.refreshDevServers() }
+        }
         applyEnvironmentSettings(settingsStore.settings)
         // Every writer goes through SettingsStore, including ones that skip settingsChanged(), so observe it here.
         settingsObservation = settingsStore.$settings.dropFirst().sink { [weak self] settings in
@@ -251,12 +279,13 @@ final class MonitorStore: ObservableObject {
         appliedPages = shown
         // Only pages whose state changed: re-showing an unchanged one would cancel its in-flight discovery.
         if panelVisible, !changed.isEmpty { setPageMonitorsVisible(true, only: changed) }
+        updateDevServerVisibility()
     }
 
     /// Hidden pages skip discovery; hiding one while the panel is open stops its refresh loop.
     private func setPageMonitorsVisible(_ visible: Bool, only pages: Set<SummaryPage> = Set(SummaryPage.allCases)) {
         func show(_ page: SummaryPage) -> Bool { visible && appliedPages.contains(page) }
-        if pages.contains(.docker) { dockerModel.setVisible(show(.docker)) }
+        if pages.contains(.docker) { dockerModel.setVisible(show(.docker) || devServersWanted) }
         if pages.contains(.homebrew) { homebrewModel.setVisible(show(.homebrew)) }
         if pages.contains(.devEnvironments) { devEnvironmentModel.setVisible(show(.devEnvironments)) }
         if pages.contains(.agents) { agentsModel.setVisible(show(.agents)) }
@@ -287,6 +316,7 @@ final class MonitorStore: ObservableObject {
         guard visible != panelVisible else { return }
         panelVisible = visible
         setPageMonitorsVisible(visible)
+        updateDevServerVisibility()
         if visible {
             diffTask?.cancel()
             diffTask = Task { await refreshActivityDiff() }
@@ -424,6 +454,8 @@ final class MonitorStore: ObservableObject {
         guard processes.map({ snapshot.timestamp > $0.timestamp }) ?? true else { return }
         recordRecentPoints(snapshot)
         processes = snapshot
+        agentsModel.sessions = snapshot.agentSessions
+        if devServers == nil { refreshDevServers() }
         let liveIDs = Set(snapshot.applications.flatMap(\.processes).map(\.id) + snapshot.backgroundProcesses.map(\.id))
         scheduledInventories = scheduledInventories.filter { liveIDs.contains($0.key) }
     }
@@ -494,6 +526,37 @@ final class MonitorStore: ObservableObject {
     func receive(_ snapshot: NetworkPortSnapshot) {
         networkPorts = snapshot
         networkPortsLoading = false
+        refreshDevServers()
+    }
+
+    private var devServersWanted: Bool {
+        Capabilities.supportsNetworkPortInspection &&
+            ((panelVisible && (route == .devServers || (route == .summary && settingsStore.settings.shows(.devServers)))) ||
+                settingsStore.settings.backgroundDevServersEnabled)
+    }
+
+    private func updateDevServerVisibility() {
+        dockerModel.setVisible((panelVisible && settingsStore.settings.shows(.docker)) || devServersWanted)
+        if devServersWanted { refreshDevServers() }
+        else { devServerTask?.cancel() }
+    }
+
+    func refreshDevServers() {
+        guard devServersWanted,
+              let ports = networkPorts, let processes else { return }
+        devServerTask?.cancel()
+        let containers = dockerModel.snapshot?.containers ?? []
+        let showSystem = settingsStore.settings.devServersShowSystem
+        devServerTask = Task {
+            let rows = await devServerCollector.collect(ports: ports, processes: processes,
+                containers: containers, showSystem: showSystem)
+            guard !Task.isCancelled else { return }
+            devServers = rows.map { row in
+                var row = row
+                row.agentSession = agentsModel.sessions.first { session in session.listeners.contains { port in row.ports.contains { $0.pid == port.pid } } }?.id
+                return row
+            }
+        }
     }
 
     func receive(_ inventory: ProcessInventory, for id: String) {

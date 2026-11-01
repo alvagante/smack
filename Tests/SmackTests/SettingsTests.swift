@@ -369,3 +369,74 @@ final class SpyUserDefaults: UserDefaults {
     #expect(await scheduler.sleepInterval(background: 10, live: 5) == 5)
     await scheduler.setVisible(false)
 }
+
+@Test func agentSessionsAreTrackedOnlyWhileSomethingConsumesThem() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+    var settings = CollectionSettings()
+    #expect(CollectionScheduler.wantsAgentSessions(settings, rules: []))
+    let client = PrivilegedSamplingClient()
+    let scheduler = CollectionScheduler(
+        systemCollector: SystemCollector(),
+        processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+        inventoryCollector: InventoryCollector(privileged: client),
+        networkPortCollector: NetworkPortCollector(privileged: client),
+        history: history, settings: settings,
+        onSystem: { _ in }, onProcesses: { _ in }
+    )
+    #expect(await scheduler.isTrackingAgentSessions)
+
+    settings.hiddenPages = [.agents]
+    await scheduler.updateFeatureSettings(settings)
+    #expect(await scheduler.isTrackingAgentSessions, "agent session events still need tracking")
+
+    settings.recordAgentEvents = false
+    await scheduler.updateFeatureSettings(settings)
+    #expect(await !scheduler.isTrackingAgentSessions)
+
+    let template = try #require(AlertRule.templates.first { $0.name == "Agent session running longer than N hours" })
+    var rule = template
+    await scheduler.update(rules: [rule])
+    #expect(await !scheduler.isTrackingAgentSessions, "a disabled rule needs nothing")
+    rule.enabled = true
+    await scheduler.update(rules: [rule])
+    #expect(await scheduler.isTrackingAgentSessions)
+
+    settings.alertsEnabled = false
+    await scheduler.updateFeatureSettings(settings)
+    #expect(await !scheduler.isTrackingAgentSessions)
+}
+
+@Test func alertRulesReportWhetherTheyNeedAgentSessions() {
+    let uses = Dictionary(uniqueKeysWithValues: AlertRule.templates.map { ($0.name, $0.usesAgentSessions) })
+    #expect(uses["Agent session running longer than N hours"] == true)
+    #expect(uses["Agent opened an external listener"] == true)
+    #expect(uses["New external listener"] == false)
+    #expect(uses["Process CPU sustained"] == false)
+    #expect(uses["CPU sustained"] == false)
+    let started = AlertRule(name: "Started", kind: .event(kinds: [.agentSessionStarted], minimumSeverity: .info, predicates: []))
+    #expect(started.usesAgentSessions)
+}
+
+@Test func performancePresetsAreDerivedFromSettings() {
+    #expect(PerformancePreset.matching(CollectionSettings()) == .standard)
+    for preset in PerformancePreset.allCases {
+        var settings = CollectionSettings()
+        settings.retentionDays = 30
+        preset.apply(to: &settings)
+        settings.validate()
+        #expect(PerformancePreset.matching(settings) == preset, "\(preset) survives validation")
+        #expect(settings.retentionDays == 30, "presets leave unrelated settings alone")
+        #expect(settings.postureCheckInterval == CollectionSettings().postureCheckInterval)
+    }
+    var custom = CollectionSettings()
+    custom.backgroundProcessInterval = 20
+    #expect(PerformancePreset.matching(custom) == nil)
+    var minimal = CollectionSettings()
+    PerformancePreset.minimal.apply(to: &minimal)
+    minimal.processNetworkRateSeconds = 30
+    minimal.processHistoryTopCount = 10
+    #expect(PerformancePreset.matching(minimal) == .minimal, "hidden dependent settings do not break the match")
+}

@@ -47,7 +47,7 @@ import Testing
         #expect(store.previousRoute == nil)
 
         store.route = .systemDetails
-        store.route = .advancedSystemDetails
+        store.route = .resource(.thermal)
         #expect(store.previousRoute == .systemDetails)
         store.goBack()
         #expect(store.route == .systemDetails)

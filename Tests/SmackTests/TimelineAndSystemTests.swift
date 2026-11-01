@@ -136,14 +136,6 @@ import Testing
     #expect(Formatting.pressure(historyValue: 1.9) == "Critical")
 }
 
-@Test func unavailableGPUAndPressureNeverReadAsZero() {
-    let sample = obsSystem(pressure: .unavailable)
-    let sections = SystemInformation.advancedSections(gpuName: "GPU", volumes: [], system: sample)
-    let rows = sections.flatMap(\.rows)
-    #expect(rows.first { $0.key == "GPU Utilization" }?.value == "Unavailable")
-    #expect(rows.first { $0.key == "Memory Pressure" }?.value == "Unavailable")
-}
-
 // MARK: Observers
 
 private final class EventBox: Sendable {

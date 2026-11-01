@@ -294,3 +294,17 @@ extension AgentDefinition {
         ]),
     ]
 }
+
+extension AgentDefinition {
+    var matcher: AgentProcessMatcher {
+        processMatcher ?? AgentProcessMatcher(executableNames: commands, scriptNames: commands,
+            bundleIdentifiers: ["cursor": ["com.todesktop.230313mzl4w4u92"],
+                                "windsurf": ["com.exafunction.windsurf"],
+                                "codex": ["com.openai.codex"]][id] ?? [],
+            scriptPathSuffixes: [
+                "claude": ["@anthropic-ai/claude-code/cli.js"],
+                "codex": ["@openai/codex/bin/codex.js"],
+                "gemini": ["@google/gemini-cli/dist/index.js"]
+            ][id] ?? [])
+    }
+}

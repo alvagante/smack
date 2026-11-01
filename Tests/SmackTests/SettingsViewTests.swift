@@ -85,10 +85,13 @@ import Testing
         let panes = SettingsPane.groups.flatMap { $0 }
         #expect(panes.first == .general)
         #expect(panes.last == .about)
-        #expect(panes.contains(.superuser) == Capabilities.supportsPrivilegedSampling)
-        #expect(panes.contains(.environment) == !Capabilities.isSandboxed)
-        #expect(panes.contains(.security) == Capabilities.supportsPostureChecks)
-        #expect(panes.contains(.automation))
+        #expect(panes.contains(.helper) == Capabilities.supportsPrivilegedSampling)
+        for pane in [SettingsPane.development, .docker, .agents, .otherPages] {
+            #expect(panes.contains(pane) == !Capabilities.isSandboxed)
+        }
+        #expect(panes.contains(.security) == (Capabilities.supportsPostureChecks || Capabilities.supportsPersistenceWatching || Capabilities.supportsStartupItems))
+        #expect([SettingsPane.performance, .system, .processes, .network, .alerts, .activity, .history, .automation].allSatisfy(panes.contains))
         #expect(Set(panes).count == panes.count)
+        #expect(Set(SettingsPane.allCases.filter(\.isAvailable)) == Set(panes), "every available pane is in a sidebar group")
     }
 }

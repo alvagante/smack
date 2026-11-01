@@ -89,7 +89,7 @@ final class ControlServer: @unchecked Sendable {
                             defer { self.release(peer) }
                             do {
                                 try Task.checkCancellation()
-                                if request.version != ControlProtocol.version {
+                                if !ControlProtocol.supports(request.version) {
                                     try ControlSocket.write(try ControlResponse(error: .unsupportedVersion,
                                         requestedVersion: request.version).encoded(), to: peer)
                                 } else if request.follow == true, let stream {
@@ -97,11 +97,12 @@ final class ControlServer: @unchecked Sendable {
                                     defer { subscription.cancel() }
                                     for try await response in subscription.responses {
                                         try Task.checkCancellation()
-                                        try ControlSocket.write(try response.encoded(), to: peer)
+                                        try ControlSocket.write(try response.encoded(version: request.version), to: peer)
                                     }
                                 } else {
                                     let response = await handler(request)
-                                    let bytes = try (try? response.encoded()) ?? ControlResponse(error: .responseTooLarge).encoded()
+                                    let bytes = try (try? response.encoded(version: request.version)) ??
+                                        ControlResponse(error: .responseTooLarge).encoded(version: request.version)
                                     try ControlSocket.write(bytes, to: peer)
                                 }
                             } catch {

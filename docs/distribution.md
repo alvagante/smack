@@ -13,11 +13,12 @@ out of scope. App Sandbox prevents that flavor from using the root sampling help
 | Superuser sampling | opt-in root helper | unavailable |
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
+| Dev servers (unreleased) | projects, git branches, container/Compose mapping, confirmed stop and directory actions; CLI v2 | unavailable |
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
 | Dev environments | discover runtimes and version managers, inspect versions, packages and paths | unavailable: sandbox denies runtime inspection |
 | Homebrew | installed and outdated packages, search/install, upgrades, uninstall/reinstall, pinning, user services, cleanup | unavailable: sandbox denies running brew |
 | Installed apps | inventory, on-demand sizes, confirmed move to Trash | unavailable: sandbox restricts discovery and removal |
-| AI agents | local configuration, logs, memory, skills and sessions | unavailable: sandbox restricts agent directories |
+| AI agents | local configuration inventory and live process sessions, MCP attribution, resource totals, recent commands and log locations | unavailable: sandbox restricts agent directories |
 | User home | configuration browser and bounded file previews | unavailable: sandbox restricts home-directory access |
 | Process/application inspections | launch context, logs, startup, security, helper filesystem trace | unavailable: sandbox restricts inspection tools and helper |
 | Per-process/application network rates | live rates and sparklines, sampled while visible | unavailable: sandbox denies nettop |
@@ -259,3 +260,8 @@ productbuild --component dist/Smack.app /Applications \
 Upload `Smack.pkg` with Transporter or `xcrun altool --upload-app`. The manual workflow
 in `.github/workflows/app-store.yml` builds the signed archive when the signing secrets
 are configured.
+
+Baseline capture is available in both editions. Direct builds support all inventories; profiles and full
+BTM require the current helper. App Store capture is limited to system and apps visible in the container,
+with other sections marked unavailable. Baseline CLI is direct-only. Portable JSON and JSON/Markdown
+drift report export are available from the Baselines page.

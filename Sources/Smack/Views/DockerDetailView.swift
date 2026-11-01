@@ -74,7 +74,7 @@ struct DockerDetailView: View {
             .frame(minWidth: 120)
         metric("Container memory", value: model.snapshot?.containerMemoryBytes.map(Formatting.bytes) ?? (model.liveStats ? "Unavailable" : "Off"), image: "memorychip")
             .frame(minWidth: 120)
-            .help(model.liveStats ? "" : "Live container statistics are off in Settings › Local Environment.")
+            .help(model.liveStats ? "" : "Live container statistics are off in Settings › Docker.")
     }
 
     var body: some View {

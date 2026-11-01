@@ -82,8 +82,76 @@ enum InventoryCachePreset: String, Codable, CaseIterable, Identifiable, Sendable
     }
 }
 
+/// A named set of the Settings that drive Smack's own CPU, memory and disk use. Never stored: the current preset is
+/// the one the settings match, so changing any of them by hand shows Custom. Security and Activity Timeline settings
+/// are left alone, because turning them off trades away coverage rather than just resolution.
+enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
+    case standard = "Standard"
+    case light = "Light"
+    case minimal = "Minimal"
+    var id: String { rawValue }
+
+    var summary: String {
+        switch self {
+        case .standard: "Default resolution: live refresh every second, background system and process samples every 5 and 10 s, full process history."
+        case .light: "Coarser history at lower cost: live refresh every 2 s, background samples every 15 and 30 s, history for the 50 busiest processes, smaller caches."
+        case .minimal: "Lowest cost: live refresh every 5 s, system samples every minute, no background process or port sampling, no process history. Background agent sessions, process events and process alerts stop while the panel is closed."
+        }
+    }
+
+    func apply(to settings: inout CollectionSettings) {
+        switch self {
+        case .standard:
+            settings.liveRefreshSeconds = 1
+            settings.processNetworkRateEnabled = true
+            settings.processNetworkRateSeconds = 5
+            settings.backgroundSystemInterval = 5
+            settings.backgroundProcessInterval = 10
+            settings.backgroundNetworkInterval = 60
+            settings.constrainedPowerMultiplier = 1
+            settings.recordProcessHistory = true
+            settings.processHistoryTopCount = 0
+            settings.memoryBudget = .standard
+            settings.dockerLiveStats = true
+        case .light:
+            settings.liveRefreshSeconds = 2
+            settings.processNetworkRateEnabled = true
+            settings.processNetworkRateSeconds = 10
+            settings.backgroundSystemInterval = 15
+            settings.backgroundProcessInterval = 30
+            settings.backgroundNetworkInterval = 300
+            settings.constrainedPowerMultiplier = 4
+            settings.recordProcessHistory = true
+            settings.processHistoryTopCount = 50
+            settings.memoryBudget = .small
+            settings.dockerLiveStats = false
+        case .minimal:
+            settings.liveRefreshSeconds = 5
+            settings.processNetworkRateEnabled = false
+            settings.backgroundSystemInterval = 60
+            settings.backgroundProcessInterval = nil
+            settings.backgroundNetworkInterval = nil
+            settings.constrainedPowerMultiplier = 8
+            settings.recordProcessHistory = false
+            settings.memoryBudget = .small
+            settings.dockerLiveStats = false
+        }
+        settings.backgroundInventoryInterval = nil
+    }
+
+    /// Settings a preset leaves untouched (such as the network rate interval while rates are off) do not count.
+    static func matching(_ settings: CollectionSettings) -> PerformancePreset? {
+        allCases.first { preset in
+            var candidate = settings
+            preset.apply(to: &candidate)
+            return candidate == settings
+        }
+    }
+}
+
 /// Summary tiles for the local environment pages; a hidden page also skips discovery when the panel opens.
 enum SummaryPage: String, Codable, CaseIterable, Identifiable, Sendable {
+    case devServers = "Dev servers"
     case docker = "Docker"
     case homebrew = "Homebrew"
     case devEnvironments = "Dev environments"
@@ -94,6 +162,10 @@ enum SummaryPage: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct CollectionSettings: Codable, Equatable, Sendable {
+    var devServersShowSystem = false
+    var backgroundDevServersEnabled = false
+    var terminalApp = "com.apple.Terminal"
+    var editorApp: String? = nil
     var trigger: PanelTrigger = .hover
     var hoverDelay: TimeInterval = 0.3
     var hoverGracePeriod: TimeInterval = 0.5
@@ -143,6 +215,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var recordStartupEvents = true
     var recordSystemEvents = true
     var recordAlertEvents = true
+    var baselineRetentionCount = 20
+    var goldenBaselineID: String? = nil
+    var scheduledDriftCheck = false
+    var recordAgentEvents = true
+    var showAgentCommandLines = false
     var recordSecurityEvents = true
     var postureCheckInterval: TimeInterval? = 6 * 3600
     var watchPersistence = true
@@ -203,6 +280,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case .startup: return recordStartupEvents
         case .system: return recordSystemEvents
         case .alerts: return recordAlertEvents
+        case .agents: return recordAgentEvents
         case .security: return recordSecurityEvents
         }
     }
@@ -273,6 +351,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case devServersShowSystem, backgroundDevServersEnabled, terminalApp, editorApp
         case trigger
         case hoverDelay
         case hoverGracePeriod
@@ -303,6 +382,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case recordStartupEvents
         case recordSystemEvents
         case recordAlertEvents
+        case baselineRetentionCount, goldenBaselineID, scheduledDriftCheck
+        case recordAgentEvents, showAgentCommandLines
         case recordSecurityEvents
         case postureCheckInterval
         case watchPersistence
@@ -327,6 +408,10 @@ struct CollectionSettings: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(devServersShowSystem, forKey: .devServersShowSystem)
+        try container.encode(backgroundDevServersEnabled, forKey: .backgroundDevServersEnabled)
+        try container.encode(terminalApp, forKey: .terminalApp)
+        try container.encodeIfPresent(editorApp, forKey: .editorApp)
         try container.encode(trigger, forKey: .trigger)
         try container.encode(hoverDelay, forKey: .hoverDelay)
         try container.encode(hoverGracePeriod, forKey: .hoverGracePeriod)
@@ -357,6 +442,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         try container.encode(recordStartupEvents, forKey: .recordStartupEvents)
         try container.encode(recordSystemEvents, forKey: .recordSystemEvents)
         try container.encode(recordAlertEvents, forKey: .recordAlertEvents)
+        try container.encode(baselineRetentionCount, forKey: .baselineRetentionCount)
+        try container.encodeIfPresent(goldenBaselineID, forKey: .goldenBaselineID)
+        try container.encode(scheduledDriftCheck, forKey: .scheduledDriftCheck)
+        try container.encode(recordAgentEvents, forKey: .recordAgentEvents)
+        try container.encode(showAgentCommandLines, forKey: .showAgentCommandLines)
         try container.encode(recordSecurityEvents, forKey: .recordSecurityEvents)
         try container.encode(postureCheckInterval, forKey: .postureCheckInterval)
         try container.encode(watchPersistence, forKey: .watchPersistence)
@@ -390,6 +480,10 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = CollectionSettings()
+        devServersShowSystem = try container.decodeIfPresent(Bool.self, forKey: .devServersShowSystem) ?? defaults.devServersShowSystem
+        backgroundDevServersEnabled = try container.decodeIfPresent(Bool.self, forKey: .backgroundDevServersEnabled) ?? defaults.backgroundDevServersEnabled
+        terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp) ?? defaults.terminalApp
+        editorApp = try container.decodeIfPresent(String.self, forKey: .editorApp)
         trigger = try container.decodeIfPresent(PanelTrigger.self, forKey: .trigger) ?? defaults.trigger
         hoverDelay = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverDelay) ?? defaults.hoverDelay
         hoverGracePeriod = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverGracePeriod) ?? defaults.hoverGracePeriod
@@ -426,6 +520,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         recordStartupEvents = try container.decodeIfPresent(Bool.self, forKey: .recordStartupEvents) ?? defaults.recordStartupEvents
         recordSystemEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSystemEvents) ?? defaults.recordSystemEvents
         recordAlertEvents = try container.decodeIfPresent(Bool.self, forKey: .recordAlertEvents) ?? defaults.recordAlertEvents
+        baselineRetentionCount = max(1, min(1000, try container.decodeIfPresent(Int.self, forKey: .baselineRetentionCount) ?? 20))
+        goldenBaselineID = try container.decodeIfPresent(String.self, forKey: .goldenBaselineID)
+        scheduledDriftCheck = try container.decodeIfPresent(Bool.self, forKey: .scheduledDriftCheck) ?? false
+        recordAgentEvents = try container.decodeIfPresent(Bool.self, forKey: .recordAgentEvents) ?? defaults.recordAgentEvents
+        showAgentCommandLines = try container.decodeIfPresent(Bool.self, forKey: .showAgentCommandLines) ?? defaults.showAgentCommandLines
         recordSecurityEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSecurityEvents) ?? defaults.recordSecurityEvents
         watchPersistence = try container.decodeIfPresent(Bool.self, forKey: .watchPersistence) ?? defaults.watchPersistence
         controlSocketEnabled = try container.decodeIfPresent(Bool.self, forKey: .controlSocketEnabled) ?? defaults.controlSocketEnabled

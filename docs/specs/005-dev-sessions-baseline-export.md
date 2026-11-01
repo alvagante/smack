@@ -1,6 +1,6 @@
 # Spec 005: Dev Servers, Agent Sessions, Baseline Drift and Export
 
-Status: draft
+Status: implemented; local validation complete, manual release gates pending
 Target release: 1.0.0
 Date: 2026-10-31
 Branch base: integration branch containing spec 004
@@ -407,33 +407,49 @@ var scheduledDriftCheck = false
 
 ### Phase 0: baseline and choices
 
-- Section 2 satisfied; spec 004 integrated for the shared 1.0.0 release.
-- Capture fixture directory listings for agent session logs on a machine with Claude Code, Codex and Gemini installed.
-- Measure argv read cost per process to confirm the 200-per-snapshot cap.
+- [x] Section 2 validated at `3a8cb13`; spec 004 integrated for the shared 1.0.0 release. The current-tree recheck, once blocked by concurrent UI edits, passed in phase 4.
+- [x] Capture fixture directory listings for Claude Code, Codex and Gemini session logs. Gemini's existing logs were captured; its current executable is unavailable, so a live layout check remains for phase 2.
+- [x] Measure argv read cost per process to confirm the 200-per-snapshot cap.
+
+Evidence and choices: [phase 0 validation](../spec-005-phase0-validation.md), captured
+2026-11-01. The cap is retained provisionally: p95 for 200 reads plus argv decoding was 2.053 ms
+on M5 Max. This does not measure the full future tracker or slower hardware.
 
 ### Phase 1: project resolution and dev servers
 
-- `ProjectResolver` with an LRU cache, git and manifest parsing.
-- `DevServerCollector`, container mapping, Docker label extension.
-- Dev Servers page, Summary card, actions, terminal and editor preferences.
-- Deep link and CLI ops.
+- [x] `ProjectResolver` with an LRU cache, git and manifest parsing.
+- [x] `DevServerCollector`, container mapping, Docker label extension.
+- [x] Dev Servers page, Summary card, actions, terminal and editor preferences.
+- [x] Deep link and CLI ops.
+
+Validation: [phase 1 checks](../spec-005-phase1-validation.md). Live browser, terminal/editor and Docker action checks remain manual.
 
 ### Phase 2: agent sessions
 
-- Matchers in `AgentCatalog`, `AgentSessionTracker`, `McpConfigReader`.
-- Session UI on the Agents page (live sessions above the existing configuration inventory).
-- Events, detail annotations on listener and connection events, alert templates.
-- Log adapters with fixtures.
+- [x] Matchers in `AgentCatalog`, `AgentSessionTracker`, `McpConfigReader`.
+- [x] Session UI on the Agents page (live sessions above the existing configuration inventory).
+- [x] Events, detail annotations on listener and connection events, alert templates.
+- [x] Log adapters with fixtures.
+
+Validation: [phase 2 checks](../spec-005-phase2-validation.md). Live multi-agent, command-line
+reveal and helper capture checks remain manual; Gemini's executable remains unavailable locally.
 
 ### Phase 3: baselines
 
-- Document model, section collectors, deterministic encoding.
-- `BaselineDiff`, Baseline page, import and export.
-- CLI ops and exit codes, scheduled drift check.
+- [x] Document model, section collectors, deterministic encoding.
+- [x] `BaselineDiff`, Baseline page, import and export.
+- [x] CLI ops and exit codes, scheduled drift check.
+
+Validation: [phase 3 checks](../spec-005-phase3-validation.md). Two-Mac interchange, live helper
+and daily scheduled delivery checks remain manual.
 
 ### Phase 4: hardening and release
 
-- Performance budget, docs, both flavors compile.
+- [x] Performance budgets enforced by optimized tests.
+- [x] Format, CLI/protocol, URL, capability and release documentation.
+- [x] Both flavors compile and package as local 1.0.0 (build 10) bundles.
+
+Validation and publication gates: [phase 4 checks](../spec-005-phase4-validation.md).
 
 ## 7. Test plan
 
