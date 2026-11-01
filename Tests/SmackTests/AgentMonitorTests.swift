@@ -71,7 +71,16 @@ struct AgentMonitorTests {
         let model = AgentMonitor(collector: AgentCollector(home: home, environment: [:]))
         await model.refresh()
         #expect(model.snapshot?.agents.count == 1)
-        let host = NSHostingView(rootView: AgentDetailView(model: model)
+        let history = try HistoryRepository(databaseURL: home.appendingPathComponent("history.sqlite"))
+        let defaults = try #require(UserDefaults(suiteName: "AgentUI-" + UUID().uuidString))
+        let settings = SettingsStore(defaults: defaults, legacyDefaults: nil)
+        let scheduler = CollectionScheduler(systemCollector: SystemCollector(), processCollector: ProcessCollector(),
+            inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(),
+            history: history, settings: settings.settings, onSystem: { _ in }, onProcesses: { _ in })
+        let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
+        model.sessions = [AgentSession(agentID: "claude", root: obsProcess(42).identity,
+            project: ProjectContext(directory: home.path, name: "Fixture"), startedAt: Date())]
+        let host = NSHostingView(rootView: AgentDetailView(model: model, store: store)
             .environment(\.colorScheme, .light).background(Color.white))
         host.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
         host.layoutSubtreeIfNeeded()

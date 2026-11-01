@@ -4,11 +4,16 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
-Release target: 1.0.0, combining completed spec 004 and planned spec 005 (dev servers, agent sessions,
+Release target: 1.0.0, combining specs 004 and 005 (dev servers, agent sessions,
 baseline drift and file export). Prometheus metrics export is excluded and will not be implemented.
-No release is authorized by this planning change.
+Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Added
+
+- Add project-grouped Dev Servers with git context, Compose mapping, directory actions, confirmed stop and cached CLI v2 queries.
+- Add versioned portable machine baselines, deterministic JSON, field-level drift reports, import/export, retention and pinning, CLI create/list/diff/export with 0/1/2 diff exits, and daily golden-baseline Security events.
+
+- Add live agent sessions with project attribution, nested trees, MCP classification, command exit history, network/resource summaries, metadata-only log adapters, lifecycle events, alert templates and cached `smack agents` queries. Arguments remain outside session models and exports.
 
 - Add disabled-by-default threshold/event alert templates, bounded notification delivery, pause/snooze controls and Timeline firing records, including when notification permission is denied.
 - Add navigation-only `smack://` URLs, same-UID cached CLI queries with future-only follow, CSV/TSV exports and five typed App Intents.
@@ -29,6 +34,16 @@ No release is authorized by this planning change.
 
 ### Changed
 
+- Reorganize Settings by feature, mirroring Summary: Performance, System, Processes, Network, Security, Development, Docker, AI Agents, Other Pages, Alerts, Activity Timeline, Historical Data, Automation and Privileged Helper. Each feature pane holds its own collection, history and Activity Timeline switches; Storage Usage moves into Historical Data, File Activity into Processes. `smack://settings/alerts` is unchanged.
+- Add Performance presets (Standard, Light, Minimal) that set refresh, Network Rate, background intervals, battery slowdown, process history, Memory Budget and Docker statistics together. The preset is derived from the settings, so existing settings show Standard or Custom and nothing changes on upgrade.
+- Track agent sessions only while AI Agents is on Summary, agent session events are recorded, or an enabled alert rule uses them. Defaults keep tracking on.
+
+- Prepare app metadata for 1.0.0 (build 10), combining specs 004 and 005.
+
+- Reorganize Summary into Performance, Health, Activity and Environment groups. Thermal State, Historical Data and System Details move from header icons to Summary tiles; Health tiles color by state, and the listening-ports tile is renamed Connections.
+- Give Security, Historical Data, System Details and Thermal State the standard page header (icon title, stat cards on the right, content below). Security groups checks by area with readable names, worst first; Thermal State draws sensor temperatures and fan speeds as horizontal bars, with fan limits read from the SMC.
+- Merge Advanced System Details into System Details and add model name and number, serial and hardware UUID (direct build, masked until revealed with the eye button), firmware, per-cluster L2, uptime and load, kernel limits, identity, user and region; figures already shown on resource pages are removed.
+- Open the panel at 80% of the screen height on every page instead of resizing between Summary and other pages.
 - Redesign the Application page: the app icon and name with version, bundle ID and running time, with CPU, Memory, GPU and Energy cards beside the title (below it on a narrow panel) and colored Reveal and Kill buttons; colored cards for disk, network, wakeups and processes. A live GPU chart joins the resource charts, and the charts fill the row. New cards:
   - **CPU by process:** one bar per process in the style of the CPU page's core bars, with cores in use and share of the Mac.
   - **GPU:** the app's driver-reported GPU time with device utilization.
@@ -49,6 +64,9 @@ No release is authorized by this planning change.
 - Show "Off" instead of "Unavailable" for per-process network rates when they are turned off.
 
 ### Fixed
+
+- Avoid false baseline removals across differing startup/app inventory coverage, retain newly imported captures during pruning, tolerate unknown v1 fields, and preserve unaffected sections when a collector returns ambiguous identities.
+- Serialize scheduled drift checks across actor suspension, persist cadence per golden baseline, and suppress delivery after a scheduled check is disabled.
 
 - Disk names show the BSD name and model ("disk0 · APPLE SSD AP4096Z") instead of "IOBlockStorageDriver-<id>".
 

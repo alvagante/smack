@@ -29,6 +29,10 @@ actor CollectionScheduler {
     private var lastPosture: PostureSnapshot?
     private let activity: any ActivityRecording
     private let alertEngine = AlertEngine()
+    private var agentSessions = AgentSessionTracker()
+    /// Agent sessions cost argument reads and tree walks on every process sample, so they are tracked only while
+    /// something consumes them: the AI agents page, agent session events, or an enabled alert rule.
+    private var tracksAgentSessions: Bool
     private var configuredAlertRules: [AlertRule] = []
     private let onAlert: @Sendable (FiredAlert) async -> ActivityEvent
     private let onWake: @Sendable (Date) async -> Void
@@ -86,6 +90,7 @@ actor CollectionScheduler {
         self.history = HistoryPersistence(writer: history, onHealth: onHistoryHealth)
         self.activity = activity ?? ActivityRecorder(metadata: history)
         self.settings = settings
+        self.tracksAgentSessions = Self.wantsAgentSessions(settings, rules: [])
         self.onSystem = onSystem
         self.onProcesses = onProcesses
         self.onInventory = onInventory
@@ -112,6 +117,7 @@ actor CollectionScheduler {
     func update(settings: CollectionSettings) async {
         let alertsChanged = self.settings.alertsEnabled != settings.alertsEnabled
         self.settings = settings
+        updateAgentTracking()
         if alertsChanged { await alertEngine.update(rules: settings.alertsEnabled ? configuredAlertRules : []) }
         await processCollector.setNetworkSampling(visible: visible, interval: networkRateInterval)
         await restartSampling()
@@ -145,16 +151,38 @@ actor CollectionScheduler {
 
     func update(rules: [AlertRule]) async {
         configuredAlertRules = rules
+        updateAgentTracking()
         await alertEngine.update(rules: settings.alertsEnabled ? rules : [])
     }
 
+    static func wantsAgentSessions(_ settings: CollectionSettings, rules: [AlertRule]) -> Bool {
+        settings.shows(.agents) || settings.records(.agents)
+            || (settings.alertsEnabled && rules.contains { $0.enabled && $0.usesAgentSessions })
+    }
+
+    /// A stopped tracker is dropped, so restarting seeds from the running processes instead of reporting
+    /// sessions that started or ended while it was off.
+    private func updateAgentTracking() {
+        let wanted = Self.wantsAgentSessions(settings, rules: configuredAlertRules)
+        if tracksAgentSessions, !wanted { agentSessions = AgentSessionTracker() }
+        tracksAgentSessions = wanted
+    }
+
+    var isTrackingAgentSessions: Bool { tracksAgentSessions }
+
     func updateFeatureSettings(_ value: CollectionSettings) async {
         let alertsChanged = settings.alertsEnabled != value.alertsEnabled
+        settings.scheduledDriftCheck = value.scheduledDriftCheck
+        settings.goldenBaselineID = value.goldenBaselineID
+        settings.hiddenPages = value.hiddenPages
+        settings.backgroundNetworkEnabled = value.backgroundNetworkEnabled
+        settings.recordAgentEvents = value.recordAgentEvents
         settings.alertsEnabled = value.alertsEnabled
         settings.postureCheckInterval = value.postureCheckInterval
         settings.watchPersistence = value.watchPersistence
         settings.persistenceEnrichmentEnabled = value.persistenceEnrichmentEnabled
         settings.persistencePollInterval = value.persistencePollInterval
+        updateAgentTracking()
         configurePosture()
         if alertsChanged { await alertEngine.update(rules: value.alertsEnabled ? configuredAlertRules : []) }
     }
@@ -213,7 +241,13 @@ actor CollectionScheduler {
             let started = ProcessInfo.processInfo.systemUptime
             let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
             guard !Task.isCancelled else { return }
-            if let snapshot {
+            if var snapshot {
+                if tracksAgentSessions {
+                    let tracked = await agentSessions.update(snapshot, network: cachedListeners)
+                    guard !Task.isCancelled else { return }
+                    snapshot.agentSessions = tracked.sessions
+                    await deliver(tracked.events)
+                }
                 onProcesses(snapshot)
                 if settings.alertsEnabled, let interval = sleepInterval(background: settings.backgroundProcessInterval) {
                     await deliverAlerts(await alertEngine.evaluate(processes: snapshot, expectedInterval: interval, networkAvailable: visible && settings.processNetworkRateEnabled))
@@ -238,8 +272,9 @@ actor CollectionScheduler {
             guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
             cachedListeners = snapshot
-            await deliver(await activity.record(network: snapshot, settings: settings))
-            guard let interval = sleepInterval(background: settings.backgroundNetworkInterval, live: 5) else { return }
+            await agentSessions.annotate(snapshot)
+            await deliver(await agentSessions.annotateEvents(activity.record(network: snapshot, settings: settings)))
+            guard let interval = sleepInterval(background: settings.backgroundNetworkInterval ?? (settings.backgroundDevServersEnabled ? settings.backgroundNetworkSeconds : nil), live: 5) else { return }
             try? await Task.sleep(for: .seconds(interval))
         }
     }
@@ -311,7 +346,64 @@ actor CollectionScheduler {
         await deliver([await activity.recordPowerSource(charging: charging, chargePercent: chargePercent)])
     }
 
+    func baselineBackgroundTasks() async -> String? {
+        guard settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return nil }
+        return await helper.dumpBackgroundTasks()
+    }
+
+    func baselineProfiles() async -> String? {
+        guard settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return nil }
+        return await helper.listConfigurationProfiles()
+    }
+
+    private var driftRunning = false
+    func checkScheduledDrift(repository: BaselineRepository = BaselineRepository(), now: Date = Date(),
+                             capture: @Sendable ([MachineBaselineCollector]) async throws -> BaselineDocument = {
+                                 try await BaselineCapture.capture(collectors: $0, name: "Scheduled check")
+                             }) async {
+        guard !Task.isCancelled, settings.scheduledDriftCheck, let golden = settings.goldenBaselineID, !driftRunning else { return }
+        driftRunning = true
+        defer { driftRunning = false }
+        let key = "baseline.lastDriftCheck." + golden
+        let last = (try? await metadata.metadata(key)).flatMap(Double.init) ?? 0
+        guard now.timeIntervalSince1970 - last >= 86400 else { return }
+        do {
+            let base = try await repository.load(golden)
+            let enabled = base.sections.keys.filter { id in
+                switch id {
+                case "posture": return settings.postureCheckInterval != nil
+                case "startup", "profiles": return settings.watchPersistence
+                case "listeners": return settings.backgroundNetworkEnabled
+                case "apps": return settings.shows(.installedApps)
+                case "homebrew": return settings.shows(.homebrew)
+                case "runtimes": return settings.shows(.devEnvironments)
+                case "agents": return settings.shows(.agents)
+                case "docker": return settings.shows(.docker)
+                default: return true
+                }
+            }
+            async let profile = enabled.contains("profiles") ? baselineProfiles() : nil
+            async let btm = enabled.contains("startup") ? baselineBackgroundTasks() : nil
+            let (profileValue, btmValue) = await (profile, btm)
+            var current = try await capture(enabled.map {
+                MachineBaselineCollector(id: $0, settings: settings, listeners: cachedListeners, profiles: profileValue, backgroundTasks: btmValue)
+            })
+            try Task.checkCancellation()
+            guard settings.scheduledDriftCheck, settings.goldenBaselineID == golden else { return }
+            let skipped = Set(base.sections.keys).subtracting(enabled).sorted()
+            for id in skipped { current.sections[id] = .init(status: .unavailable, error: "Collector disabled in Settings") }
+            let diff = BaselineDiff.compare(base, current)
+            try await metadata.setMetadata(key, value: String(now.timeIntervalSince1970))
+            if diff.drift {
+                var details = diff.sections.mapValues { "added=\($0.added.count),removed=\($0.removed.count),changed=\($0.changed.count)" }
+                details["skipped"] = skipped.joined(separator: ",")
+                await deliver([.make(kind: .driftDetected, timestamp: Date(), subject: base.name, severity: .warning, details: details)])
+            }
+        } catch { /* Retry on the next maintenance pass. */ }
+    }
+
     private func maintainHistory() async {
+        await checkScheduledDrift()
         await history.maintain(settings: settings)
     }
 

@@ -29,9 +29,11 @@ struct DockerContainer: Decodable, Identifiable, Sendable {
     let id: String
     let name: String
     let image: String
+    var imageID: String? = nil
     let state: String
     let status: String
     let project: String
+    var composeWorkingDirectory: String? = nil
     let ports: [String: [DockerPortBinding]?]?
 
     var isRunning: Bool { state == "running" }
@@ -243,7 +245,7 @@ struct DockerCollector: Sendable {
             snapshot.engine = try JSONDecoder().decode(DockerEngine.self, from: Data(info.utf8))
             let ids = try await command(["container", "ls", "--all", "--quiet", "--no-trunc"])
                 .split(whereSeparator: \.isNewline).map(String.init)
-            let template = #"{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"status":"{{.State.Status}}{{with (index .State "Health")}} ({{.Status}}){{end}}{{if not .State.Running}} (exit {{.State.ExitCode}}){{end}}","project":{{json (or (index .Config.Labels "com.docker.compose.project") "")}},"ports":{{json .NetworkSettings.Ports}}}"#
+            let template = #"{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Config.Image}},"imageID":{{json .Image}},"state":{{json .State.Status}},"status":"{{.State.Status}}{{with (index .State "Health")}} ({{.Status}}){{end}}{{if not .State.Running}} (exit {{.State.ExitCode}}){{end}}","project":{{json (or (index .Config.Labels "com.docker.compose.project") "")}},"composeWorkingDirectory":{{json (or (index .Config.Labels "com.docker.compose.project.working_dir") "")}},"ports":{{json .NetworkSettings.Ports}}}"#
             // Select only monitoring fields; inspect's default output includes environment secrets.
             var containers: [DockerContainer] = []
             for start in stride(from: 0, to: ids.count, by: 100) {

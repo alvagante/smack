@@ -32,6 +32,14 @@ enum ProcessInspection {
         return Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000) == identity.startTime
     }
 
+    static func isCurrentUserProcess(_ identity: ProcessIdentity) -> Bool {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(identity.pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+              info.pbi_uid == geteuid() else { return false }
+        return Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000) == identity.startTime
+    }
+
     static func launchContext(pid: Int32) -> LaunchContext? {
 #if SMACK_APP_STORE
         return nil

@@ -18,6 +18,9 @@ struct CPUSample: Sendable, Equatable {
 struct FanSample: Sendable, Equatable, Identifiable {
     var id: Int
     var rpm: Double
+    /// Rated speed range from the SMC (`F<n>Mn`, `F<n>Mx`); nil when the keys are missing.
+    var minimumRPM: Double? = nil
+    var maximumRPM: Double? = nil
 }
 
 enum MemoryPressure: String, Sendable, Codable {
@@ -207,7 +210,7 @@ enum NetworkPortScope: String, Sendable {
     case external = "External"
 }
 
-struct NetworkClient: Identifiable, Sendable, Equatable {
+struct NetworkClient: Identifiable, Sendable, Equatable, Codable {
     var id: String
     var localAddress: String
     var remoteAddress: String
@@ -216,7 +219,7 @@ struct NetworkClient: Identifiable, Sendable, Equatable {
     var state: String
 }
 
-struct ListeningPort: Identifiable, Sendable, Equatable {
+struct ListeningPort: Identifiable, Sendable, Equatable, Codable {
     var id: String
     var pid: Int32
     var descriptor: Int32
@@ -331,6 +334,7 @@ struct ProcessInventory: Sendable {
 }
 
 struct ProcessSnapshot: Sendable {
+    var agentSessions: [AgentSession] = []
     var timestamp: Date
     var applications: [ApplicationMetrics]
     var backgroundProcesses: [ProcessMetrics]

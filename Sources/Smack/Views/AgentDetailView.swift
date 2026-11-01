@@ -26,6 +26,7 @@ struct AgentsSummaryTile: View {
 
 struct AgentDetailView: View {
     @ObservedObject var model: AgentMonitor
+    @ObservedObject var store: MonitorStore
     @State private var selectedAgent: String?
     @State private var category: AgentCategory = .configuration
     @State private var selectedArtifact: String?
@@ -63,6 +64,8 @@ struct AgentDetailView: View {
                 if model.loading { ProgressView().controlSize(.small) }
                 RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
             }.padding()
+            AgentSessionsView(model: model, store: store)
+                .frame(maxHeight: 300)
             Divider()
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {

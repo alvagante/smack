@@ -18,7 +18,7 @@ enum SystemAlertMetric: String, Codable, CaseIterable, Sendable {
 }
 
 enum ProcessAlertMetric: String, Codable, CaseIterable, Sendable {
-    case cpu, memoryBytes, wakeupsPerSecond, diskWriteRate, networkSendRate
+    case cpu, memoryBytes, wakeupsPerSecond, diskWriteRate, networkSendRate, uptime
 }
 
 enum Comparison: String, Codable, CaseIterable, Sendable {
@@ -30,6 +30,7 @@ struct ProcessMatcher: Codable, Sendable, Equatable {
     var bundleIdentifier: String?
     var executablePathPrefix: String?
     var anyProcess = false
+    var agentSessionRoot: Bool?
 }
 
 struct EventPredicate: Codable, Sendable, Equatable {
@@ -108,6 +109,17 @@ struct AlertRule: Codable, Identifiable, Sendable, Equatable {
         try container.encodeIfPresent(snoozedUntil, forKey: .snoozedUntil)
     }
 
+    /// Whether evaluating this rule needs agent session tracking: session roots, session events, or the
+    /// session details added to network events.
+    var usesAgentSessions: Bool {
+        switch kind {
+        case let .processThreshold(_, matcher, _, _, _, _): matcher.agentSessionRoot == true
+        case let .event(kinds, _, predicates):
+            kinds.contains { $0.group == .agents } || predicates.contains { ["agentSession", "agentID", "project"].contains($0.field) }
+        case .systemThreshold, .unknown: false
+        }
+    }
+
     mutating func validate() {
         func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
             value.isFinite ? min(max(value, range.lowerBound), range.upperBound) : range.lowerBound
@@ -180,6 +192,12 @@ extension AlertRule {
                 matcher: ProcessMatcher(anyProcess: true), comparison: .greaterThan, value: 80, sustain: 300, clear: nil),
                 target: AlertTarget(url: URL(string: "smack://apps")!)),
             event("New external listener", [.listenerOpened], [.init(field: "scope", op: .equals, value: "external")], "ports"),
+            event("Agent opened an external listener", [.listenerOpened], [
+                .init(field: "scope", op: .equals, value: "external"),
+                .init(field: "agentSession", op: .notEquals, value: "")], "agents"),
+            AlertRule(name: "Agent session running longer than N hours", kind: .processThreshold(metric: .uptime,
+                matcher: ProcessMatcher(agentSessionRoot: true), comparison: .greaterThan, value: 4 * 3600, sustain: 0, clear: nil),
+                target: AlertTarget(url: URL(string: "smack://agents")!)),
             event("Persistence added", [.startupItemAdded], [], "startup"),
             event("Posture regression", [.postureChanged], [.init(field: "regression", op: .equals, value: "true")], "security")
         ]

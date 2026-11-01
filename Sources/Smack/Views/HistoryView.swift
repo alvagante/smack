@@ -255,17 +255,48 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            controls
-            HStack(alignment: .top, spacing: 12) {
-                chart.frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
-                processList.frame(width: 300)
+        VStack(alignment: .leading, spacing: 0) {
+            header.padding()
+            VStack(alignment: .leading, spacing: 8) {
+                controls
+                HStack(alignment: .top, spacing: 12) {
+                    chart.frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
+                    processList.frame(width: 300)
+                }
             }
+            .padding([.horizontal, .bottom])
         }
-        .padding()
         .task(id: model.requestID) { await reload() }
         .task(id: model.hours) { model.programs = await store.historicalPrograms(hours: model.hours) }
         .task(id: model.instancesRequestID) { await loadInstances() }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            ResourceTitle(title: "Historical Data", systemImage: "clock.arrow.circlepath", color: .blue)
+            DetailStatsGrid(stats: headerStats, color: .blue)
+            Spacer(minLength: 0)
+            Picker("Range", selection: $model.hours) {
+                Text("1h").tag(1.0)
+                Text("24h").tag(24.0)
+                Text("7d").tag(168.0)
+            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+        }
+    }
+
+    private var headerStats: [ResourceStat] {
+        [
+            ResourceStat(title: "Showing", systemImage: model.selectedProgram == nil ? "desktopcomputer" : "app",
+                         value: model.selectedProgram ?? "Whole system",
+                         detail: model.selectedProgram == nil ? nil : (model.selectedInstance == nil ? "all instances" : "one instance")),
+            ResourceStat(title: "Programs", systemImage: "square.stack.3d.up", value: model.programs.count.formatted(),
+                         help: "Programs with samples in the selected range."),
+            ResourceStat(title: "Events", systemImage: "flag", value: model.markers.count.formatted(),
+                         detail: model.showEvents ? "on chart" : "hidden",
+                         help: "Activity events in the range, at most \(HistoryViewModel.markerLimit), preferring warnings."),
+        ]
     }
 
     // MARK: Controls
@@ -297,11 +328,6 @@ struct HistoryView: View {
                 .help("Draw dashed peak lines; the hover readout always shows average and peak.")
             Toggle("Events", isOn: eventsBinding).toggleStyle(.checkbox).controlSize(.small)
                 .help("Draw vertical markers for activity events such as listeners, startup changes and pressure warnings. At most \(HistoryViewModel.markerLimit) are shown, preferring warnings.")
-            Picker("Range", selection: $model.hours) {
-                Text("1h").tag(1.0)
-                Text("24h").tag(24.0)
-                Text("7d").tag(168.0)
-            }.pickerStyle(.segmented).labelsHidden().fixedSize()
             Image(systemName: "info.circle").foregroundStyle(.secondary)
                 .help("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound.")
         }

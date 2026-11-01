@@ -5,45 +5,56 @@ struct SummaryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
                 if store.system == nil {
-                    ProgressView("Collecting system metrics…")
+                    ProgressView("Collecting system metrics…").frame(maxWidth: .infinity)
                 }
-                LazyVGrid(columns: tileColumns, spacing: 12) {
+                // Groups answer one question each: how busy is the Mac, is it healthy, what is it doing,
+                // and what is installed on it.
+                SummaryGroup(title: "Performance", systemImage: "speedometer") {
                     cpuCard
                     gpuCard
                     memoryCard
                     networkCard
                     diskCard
                 }
-
-                LazyVGrid(columns: tileColumns, spacing: 12) {
+                SummaryGroup(title: "Health", systemImage: "stethoscope") {
+                    thermalCard
                     if let volumes = store.system?.volumes, !volumes.isEmpty {
                         storageCard(volumes)
                     }
                     if let battery = store.system?.battery, battery.isPresent {
                         batteryCard(battery)
                     }
+                    securityCard
+                    systemCard
+                }
+                SummaryGroup(title: "Activity", systemImage: "waveform.path.ecg") {
                     ActivityDiffCard(store: store)
-                    Button { store.route = .security } label: {
-                        MetricCard(title: "Security", systemImage: "shield", color: .green, isSummary: true) {
-                            if let snapshot = store.posture {
-                                Text("\(snapshot.checks.filter { [.warn, .fail].contains($0.status) }.count) findings, \(snapshot.checks.filter { $0.status == .unknown }.count) unknown")
-                            } else { Text(Capabilities.supportsPostureChecks ? "Awaiting checks" : "Unavailable in this edition") }
-                        }
-                    }.buttonStyle(.plain)
+                    applicationsCard
                     if Capabilities.supportsNetworkPortInspection {
                         networkPortsCard
                     }
-                    applicationsCard
                     if Capabilities.supportsStartupItems {
                         StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems }
                     }
+                    historyCard
                 }
                 let settings = store.settingsStore.settings
-                // Hidden pages drop their tile; with none left the row goes too, instead of leaving a blank strip.
+                // Hidden pages drop their tile; with none left the group goes too, instead of leaving a blank strip.
                 if SummaryPage.allCases.contains(where: settings.shows) {
-                    LazyVGrid(columns: tileColumns, spacing: 12) {
+                    SummaryGroup(title: "Environment", systemImage: "shippingbox") {
+                        if Capabilities.supportsNetworkPortInspection && settings.shows(.devServers) {
+                            Button { store.navigate(to: URL(string: "smack://devservers")!) } label: {
+                                MetricCard(title: "Dev servers", systemImage: "server.rack", color: .cyan, isSummary: true) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(store.devServers.map { "\($0.count) servers" } ?? "Awaiting collection")
+                                        Text((store.devServers ?? []).prefix(3).map { $0.project?.name ?? $0.container?.name ?? $0.processName }.joined(separator: ", "))
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                                    }
+                                }
+                            }.buttonStyle(.plain)
+                        }
                         if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
                         if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
                         if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
@@ -57,11 +68,112 @@ struct SummaryView: View {
         }
     }
 
-    private let tileColumns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
+    private var thermalCard: some View {
+        let condition = store.system?.thermalCondition ?? .unavailable
+        return Button { store.route = .resource(.thermal) } label: {
+            MetricCard(title: "Thermal State", systemImage: "thermometer.medium", color: thermalColor(condition), isSummary: true) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ThermalIndicator(condition: condition)
+                    Text(condition == .nominal || condition == .unavailable ? "Sensors and fans" : "Performance may be limited")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("macOS thermal pressure. Click for sensor temperatures and fan speeds.")
+    }
+
+    private func thermalColor(_ condition: ThermalCondition) -> Color {
+        switch condition {
+        case .nominal: .green
+        case .fair: .yellow
+        case .serious, .critical: .red
+        case .unavailable: .gray
+        }
+    }
+
+    private var securityCard: some View {
+        let checks = store.posture?.checks ?? []
+        let worst = checks.map(\.status).filter { $0 != .unknown }.min { $0.severityRank < $1.severityRank }
+        let problems = checks.filter { [.warn, .fail].contains($0.status) }.count
+        let unknown = checks.filter { $0.status == .unknown }.count
+        // Unknown-only results stay neutral: an unverified check is not a finding.
+        let tint: Color = worst?.color ?? .gray
+        return Button { store.route = .security } label: {
+            MetricCard(title: "Security", systemImage: "shield", color: tint, isSummary: true) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if store.posture != nil {
+                        Label(problems == 0 ? "No findings" : "\(problems) finding\(problems == 1 ? "" : "s")",
+                              systemImage: (worst ?? .unknown).systemImage)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(problems == 0 ? Color.primary : (worst ?? .unknown).color)
+                            .lineLimit(1)
+                        Text("\(checks.count) checks · \(unknown) unverified")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(Capabilities.supportsPostureChecks ? "Awaiting checks" : "Unavailable in this edition")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var systemCard: some View {
+        Button { store.route = .systemDetails } label: {
+            MetricCard(title: "System", systemImage: "info.circle", color: .gray, isSummary: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(systemDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Hardware, firmware, software, displays and kernel limits.")
+    }
+
+    private var systemDetail: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        var parts = ["macOS \(version.majorVersion).\(version.minorVersion)"]
+        if let boot = SystemInformation.bootTime { parts.append("up \(CPUReadings.uptime(Date().timeIntervalSince(boot)))") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var historyCard: some View {
+        Button { store.route = .history } label: {
+            MetricCard(title: "Historical Data", systemImage: "clock.arrow.circlepath", color: .blue, isSummary: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Explore trends")
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text("System and per-program charts over 1h, 24h or 7d")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+    }
 
     private var networkPortsCard: some View {
         Button { store.route = .networkPorts } label: {
-            MetricCard(title: "Network", systemImage: "cable.connector", color: .cyan, isSummary: true) {
+            MetricCard(title: "Connections", systemImage: "cable.connector", color: .cyan, isSummary: true) {
                 if let ports = store.networkPorts {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(ports.ports.count) listening")
@@ -285,4 +397,20 @@ struct SummaryView: View {
         }
     }
 
+}
+
+/// A titled group of Summary tiles laid out in the shared adaptive grid.
+private struct SummaryGroup<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) { content }
+        }
+    }
 }

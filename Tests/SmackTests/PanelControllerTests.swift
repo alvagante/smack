@@ -9,7 +9,7 @@ private func makeTestTempDir() throws -> URL {
     return url
 }
 
-@Suite @MainActor struct PanelControllerTests {
+@Suite(.serialized) @MainActor struct PanelControllerTests {
     @Test func panelOpenPlaysConfiguredSound() async throws {
         let directory = try makeTestTempDir()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -169,5 +169,55 @@ private func makeTestTempDir() throws -> URL {
         controller.open()
         #expect(sound.lastPlayedSound == .tink)
         controller.close()
+    }
+
+    @Test func panelKeepsOneHeightAcrossPages() async throws {
+        let directory = try makeTestTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+        let suiteName = "PanelControllerTests-Height-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
+        settingsStore.update { $0.panelSound = .none }
+        let client = PrivilegedSamplingClient()
+        let scheduler = CollectionScheduler(
+            systemCollector: SystemCollector(),
+            processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+            inventoryCollector: InventoryCollector(privileged: client),
+            networkPortCollector: NetworkPortCollector(privileged: client),
+            history: history,
+            settings: settingsStore.settings,
+            onSystem: { _ in },
+            onProcesses: { _ in },
+            onInventory: { _, _ in },
+            onNetworkPorts: { _ in }
+        )
+        let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        defer { NSStatusBar.system.removeStatusItem(statusItem) }
+        let controller = PanelController(store: store, nativeMenuBarStore: NativeMenuBarStore(), statusItem: statusItem)
+        controller.showPinned()
+        defer { controller.close() }
+        let panel = controller.window
+
+        let screen = try #require(panel.screen)
+        let expected = PanelController.panelHeight(visibleHeight: screen.visibleFrame.height)
+        /// Polls until the open animation lands on the expected height; a busy main thread can stall it.
+        func waitForExpectedHeight() async throws -> CGFloat {
+            let deadline = Date().addingTimeInterval(10)
+            while panel.frame.height != expected, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            return panel.frame.height
+        }
+
+        #expect(try await waitForExpectedHeight() == expected)
+        for route in [AppRoute.history, .resource(.thermal), .security, .systemDetails, .summary] {
+            store.route = route
+            // A route-driven resize would start on the next run-loop turn and animate; give it time to show.
+            try await Task.sleep(for: .milliseconds(400))
+            #expect(panel.frame.height == expected, "panel resized to \(panel.frame.height) on \(route)")
+        }
     }
 }

@@ -59,7 +59,8 @@ private func controlTemporaryPath() throws -> String {
         let mismatch = try roundTrip(JSONEncoder().encode(ControlRequest(op: "status", version: 999)))
         #expect(mismatch.error == .unsupportedVersion)
         #expect(mismatch.requestedVersion == 999)
-        #expect(mismatch.version == 1)
+        #expect(mismatch.version == ControlProtocol.version)
+        #expect(try roundTrip(JSONEncoder().encode(ControlRequest(op: "status", version: 1))).version == 1)
         #expect(try roundTrip(Data("{}".utf8)).error == .invalidRequest)
         #expect(try roundTrip(Data(repeating: 32, count: 65537)).error == .invalidRequest)
     }.value
@@ -131,6 +132,13 @@ private func controlTemporaryPath() throws -> String {
     store.receive(obsSystem(cpu: 12.5))
     #expect(AutomationSnapshot.response(ControlRequest(op: "status")).records.first?.fields["cpuPercent"] == "12.5")
     store.receive(obsSnapshot([obsProcess(42)]))
+    let liveSession = AgentSession(agentID: "claude", root: obsProcess(42).identity, startedAt: Date())
+    store.agentsModel.sessions = [liveSession]
+    let agents = AutomationSnapshot.response(ControlRequest(op: "agents"))
+    #expect(agents.records.first?.fields["agentID"] == "claude")
+    let sessionJSON = try #require(agents.records.first?.fields["session"])
+    #expect(try JSONDecoder().decode(AgentSession.self, from: Data(sessionJSON.utf8)).root.pid == 42)
+    #expect(!sessionJSON.contains("arguments"))
     let response = AutomationSnapshot.response(ControlRequest(op: "ps"))
     #expect(response.records.first?.fields["pid"] == "42")
     let data = try response.encoded()

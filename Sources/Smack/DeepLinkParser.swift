@@ -34,9 +34,9 @@ enum DeepLinkParser {
         let resources: [String: ResourceKind] = ["cpu": .cpu, "memory": .memory, "network": .network,
             "disk": .disk, "storage": .storage, "battery": .battery, "thermal": .thermal]
         let pages: [String: AppRoute] = ["": .summary, "summary": .summary, "apps": .applications,
-            "ports": .networkPorts, "docker": .docker, "homebrew": .homebrew, "dev": .devEnvironments,
+            "devservers": .devServers, "ports": .networkPorts, "docker": .docker, "homebrew": .homebrew, "dev": .devEnvironments,
             "home": .userHome, "agents": .agents, "installed": .installedApps, "startup": .startupItems,
-            "security": .security, "timeline": .timeline, "history": .history, "settings": .settings, "system": .systemDetails]
+            "baseline": .baseline, "security": .security, "timeline": .timeline, "history": .history, "settings": .settings, "system": .systemDetails]
         if let resource = resources[host], path.isEmpty {
             link.route = .resource(resource)
         } else if host == "settings", path == "/alerts" {
@@ -83,7 +83,7 @@ enum DeepLinkParser {
                 }
             }
         }
-        let directOnly: Set<String> = ["ports", "port", "docker", "homebrew", "dev", "home", "agents", "installed", "startup", "security"]
+        let directOnly: Set<String> = ["devservers", "ports", "port", "docker", "homebrew", "dev", "home", "agents", "installed", "startup", "security"]
         if flavor == .appStore, directOnly.contains(host) {
             return DeepLink(route: .unavailable("Not available in this edition"))
         }

@@ -707,7 +707,7 @@ struct ResourceInsightView: View {
         case .network:
             return store.settingsStore.settings.processNetworkRateEnabled
                 ? "No network samples available. Only processes with observable TCP or UDP sockets are listed."
-                : "Per-process network rates are off. Turn them on in Settings › Collection."
+                : "Per-process network rates are off. Turn them on in Settings › Network."
         case .gpu:
             switch store.system?.gpuProcessStatus ?? .inactive {
             case .inactive, .warmingUp: return "Reading GPU clients…"

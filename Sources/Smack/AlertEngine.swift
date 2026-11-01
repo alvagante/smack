@@ -102,6 +102,7 @@ actor AlertEngine {
         previousProcess = processes.timestamp
         let all = processes.applications.flatMap { app in app.processes.map { (process: $0, app: app.name) } }
             + processes.backgroundProcesses.map { (process: $0, app: $0.name) }
+        let agentRoots = Set(processes.agentSessions.filter { $0.endedAt == nil }.map(\.root))
         // Share only immutable preparation within this snapshot; rule tracking stays independent.
         var prepared: [(metric: ProcessAlertMetric, matcher: ProcessMatcher, indices: [Int], live: Set<ProcessIdentity>)] = []
         var fired: [FiredAlert] = []
@@ -111,8 +112,8 @@ actor AlertEngine {
             if let cached = prepared.first(where: { $0.metric == metric && $0.matcher == matcher }) {
                 selection = cached
             } else {
-                let indices = Array(all.indices.filter { matcher.matches(all[$0].process) }.sorted {
-                    (all[$0].process.value(for: metric) ?? 0) > (all[$1].process.value(for: metric) ?? 0)
+                let indices = Array(all.indices.filter { matcher.matches(all[$0].process) && (matcher.agentSessionRoot != true || agentRoots.contains(all[$0].process.identity)) }.sorted {
+                    (all[$0].process.value(for: metric, at: processes.timestamp) ?? 0) > (all[$1].process.value(for: metric, at: processes.timestamp) ?? 0)
                 }.prefix(matcher.anyProcess ? 500 : all.count))
                 selection = (metric, matcher, indices, Set(indices.map { all[$0].process.identity }))
                 prepared.append(selection)
@@ -125,7 +126,7 @@ actor AlertEngine {
                 let (process, app) = all[index]
                 let key = process.identity
                 var track = tracks.isEmpty ? Track() : tracks[key] ?? Track()
-                let metricValue = metric == .networkSendRate && !networkAvailable ? nil : process.value(for: metric)
+                let metricValue = metric == .networkSendRate && !networkAvailable ? nil : process.value(for: metric, at: processes.timestamp)
                 if let alert = threshold(rule, track: &track, runtime: &state, identity: key.id,
                                          subject: "\(process.name) (\(app), PID \(key.pid))",
                                          value: metricValue, comparison: comparison, threshold: value,
@@ -212,7 +213,7 @@ extension Comparison {
 
 extension ProcessMatcher {
     func matches(_ process: ProcessMetrics) -> Bool {
-        guard anyProcess || name != nil || bundleIdentifier != nil || executablePathPrefix != nil else { return false }
+        guard agentSessionRoot == true || anyProcess || name != nil || bundleIdentifier != nil || executablePathPrefix != nil else { return false }
         return (name.map { $0.caseInsensitiveCompare(process.name) == .orderedSame } ?? true)
             && (bundleIdentifier.map { $0 == process.bundleIdentifier } ?? true)
             && (executablePathPrefix.map { process.executablePath?.hasPrefix($0) == true } ?? true)
@@ -273,8 +274,9 @@ extension SystemSample {
 }
 
 extension ProcessMetrics {
-    func value(for metric: ProcessAlertMetric) -> Double? {
+    func value(for metric: ProcessAlertMetric, at date: Date = Date()) -> Double? {
         switch metric {
+        case .uptime: max(0, date.timeIntervalSince(identity.startTime))
         case .cpu: cpuUsage
         case .memoryBytes: Double(memoryBytes)
         case .wakeupsPerSecond: wakeupsPerSecond

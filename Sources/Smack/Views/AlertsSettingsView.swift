@@ -127,6 +127,11 @@ private struct AlertRuleEditor: View {
                     Picker("Metric", selection: Binding(get: { metric }, set: { rule.kind = .processThreshold(metric: $0, matcher: matcher, comparison: comparison, value: value, sustain: sustain, clear: clear) })) {
                         ForEach(ProcessAlertMetric.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
+                    Toggle("Agent session roots only", isOn: Binding(get: { matcher.agentSessionRoot == true }, set: { enabled in
+                        var updated = matcher; updated.agentSessionRoot = enabled ? true : nil
+                        rule.kind = .processThreshold(metric: metric, matcher: updated, comparison: comparison, value: value, sustain: sustain, clear: clear)
+                    }))
+                    if metric == .uptime { Text("Uptime threshold is in seconds.") }
                     Toggle("Any process", isOn: matcherBinding(matcher, metric, comparison, value, sustain, clear, \.anyProcess))
                     TextField("Exact process name", text: matcherText(matcher, metric, comparison, value, sustain, clear, \.name))
                     TextField("Bundle identifier", text: matcherText(matcher, metric, comparison, value, sustain, clear, \.bundleIdentifier))

@@ -300,17 +300,22 @@ struct StartupSources: Sendable {
 }
 
 enum StartupItemCollector {
-    static func collect(includeBackgroundTasks: Bool, removedLoginItems: [String]) async -> StartupInventory {
+    static func collect(includeBackgroundTasks: Bool, removedLoginItems: [String], bounded: Bool = false) async -> StartupInventory {
+        func scanCommand(_ executable: String, _ arguments: [String]) async -> StartupCommand.Output {
+            guard bounded else { return await StartupCommand.run(executable, arguments) }
+            let result = await CommandRunner.run(executable, arguments, timeout: 10, outputLimit: 1_048_576)
+            return .init(status: result.status, output: result.output, error: result.error)
+        }
         let uid = getuid()
         // `sfltool dumpbtm` always shows an administrator password prompt, so it only runs on request.
         async let btm = includeBackgroundTasks
-            ? StartupCommand.run("/usr/bin/sfltool", ["dumpbtm"])
+            ? scanCommand("/usr/bin/sfltool", ["dumpbtm"])
             : StartupCommand.Output(status: 0, output: "", error: "")
-        async let userDisabled = StartupCommand.run("/bin/launchctl", ["print-disabled", "gui/\(uid)"])
-        async let systemDisabled = StartupCommand.run("/bin/launchctl", ["print-disabled", "system"])
-        async let userServices = StartupCommand.run("/bin/launchctl", ["print", "gui/\(uid)"])
-        async let systemServices = StartupCommand.run("/bin/launchctl", ["print", "system"])
-        async let crontab = StartupCommand.run("/usr/bin/crontab", ["-l"])
+        async let userDisabled = scanCommand("/bin/launchctl", ["print-disabled", "gui/\(uid)"])
+        async let systemDisabled = scanCommand("/bin/launchctl", ["print-disabled", "system"])
+        async let userServices = scanCommand("/bin/launchctl", ["print", "gui/\(uid)"])
+        async let systemServices = scanCommand("/bin/launchctl", ["print", "system"])
+        async let crontab = scanCommand("/usr/bin/crontab", ["-l"])
         async let plists = Task.detached(priority: .utility) { readPlists() }.value
 
         var warnings: [String] = []
@@ -334,6 +339,11 @@ enum StartupItemCollector {
             crontab: await crontab.output,
             removedLoginItems: includesBackgroundTasks ? removedLoginItems : []
         )
+        if bounded {
+            for output in [await userDisabled, await systemDisabled, await userServices, await systemServices] where output.status != 0 {
+                warnings.append("A launchd source was unavailable")
+            }
+        }
         return StartupInventory(
             timestamp: Date(),
             items: items(from: sources),

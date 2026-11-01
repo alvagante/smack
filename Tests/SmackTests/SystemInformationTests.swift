@@ -1,27 +1,49 @@
 import Testing
 @testable import Smack
 
-@Test func advancedSystemInformationContainsCoreSectionsAndValues() {
-    let sections = SystemInformation.advancedSections(gpuName: "Test GPU", volumes: [])
+@MainActor
+@Test func systemInformationContainsCoreSectionsAndValues() {
+    let sections = SystemInformation.sections(gpuName: "Test GPU", gpuCoreCount: 40)
+    let titles = sections.map(\.title)
 
-    #expect(sections.map(\.title) == ["Hardware", "Software", "Graphics and Displays"])
-    #expect(sections.flatMap(\.rows).contains { $0.key == "Mac Model" && !$0.value.isEmpty })
-    #expect(sections.flatMap(\.rows).contains { $0.key == "macOS" && !$0.value.isEmpty })
-    #expect(sections.flatMap(\.rows).contains { $0.key == "GPU" && $0.value == "Test GPU" })
-    #expect(sections.flatMap(\.rows).allSatisfy { !$0.value.isEmpty })
+    #expect(Array(titles.prefix(4)) == ["Mac", "Processor and Memory", "Graphics and Displays", "Software"])
+    #expect(titles.contains("Identity and User"))
+    let rows = sections.flatMap(\.rows)
+    #expect(rows.contains { $0.key == "Model Identifier" && !$0.value.isEmpty })
+    #expect(rows.contains { $0.key == "macOS" && !$0.value.isEmpty })
+    #expect(rows.contains { $0.key == "GPU" && $0.value == "Test GPU" })
+    #expect(rows.contains { $0.key == "GPU Cores" && $0.value == "40" })
+    #expect(rows.allSatisfy { !$0.value.isEmpty })
+    for section in sections {
+        #expect(Set(section.rows.map(\.id)).count == section.rows.count, "\(section.title) has duplicate row keys")
+    }
 }
 
-@Test func advancedSystemInformationIncludesVolumeCapacityAndMountPath() {
-    let volume = VolumeSample(
-        name: "Macintosh HD",
-        mountPath: "/",
-        totalBytes: 1_000,
-        availableBytes: 250
-    )
-    let sections = SystemInformation.advancedSections(gpuName: "", volumes: [volume])
-    let storage = sections.first { $0.title == "Storage" }
+@MainActor
+@Test func systemInformationLeavesOutFiguresShownOnOtherPages() {
+    let keys = SystemInformation.sections(gpuName: "", gpuCoreCount: nil).flatMap(\.rows).map(\.key)
 
-    #expect(storage?.rows.count == 2)
-    #expect(storage?.rows[0].key == "Macintosh HD")
-    #expect(storage?.rows[1].value == "/")
+    #expect(!keys.contains("GPU Utilization"))
+    #expect(!keys.contains("Memory Pressure"))
+    #expect(!keys.contains("Thermal State"))
+    #expect(!keys.contains { $0.hasSuffix("Mount Path") })
+    #expect(keys.contains("GPU") && !keys.contains("GPU Cores"))
+}
+
+@MainActor
+@Test func systemInformationHidesHardwareIdentifiersWhenAsked() {
+    let keys = SystemInformation.sections(gpuName: "", gpuCoreCount: nil, includeIdentifiers: false).flatMap(\.rows).map(\.key)
+
+    #expect(!keys.contains("Serial Number"))
+    #expect(!keys.contains("Hardware UUID"))
+}
+
+@MainActor
+@Test func hardwareIdentifiersAreMarkedSensitive() {
+    let rows = SystemInformation.sections(gpuName: "", gpuCoreCount: nil, includeIdentifiers: true).flatMap(\.rows)
+
+    let identifiers: Set<String> = ["Serial Number", "Hardware UUID"]
+    let sensitiveKeys = Set(rows.filter { $0.isSensitive }.map { $0.key })
+    let identifierKeys = Set(rows.filter { identifiers.contains($0.key) }.map { $0.key })
+    #expect(sensitiveKeys == identifierKeys)
 }

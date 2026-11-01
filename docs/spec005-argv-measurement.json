@@ -1,0 +1,27 @@
+{
+  "attempts" : 10000,
+  "batches" : 50,
+  "batchMs" : {
+    "max" : 2.2275839999999998,
+    "median" : 1.833458,
+    "p95" : 2.0529999999999999
+  },
+  "callMs" : {
+    "max" : 0.15337500000000001,
+    "median" : 0.0087500000000000008,
+    "p95" : 0.011459
+  },
+  "capturedAt" : "2026-11-01T18:12:37Z",
+  "failedOrExited" : 0,
+  "invalidPIDCallMs" : {
+    "max" : 0.00975,
+    "median" : 0.0044590000000000003,
+    "p95" : 0.004542
+  },
+  "method" : "Release (-O), serial KERN_PROCARGS2, fresh 1 MiB buffer per call, argv decoding only, no environment parsing",
+  "os" : "Version 27.2 (Build 26B123)",
+  "ownUserProcesses" : 863,
+  "readsPerBatch" : 200,
+  "schemaVersion" : 1,
+  "successful" : 10000
+}
