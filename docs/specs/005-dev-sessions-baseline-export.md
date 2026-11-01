@@ -1,21 +1,24 @@
-# Spec 005: Dev Servers, Agent Sessions, Baseline Drift and Metrics Export
+# Spec 005: Dev Servers, Agent Sessions, Baseline Drift and Export
 
 Status: draft
-Target release: 0.9.0
+Target release: 1.0.0
 Date: 2026-10-31
-Branch base: `main` after spec 004 is merged
+Branch base: integration branch containing spec 004
 Suggested branch: `feature/005-dev-sessions-baseline-export`
+
+Scope amended 2026-11-01: specs 004 and 005 target the same unreleased 1.0.0 release.
+Prometheus metrics export is removed and will not be implemented. Export in this spec means
+portable baseline JSON and drift reports in JSON or Markdown.
 
 ## 1. Summary
 
-Make Smack project-aware for developers, and fleet-friendly for DevOps:
+Make Smack project-aware for developers, with portable machine baselines for DevOps:
 
 1. **Dev servers** (F1): listening ports grouped by project (working directory, git repository and branch, project type, Compose project), with open, reveal, terminal, editor and stop actions.
 2. **Live agent sessions** (F2): running AI coding agents (Claude Code, Codex, Gemini, Cursor and the rest of the catalog) as sessions. Each session shows its project, process tree, MCP servers, spawned commands, listeners, outbound hosts and resource use.
 3. **Baseline and drift** (F3): versioned snapshots of the machine's state, diffed against now or against another machine's export, with a CLI exit code for scripted checks.
-4. **Prometheus export** (F4): an opt-in, loopback-only, read-only `/metrics` endpoint that serves cached samples.
 
-The goal is to answer "what is running for which project", "what are my agents doing", "what changed on this Mac since it was good" and "graph it in my existing stack".
+The goal is to answer "what is running for which project", "what are my agents doing", "what changed on this Mac since it was good" and "export a baseline for comparison on another Mac".
 
 ## 2. Preconditions
 
@@ -28,11 +31,11 @@ This spec depends on spec 004:
 
 Before starting:
 
-1. Spec 004 is merged and released, or at least merged to `main` with tests passing.
+1. Spec 004 is integrated on the working branch with tests passing. Specs 004 and 005 ship together in 1.0.0; no separate spec 004 release is required.
 2. The P2 findings in `docs/review-20261031.md` are resolved, in particular eager app sizing and the unbounded `DevEnvironmentMonitor.inspections` cache. Baselines read both inventories.
 3. `swift test` passes and both flavors compile.
 
-If spec 004 is not merged, F1 and F2 can still ship. Their actions then use in-app navigation only, and F3 is limited to in-app baselines without the posture section or the CLI.
+Implement against spec 004's shared navigation, cached automation and posture surfaces. Release 1.0.0 includes both specs; spec 005 remains draft until implemented and validated.
 
 ## 3. Goals and non-goals
 
@@ -43,7 +46,6 @@ If spec 004 is not merged, F1 and F2 can still ship. Their actions then use in-a
 - Treat process arguments as sensitive: use them in memory to classify, never persist or display them by default.
 - Produce baselines that are deterministic, diffable, secret-free and portable between machines.
 - Never report a section as removed when it simply failed or was not collected.
-- Export metrics with bounded cardinality and constant scrape cost.
 
 ### Non-goals
 
@@ -52,8 +54,7 @@ If spec 004 is not merged, F1 and F2 can still ship. Their actions then use in-a
 - Controlling agents (pause, kill an individual tool call, approve actions).
 - Kubernetes clusters, remote hosts, SSH sessions.
 - Baseline enforcement or remediation. This is drift detection, not configuration management.
-- OTLP push, remote write, or any network export beyond loopback. Deferred to a later spec.
-- Exporting per-PID metrics.
+- Prometheus scraping, HTTP metrics endpoints, OTLP push, remote write and per-PID metric export. No metrics exporter is planned.
 
 ## 4. Requirements
 
@@ -180,22 +181,6 @@ Scenarios:
 - P4: An optional daily scheduled comparison against a pinned "golden" baseline emits `driftDetected` (group `Security`) with counts per section, usable by alert rules.
 - N1: Scheduled comparisons skip sections whose collectors are disabled in Settings, and say so in the event details.
 
-### REQ-010 Prometheus endpoint
-
-The direct build SHALL optionally serve Prometheus metrics on loopback.
-
-Scenarios:
-
-- P1: Disabled by default. When enabled, the endpoint listens on `127.0.0.1` only, on a configurable port, and serves `GET /metrics` in the Prometheus text exposition format, version 0.0.4.
-- P2: Requests whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>` get 421, to block DNS rebinding from a browser.
-- P3: Any method other than `GET` or `HEAD`, and any path other than `/metrics`, gets 405 or 404. No CORS headers are ever sent.
-- P4: A scrape serves the latest cached samples and never triggers collection. `smack_last_sample_timestamp_seconds{loop}` exposes freshness.
-- P5: Optional bearer token: when set, requests without `Authorization: Bearer <token>` get 401. The token is stored in the Keychain and shown once with copy.
-- P6: Process metrics are labeled by program name and application, capped at the top N by CPU and by memory (default 20, maximum 100). Everything else is summed into `program="other"`.
-- N1: Binding fails with a clear Settings error when the port is taken; Smack does not retry on another port silently.
-- N2: Requests are capped at 8 KiB of headers with a 5 s read timeout and at most 4 concurrent connections.
-- N3: When background collection is off and the panel is hidden, gauges stay at their last values. Their freshness timestamp shows the age, and `smack_up` stays 1 while the endpoint serves.
-
 ## 5. Design
 
 ### 5.1 Project resolution
@@ -243,7 +228,7 @@ struct ContainerBinding: Sendable, Equatable {
 }
 ```
 
-`DevServerCollector` builds rows from the latest `NetworkPortSnapshot` and `ProcessSnapshot`. It runs on the network port loop cadence (5 s visible, background interval hidden) and only while the Dev Servers page or Summary card is visible, or while a consumer such as the CLI or the exporter asks. Grouping walks `parentPID` up to the nearest ancestor that shares the same working directory.
+`DevServerCollector` builds rows from the latest `NetworkPortSnapshot` and `ProcessSnapshot`. It runs on the network port loop cadence (5 s visible, background interval hidden) and only while the Dev Servers page or Summary card is visible, or while background dev-server collection is enabled. CLI queries read cached rows and never start collection. Grouping walks `parentPID` up to the nearest ancestor that shares the same working directory.
 
 Container mapping: `DockerMonitor` gains the Compose working directory from the `com.docker.compose.project.working_dir` label, by adding `{{.Labels}}` to its existing `docker ps` format, or with one `docker inspect` for running containers when labels are truncated. Host ports from `publishedEndpoints` are matched against listeners owned by the engine process. Engine process names: `com.docker.backend`, `vpnkit-bridge`, `OrbStack Helper`, `limactl`, `gvproxy`, `qemu-system-aarch64` (Colima and Podman). The list lives in a table in `DevServerCollector` and is covered by tests.
 
@@ -332,7 +317,7 @@ An adapter returns path, size and modification time only. File content is never 
 ```json
 {
   "schemaVersion": 1,
-  "generator": { "app": "Smack", "version": "0.9.0", "flavor": "direct" },
+  "generator": { "app": "Smack", "version": "1.0.0", "flavor": "direct" },
   "capturedAt": "2026-10-31T10:00:00Z",
   "name": "post-onboarding",
   "note": "",
@@ -393,43 +378,7 @@ Protocol v2 extends spec 004's v1. A v1 CLI keeps working, and a v2 CLI talking 
 
 `baseline diff` exit codes follow REQ-009. The CLI maps a `drift: true` response to exit 2.
 
-### 5.10 Prometheus exporter
-
-`MetricsExporter` uses `Network.framework` (`NWListener` with `requiredLocalEndpoint` set to `127.0.0.1:<port>`) and a minimal HTTP/1.1 request parser. It has no dependencies. The response body is rendered from an immutable `MetricsSnapshot` that `MonitorStore` updates whenever a system, process or network sample arrives, so a scrape copies a value and formats text.
-
-Metric names (prefix `smack_`):
-
-| Metric | Type | Labels | Source |
-|---|---|---|---|
-| `build_info` | gauge (1) | `version`, `flavor` | bundle |
-| `up` | gauge | none | exporter |
-| `last_sample_timestamp_seconds` | gauge | `loop` (system, process, network) | scheduler |
-| `cpu_usage_ratio` | gauge | `scope` (total, user, system) | `SystemSample.cpu` |
-| `cpu_core_usage_ratio` | gauge | `core` | `SystemSample.cpu.coreUsage` |
-| `memory_bytes` | gauge | `kind` (used, wired, compressed, app, cached, total) | `SystemSample.memory` |
-| `memory_pressure_level` | gauge | none (0 normal, 1 warning, 2 critical) | `SystemSample.memory.pressure` |
-| `swap_bytes` | gauge | `kind` (used, total) | `SystemSample.memory` |
-| `network_bytes_total` | counter | `interface`, `direction` | `NetworkSample.bytesReceived/bytesSent` |
-| `disk_bytes_total` | counter | `disk`, `direction` | `DiskSample.bytesRead/bytesWritten` |
-| `volume_bytes` | gauge | `mount`, `kind` (free, total) | `SystemSample.volumes` |
-| `gpu_utilization_ratio` | gauge | none | `SystemSample.gpu` (omitted when nil) |
-| `thermal_state` | gauge | none (0 nominal to 3 critical) | `SystemSample` |
-| `battery_charge_ratio`, `battery_charging` | gauge | none | `SystemSample.battery` (omitted when absent) |
-| `process_cpu_ratio`, `process_memory_bytes` | gauge | `program`, `app` | top N (REQ-010 P6) |
-| `listeners` | gauge | `scope` | `NetworkPortSnapshot` |
-| `events_total` | counter | `kind` | events since app launch |
-| `alerts_firing` | gauge | `rule` (rule name, cap 100) | spec 004 engine |
-| `posture_check` | gauge | `check`, `status` (1 for current status) | spec 004 |
-| `docker_containers` | gauge | `state` | `DockerMonitor` when visible data exists |
-| `homebrew_outdated` | gauge | none | `HomebrewMonitor` last result |
-| `agent_sessions` | gauge | `agent` | F2 |
-| `dev_servers` | gauge | none | F1 |
-
-Interface and disk byte counters are cumulative in `NetworkSample` and `DiskSample`, so they are exported as counters. Interface resets (sleep, interface recreation) are handled by Prometheus' counter reset semantics. Metrics whose source is unavailable are omitted rather than exported as 0.
-
-Default port: chosen in Phase 0 from the Prometheus default port allocations wiki, then reserved there if appropriate. Until then, the setting has no default and must be entered by the user.
-
-### 5.11 Settings
+### 5.10 Settings
 
 ```swift
 var devServersShowSystem = false
@@ -440,15 +389,9 @@ var showAgentCommandLines = false        // per-session expansion still requires
 var baselineRetentionCount = 20
 var goldenBaselineID: String? = nil
 var scheduledDriftCheck = false
-var metricsExporterEnabled = false
-var metricsExporterPort: UInt16? = nil
-var metricsExporterTopN = 20
-var metricsExporterRequireToken = false
 ```
 
-Changing exporter settings restarts only the exporter, not the sampling loops.
-
-### 5.12 Capability matrix
+### 5.11 Capability matrix
 
 | Feature | Direct | Direct + helper | App Store |
 |---|---|---|---|
@@ -459,14 +402,12 @@ Changing exporter settings restarts only the exporter, not the sampling loops.
 | Agent file activity | no | yes | no |
 | Baseline capture | all sections except profiles and full BTM | all sections | `system` and `apps` from the container's view; other sections `unavailable` |
 | Baseline CLI | yes | yes | no |
-| Prometheus exporter | yes | yes | no (would need `network.server`; see open questions) |
 
 ## 6. Implementation plan
 
 ### Phase 0: baseline and choices
 
-- Section 2 satisfied; spec 004 merged.
-- Pick the exporter default port from the Prometheus wiki.
+- Section 2 satisfied; spec 004 integrated for the shared 1.0.0 release.
 - Capture fixture directory listings for agent session logs on a machine with Claude Code, Codex and Gemini installed.
 - Measure argv read cost per process to confirm the 200-per-snapshot cap.
 
@@ -490,11 +431,7 @@ Changing exporter settings restarts only the exporter, not the sampling loops.
 - `BaselineDiff`, Baseline page, import and export.
 - CLI ops and exit codes, scheduled drift check.
 
-### Phase 4: exporter
-
-- `MetricsSnapshot` in `MonitorStore`, `MetricsExporter`, Settings UI, Keychain token.
-
-### Phase 5: hardening and release
+### Phase 4: hardening and release
 
 - Performance budget, docs, both flavors compile.
 
@@ -509,14 +446,12 @@ Unit tests:
 - `McpConfigReader`: JSON and TOML fixtures; `env` values absent from output.
 - Log adapters: fixture trees, no content reads (adapters receive a file system abstraction that fails on reads).
 - Baselines: deterministic bytes for identical inputs; volatile fields excluded; `incomplete` sections never produce removals; unknown major version rejected; size cap; home path normalization.
-- Exporter: exposition format validity (parse with a small test parser), Host header enforcement, method and path handling, token check, top-N and `other` aggregation, omitted metrics when unavailable, counter source mapping.
 
 Integration and manual:
 
 - Run `npm run dev` in a repo and `docker compose up` in another: both appear with projects, branch and Compose working directory.
 - Start Claude Code and Codex in two projects: sessions, MCP servers, recent commands, listeners and the log location appear.
 - `smack baseline create`, install a brew formula, `smack baseline diff` exits 2 and shows the formula.
-- Scrape with `curl -s http://127.0.0.1:<port>/metrics` and with a local Prometheus; `curl -H 'Host: evil.example' ...` gets 421.
 
 ## 8. Performance budget
 
@@ -524,14 +459,12 @@ Integration and manual:
 - Agent tracking: under 5 ms per process snapshot at steady state; at most 200 argv reads per snapshot.
 - Baseline capture: wall time 60 s or less with all sections; no app sizing; runtime discovery bounded as in `DevEnvironmentMonitor`.
 - Baseline storage: 20 documents, typically under 1 MiB each.
-- Exporter: scrape under 2 ms to render with top N = 20; no collection on scrape; one listener with no threads while idle.
 
 ## 9. Migration and rollback
 
 - No schema change. New event kinds are skipped by older builds.
 - New settings keys have decoder defaults.
 - Baseline files are versioned. Older builds ignore the directory.
-- The exporter is off by default. Rollback to 0.8.0 simply stops it.
 - Control protocol v2 is additive over v1.
 
 ## 10. Risks and mitigations
@@ -542,17 +475,14 @@ Integration and manual:
 | Agent session log layouts change | Adapters are best effort, fixture tested, and fail to "No log found" |
 | Container engine process names change | Table-driven mapping with tests; unknown engines show the listener without container data |
 | Baseline false drift from collector flakiness | Per-section status; incomplete sections are not compared; `--strict` is opt-in |
-| Exporter reachable from a browser via DNS rebinding | Loopback bind, Host header check, no CORS, optional token |
-| Cardinality blowup in Prometheus | Program-level labels, top N with `other`, rule label cap, no per-PID series |
 | Project resolution walks slow network volumes | Stop at `$HOME` or `/`; skip volumes that are not local (`MNT_LOCAL` check) |
 
 ## 11. Documentation
 
-- README: Dev Servers, Agent sessions, Baseline and drift, Prometheus exporter, with the edition notes.
+- README: Dev Servers, Agent sessions, Baseline capture/drift and baseline/report export, with the edition notes.
 - `docs/cli.md`: v2 operations and exit codes.
 - New `docs/baseline-format.md`: the schema, section table and stability promise.
-- New `docs/metrics.md`: metric names, labels, sources, and an example Prometheus scrape config.
-- `docs/distribution.md`: matrix rows from 5.12.
+- `docs/distribution.md`: matrix rows from 5.11.
 
 ## 12. Definition of done
 
@@ -560,13 +490,11 @@ Integration and manual:
 - Performance budget measured and recorded in the PR.
 - Both flavors compile; `swift test` passes.
 - Baseline JSON from two different Macs diffs correctly in both directions.
-- Prometheus scrape validated with a real Prometheus.
 - Documentation updated.
 
 ## 13. Open questions
 
-1. Should the exporter also be offered in the App Store flavor with the `com.apple.security.network.server` entitlement? Review risk versus value.
-2. Should baselines offer a flat `--format facts` output (dotted keys) for use with configuration management fact pipelines?
-3. Should agent sessions show token and cost data when an agent writes it in a stable, documented format? This would require reading log content, which this spec excludes.
-4. Should "recent commands" be persisted across restarts (names only) or stay in memory?
-5. Should dev server detection include UDP listeners (for example DNS or QUIC dev tooling)?
+1. Should baselines offer a flat `--format facts` output (dotted keys) for use with configuration management fact pipelines?
+2. Should agent sessions show token and cost data when an agent writes it in a stable, documented format? This would require reading log content, which this spec excludes.
+3. Should "recent commands" be persisted across restarts (names only) or stay in memory?
+4. Should dev server detection include UDP listeners (for example DNS or QUIC dev tooling)?

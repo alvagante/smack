@@ -4,7 +4,15 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+Release target: 1.0.0, combining completed spec 004 and planned spec 005 (dev servers, agent sessions,
+baseline drift and file export). Prometheus metrics export is excluded and will not be implemented.
+No release is authorized by this planning change.
+
 ### Added
+
+- Add disabled-by-default threshold/event alert templates, bounded notification delivery, pause/snooze controls and Timeline firing records, including when notification permission is denied.
+- Add navigation-only `smack://` URLs, same-UID cached CLI queries with future-only follow, CSV/TSV exports and five typed App Intents.
+- Add offline security posture and bounded persistence watching with signing enrichment, helper-v2 BTM/profile polling and graceful old/missing-helper behavior. All spec 004 changes target unreleased 1.0.0.
 
 - Add a GPU page, opened from the GPU reading on Summary: device utilization with Live, 1h, 24h and 7d charts; live renderer and tiler lines; GPU memory in use and allocated, and recoveries since boot. Apple GPU process time has Apps/All scopes, live row graphs and detail navigation. Process counters are read only while the page is visible and never saved to history; unsupported or unreadable counters show as unavailable.
 - Add tuning settings, all defaulting to the previous fixed behavior:

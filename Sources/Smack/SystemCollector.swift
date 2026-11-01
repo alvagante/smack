@@ -265,10 +265,14 @@ final class SystemCollector: SystemMetricsCollecting {
 
     private func collectCPU() -> CPUSample {
         var totalUsage = 0.0
+        var hasUsage = false
         var breakdown: (user: Double, system: Double)?
         if let current = readAggregateCPUTicks() {
             if let previous = aggregateCPUTicks {
-                totalUsage = SystemCollectorMath.cpuUsage(current: current, previous: previous) ?? 0
+                if let usage = SystemCollectorMath.cpuUsage(current: current, previous: previous) {
+                    totalUsage = usage
+                    hasUsage = true
+                }
                 breakdown = SystemCollectorMath.cpuBreakdown(current: current, previous: previous)
             }
             aggregateCPUTicks = current
@@ -290,7 +294,8 @@ final class SystemCollector: SystemMetricsCollecting {
         let loadAverage = getloadavg(&loads, 3) == 3 ? loads : []
         return CPUSample(
             totalUsage: totalUsage, coreUsage: coreUsage,
-            userUsage: breakdown?.user ?? 0, systemUsage: breakdown?.system ?? 0, loadAverage: loadAverage
+            userUsage: breakdown?.user ?? 0, systemUsage: breakdown?.system ?? 0, loadAverage: loadAverage,
+            hasUsage: hasUsage
         )
     }
 
@@ -659,7 +664,8 @@ final class SystemCollector: SystemMetricsCollecting {
                 isPresent: true,
                 timeRemaining: timeRemaining,
                 health: description[kIOPSBatteryHealthKey as String] as? String,
-                cycleCount: (description["CycleCount"] as? NSNumber)?.intValue
+                cycleCount: (description["CycleCount"] as? NSNumber)?.intValue,
+                isOnBattery: (description[kIOPSPowerSourceStateKey as String] as? String).map { $0 == (kIOPSBatteryPowerValue as String) }
             )
         }
         return nil

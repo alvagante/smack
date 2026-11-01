@@ -1,0 +1,13 @@
+# URL navigation
+
+`smack://` opens Summary. Resource pages use `cpu`, `memory`, `network`, `disk`, `storage`, `battery`
+and `thermal`. Other hosts: `apps`, `ports`, `docker`, `homebrew`, `dev`, `home`, `agents`, `installed`,
+`startup`, `security`, `timeline`, `history`, `settings`, `system`.
+
+Specific routes: `smack://app/<bundle-id>`, `smack://process/<pid>`, `smack://port/<port>`,
+`smack://settings/alerts`. Timeline accepts `since=1h`, comma-separated `kind`, and `q` search.
+Only Timeline accepts query parameters. Unknown/malformed routes fall back to Summary.
+
+Links navigate and pin the panel. They never run commands or change collection, alert rules or startup
+items. Missing processes show Applications with a banner. Direct-only routes show edition limitations
+in the App Store build. Signed launcher/notification integration remains a release gate.

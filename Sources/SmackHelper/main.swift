@@ -12,8 +12,39 @@ private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sam
 final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendable {
     private let scan = Mutex<StorageScanJob?>(nil)
     private let capture = FileActivityCapture()
+    private let probe = Mutex<Task<Void, Never>?>(nil)
+
+    func protocolVersion(reply: @escaping (Int) -> Void) { reply(SmackIPC.helperProtocolVersion) }
+
+    func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void) {
+        runProbe("/usr/bin/sfltool", ["dumpbtm"], reply: reply)
+    }
+
+    func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void) {
+        runProbe("/usr/bin/profiles", ["show", "-type", "configuration", "-output", "stdout-xml"], reply: reply)
+    }
+
+    private final class Reply: @unchecked Sendable {
+        let send: (Data?, String?) -> Void
+        init(_ send: @escaping (Data?, String?) -> Void) { self.send = send }
+    }
+
+    private func runProbe(_ path: String, _ arguments: [String], reply: @escaping (Data?, String?) -> Void) {
+        let reply = Reply(reply)
+        probe.withLock { task in
+            guard task == nil else { reply.send(nil, "A helper probe is already running"); return }
+            task = Task {
+                let result = await Subprocess.run(path, arguments, timeout: 5, outputLimit: 1_048_576)
+                if result.status == 0 && !result.truncated && !result.cancelled && !result.timedOut {
+                    self.encode(result.output, reply: reply.send)
+                } else { reply.send(nil, "Helper probe failed or exceeded its limits") }
+                self.probe.withLock { $0 = nil }
+            }
+        }
+    }
 
     func disconnect() {
+        probe.withLock { $0?.cancel() }
         stopScan()
         capture.cancel()
     }
@@ -54,7 +85,7 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendab
     }
 
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void) {
-        encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records()), reply: reply)
+        encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records(), helperProtocolVersion: SmackIPC.helperProtocolVersion), reply: reply)
     }
 
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {

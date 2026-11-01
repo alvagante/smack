@@ -3,6 +3,20 @@ import Testing
 import Synchronization
 @testable import Smack
 
+@Test func featureControlsPersistDisabledAndDecodeLegacyDefaults() throws {
+    let legacy = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
+    #expect(legacy.alertsEnabled && legacy.appIntentsEnabled && legacy.urlNavigationEnabled)
+    #expect(legacy.persistencePollInterval == 3600 && legacy.persistenceEnrichmentEnabled)
+    var settings = CollectionSettings()
+    settings.alertsEnabled = false; settings.appIntentsEnabled = false; settings.urlNavigationEnabled = false
+    settings.controlSocketEnabled = false; settings.watchPersistence = false
+    settings.persistenceEnrichmentEnabled = false; settings.persistencePollInterval = nil; settings.postureCheckInterval = nil
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded == settings)
+    settings.persistencePollInterval = 1; settings.validate()
+    #expect(settings.persistencePollInterval == (Capabilities.supportsPersistenceWatching ? 3600 : nil))
+}
+
 @Test func validationClampsCustomIntervalsAndRetention() {
     var settings = CollectionSettings()
     settings.hoverDelay = -1

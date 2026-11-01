@@ -1,6 +1,8 @@
 .build/
 .build-appstore/
+.build-store/
 .swiftpm/
 .DS_Store
 *.xcuserstate
 dist/
+Smack.build

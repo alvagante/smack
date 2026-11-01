@@ -18,6 +18,27 @@ extension HistoryRepository {
             })
     }
 
+
+    /// Bounded in SQLite, including aggregation and output allocation.
+    func controlSeries(_ metric: SystemMetric, from start: Date, to end: Date,
+                       resolution: Double, limit: Int) throws -> [HistoricalPoint] {
+        let q = metric.query
+        return try readPoints(sql: """
+            SELECT CAST(timestamp / ? AS INTEGER) * ?, SUM(value * weight) / SUM(weight), MAX(peak) FROM (
+                SELECT timestamp, \(q.raw) AS value, \(q.raw) AS peak, 1.0 AS weight FROM system_samples
+                WHERE timestamp >= ? AND timestamp <= ? AND \(q.rawFilter)
+                UNION ALL
+                SELECT timestamp, \(q.minuteAverage), \(q.minutePeak), \(metric == .gpuUtilization ? "gpu_available" : "sample_count") FROM system_minutes
+                WHERE timestamp >= ? AND timestamp <= ? AND \(q.minuteFilter)
+            ) GROUP BY CAST(timestamp / ? AS INTEGER) ORDER BY 1 DESC LIMIT ?
+            """, bind: { statement in
+                bind(resolution, at: 1, to: statement); bind(resolution, at: 2, to: statement)
+                for index: Int32 in [3, 5] { bind(start.timeIntervalSince1970, at: index, to: statement) }
+                for index: Int32 in [4, 6] { bind(end.timeIntervalSince1970, at: index, to: statement) }
+                bind(resolution, at: 7, to: statement); sqlite3_bind_int64(statement, 8, Int64(limit))
+            })
+    }
+
     /// Highest peak since `start`, computed by SQLite so the What changed strip does not load a whole series.
     func peak(_ metric: SystemMetric, from start: Date) throws -> Double? {
         let query = metric.query

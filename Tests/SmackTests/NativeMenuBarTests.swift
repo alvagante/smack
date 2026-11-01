@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import Smack
 
+#if !SMACK_APP_STORE
 @Test func nativeMenuBarDiscoveryIncludesHiddenItemsInNativeOrder() {
     let currentPID = ProcessInfo.processInfo.processIdentifier
     let hidden = menuBarWindow(id: 1, x: -240)
@@ -186,3 +187,4 @@ private func menuBarWindow(
         isOnScreen: onScreen
     )
 }
+#endif

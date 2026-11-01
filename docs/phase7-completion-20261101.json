@@ -1,0 +1,551 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-01",
+  "host": {
+    "hardware": "Apple M5 Max",
+    "os": "macOS 27.2"
+  },
+  "scope": "Spec 004 complete with accepted caveats; shared spec 004/005 target 1.0.0 remains unreleased.",
+  "hardware_acceptance": {
+    "m1_available": false,
+    "macos15_available": false,
+    "status": "unverified and explicitly accepted by user",
+    "basis": "M5 Max/macOS 27.2 evidence only; no target-hardware pass claimed"
+  },
+  "decisions": {
+    "persistence_default": "disabled, including after notification authorization",
+    "menu_bar_badge": "deferred pending lifetime and acknowledgement semantics",
+    "cli_output": "CSV/TSV approved and implemented",
+    "bputil": "deferred",
+    "distribution": "GitHub releases and alvagante/tap cask; no Developer ID/notarization",
+    "app_store": "compile only, runtime and 42 existing issues out of scope"
+  },
+  "denial": {
+    "threshold": 0,
+    "cli_records": [
+      {
+        "id": "532ad37ef1401ed873e8d70e2745bca58c49d3c2e338efbd126a4b44dce3657a",
+        "fields": {
+          "kind": "alertFired",
+          "severity": "warning",
+          "timestamp": "2026-11-01T16:31:12Z"
+        },
+        "title": "CPU sustained"
+      }
+    ],
+    "persisted": [
+      {
+        "id": "532ad37ef1401ed873e8d70e2745bca58c49d3c2e338efbd126a4b44dce3657a",
+        "timestamp": 1793550672.555194,
+        "details": {
+          "count": "1",
+          "identity": "system",
+          "ruleID": "0A3BD937-D0DC-4C6E-88BD-14A47171046D",
+          "ruleName": "CPU sustained",
+          "suppressed": "authorization",
+          "sustain": "0.0",
+          "threshold": "0.0",
+          "value": "14.794816414686824"
+        }
+      }
+    ],
+    "restoration": "All persisted rule objects exactly equal pre-check backup; threshold was 0%, sustain 0 s for this real firing; authorization denied confirmed through status."
+  },
+  "live_follow": {
+    "elapsed_s": 30.613006165999998,
+    "status_replies": 200,
+    "errors": [],
+    "raw_heartbeats": 15,
+    "raw_events": 57,
+    "cli_followers": [
+      {
+        "alive": true,
+        "lines": 57,
+        "stderr": ""
+      },
+      {
+        "alive": true,
+        "lines": 57,
+        "stderr": ""
+      },
+      {
+        "alive": true,
+        "lines": 57,
+        "stderr": ""
+      }
+    ]
+  },
+  "isolated_follow": {
+    "followers": 4,
+    "events_per_follower": 1024,
+    "concurrent_status_queries": 200,
+    "result": "all ordered events received, all clients released",
+    "log": "/tmp/smack-004-follow-load-fixed.log"
+  },
+  "race_stress": {
+    "directory_exchanges": 2048,
+    "directory_listener_attempts": 128,
+    "directory_racing_round_trips": 63,
+    "symlink_exchanges": 8192,
+    "symlink_listener_attempts": 512,
+    "symlink_listeners_started": 131,
+    "result": "passed; sentinel and target permissions unchanged; stable final round trips; bounded, not exhaustive",
+    "log": "/tmp/smack-004-idle-race.log"
+  },
+  "control_socket_idle": {
+    "before_threads": [
+      7,
+      8,
+      8,
+      8,
+      8,
+      8,
+      5,
+      4,
+      4,
+      4
+    ],
+    "listener_threads": [
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "cpu_s": 0.007568999999999937,
+    "wall_s": 61.719765292000005,
+    "active_peers": 0
+  },
+  "running_app_watcher": {
+    "pid": 39679,
+    "idle": [
+      {
+        "t": 0.024561166,
+        "cpu_s": 66.44008895833333,
+        "wakeups": 15505,
+        "energy_nJ": 392246364402
+      },
+      {
+        "t": 60.0295135,
+        "cpu_s": 68.94347679166667,
+        "wakeups": 15608,
+        "energy_nJ": 392250212048
+      },
+      {
+        "t": 120.032772,
+        "cpu_s": 71.63758491666667,
+        "wakeups": 15705,
+        "energy_nJ": 392253929921
+      },
+      {
+        "t": 180.036655583,
+        "cpu_s": 75.42873858333333,
+        "wakeups": 16355,
+        "energy_nJ": 392281649254
+      },
+      {
+        "t": 240.042441083,
+        "cpu_s": 78.27873475,
+        "wakeups": 16550,
+        "energy_nJ": 392288773918
+      },
+      {
+        "t": 300.043433958,
+        "cpu_s": 81.94850291666667,
+        "wakeups": 17086,
+        "energy_nJ": 392304284101
+      },
+      {
+        "t": 360.04688975,
+        "cpu_s": 84.71608041666667,
+        "wakeups": 17261,
+        "energy_nJ": 392314519206
+      },
+      {
+        "t": 420.050633958,
+        "cpu_s": 87.535560625,
+        "wakeups": 17458,
+        "energy_nJ": 392321575675
+      },
+      {
+        "t": 480.053374125,
+        "cpu_s": 90.283739125,
+        "wakeups": 17558,
+        "energy_nJ": 392325743681
+      },
+      {
+        "t": 540.054745833,
+        "cpu_s": 92.71673533333333,
+        "wakeups": 17658,
+        "energy_nJ": 392329905698
+      },
+      {
+        "t": 600.0590975,
+        "cpu_s": 95.20545625,
+        "wakeups": 17757,
+        "energy_nJ": 392333518040
+      }
+    ],
+    "before_add": {
+      "t": 600.059961416,
+      "cpu_s": 95.20545625,
+      "wakeups": 17757,
+      "energy_nJ": 392333518040
+    },
+    "after_add": {
+      "t": 605.061042291,
+      "cpu_s": 95.53074091666667,
+      "wakeups": 17781,
+      "energy_nJ": 392334099102
+    },
+    "added_cli": [
+      {
+        "id": "118977aa4496b17a10d8bcb2b3ac256fa5510e4ffe9a941c9f251913ce04275f",
+        "title": "/Users/al/Library/LaunchAgents/it.lab42.smack.test.plist",
+        "fields": {
+          "kind": "persistenceFileChanged",
+          "severity": "warning",
+          "timestamp": "2026-11-01T16:42:13Z"
+        }
+      }
+    ],
+    "before_remove_wait": {
+      "t": 605.077613333,
+      "cpu_s": 95.531849625,
+      "wakeups": 17781,
+      "energy_nJ": 392334099102
+    },
+    "after_remove": {
+      "t": 610.0812795,
+      "cpu_s": 95.75716741666668,
+      "wakeups": 17799,
+      "energy_nJ": 392334442283
+    },
+    "removed_cli": [
+      {
+        "id": "f630ce62661a7cadafac805ba98e9a372066287b167f466f02c403f0835d272c",
+        "title": "/Users/al/Library/LaunchAgents/it.lab42.smack.test.plist",
+        "fields": {
+          "timestamp": "2026-11-01T16:42:18Z",
+          "severity": "warning",
+          "kind": "persistenceFileChanged"
+        }
+      },
+      {
+        "id": "118977aa4496b17a10d8bcb2b3ac256fa5510e4ffe9a941c9f251913ce04275f",
+        "title": "/Users/al/Library/LaunchAgents/it.lab42.smack.test.plist",
+        "fields": {
+          "timestamp": "2026-11-01T16:42:13Z",
+          "severity": "warning",
+          "kind": "persistenceFileChanged"
+        }
+      }
+    ],
+    "persisted": [
+      {
+        "id": "f630ce62661a7cadafac805ba98e9a372066287b167f466f02c403f0835d272c",
+        "timestamp": 1793551338.065761,
+        "details": {
+          "change": "removed",
+          "new": "absent",
+          "old": "20cc272bcd2023ff1d35342809bf875f2efe26985ead219f97d9a2f54783062e",
+          "path": "/Users/al/Library/LaunchAgents/it.lab42.smack.test.plist",
+          "signing": "unknown"
+        }
+      },
+      {
+        "id": "118977aa4496b17a10d8bcb2b3ac256fa5510e4ffe9a941c9f251913ce04275f",
+        "timestamp": 1793551333.210771,
+        "details": {
+          "certificate": "macOS Software Signing",
+          "change": "added",
+          "entitlements": "",
+          "hardenedRuntime": "false",
+          "location": "other",
+          "new": "20cc272bcd2023ff1d35342809bf875f2efe26985ead219f97d9a2f54783062e",
+          "old": "absent",
+          "path": "/Users/al/Library/LaunchAgents/it.lab42.smack.test.plist",
+          "quarantine": "absent",
+          "signing": "signed",
+          "signingIdentifier": "com.apple.true",
+          "teamIdentifier": "unavailable"
+        }
+      }
+    ],
+    "fixture_removed": true,
+    "summary": {
+      "idle_wall_s": 600.034536334,
+      "app_idle_cpu_s": 28.765367291666664,
+      "app_idle_cpu_percent_one_core": 4.793951939402178,
+      "app_add_cpu_s": 0.32528466666667555,
+      "app_remove_cpu_s": 0.22531779166666865,
+      "attribution": "Whole running app, including existing sampling and alerts. Dedicated production watcher attribution remains in phase7-local-measurements-20261101.json. No sampling settings changed."
+    }
+  },
+  "cli_formats": {
+    "debug_fixture_checks": 15,
+    "release_fixture_checks": 15,
+    "result": "passed",
+    "live_schemas": [
+      {
+        "op": "status",
+        "records": 1,
+        "columns": [
+          "id",
+          "title",
+          "alertsPausedUntil",
+          "appUptimeSeconds",
+          "appVersion",
+          "batteryPercent",
+          "cpuPercent",
+          "flavor",
+          "helper",
+          "memoryTotalBytes",
+          "memoryUsedBytes",
+          "notificationAuthorization",
+          "onBattery",
+          "pressure",
+          "startupDiskFreeBytes",
+          "swapUsedBytes",
+          "systemUptimeSeconds",
+          "thermal",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "ps",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "bundleIdentifier",
+          "cpuPercent",
+          "diskReadRate",
+          "diskWriteRate",
+          "memoryBytes",
+          "pid",
+          "startTime",
+          "timestamp",
+          "user",
+          "wakeupsPerSecond"
+        ]
+      },
+      {
+        "op": "apps",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "bundleIdentifier",
+          "cpuPercent",
+          "memoryBytes"
+        ]
+      },
+      {
+        "op": "ports",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "address",
+          "clientCount",
+          "clients",
+          "pid",
+          "port",
+          "protocol",
+          "scope",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "events",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "kind",
+          "severity",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "history",
+        "records": 6,
+        "columns": [
+          "id",
+          "title",
+          "average",
+          "peak",
+          "resolutionSeconds",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "startup",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "category",
+          "enabled",
+          "includedCategories",
+          "includesBackgroundTasks",
+          "path",
+          "program",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "posture",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "area",
+          "reason",
+          "status",
+          "timestamp"
+        ]
+      },
+      {
+        "op": "alerts",
+        "records": 10,
+        "columns": [
+          "id",
+          "title",
+          "deliverySnoozedUntil",
+          "enabled",
+          "evaluationEnabled",
+          "lastFired",
+          "pausedUntil",
+          "state"
+        ]
+      }
+    ],
+    "reproduction": "python3 Scripts/spikes/phase7-cli-formats.py .build/out/Products/Release/SmackCLI"
+  },
+  "helper_fast_validation": {
+    "result": "passed",
+    "scheduler": "Production hourly BTM and canonical profile diffs; absent helper cannot poll BTM; cancelled scan cannot call helper",
+    "manual": "Real StartupItemCollector without helper client: default excludes BTM, explicit manual scan includes BTM, 962 items, 17.872 s",
+    "cancellation": "Anonymous XPC in-flight probe cancelled and renegotiated in 0.023 s",
+    "log": "/tmp/smack-004-manual-btm.log"
+  },
+  "helper_real_hour": {
+    "status": "accepted with documented harness timing caveat",
+    "method": "Production PersistenceWatcher default 3600-second timer and anonymous XPC fixture; does not replace installed helper",
+    "log": "/tmp/smack-004-helper-hour-final.log",
+    "elapsed_s": 3763.009464292,
+    "polls": 1,
+    "version_negotiations": 1,
+    "operations": 2,
+    "post_stop_observation_s": 3,
+    "harness_issues": 2,
+    "cause": "Repeated relative minute sleeps accumulated drift. Observations 58 and 59 occurred after the one-hour poll was due, but incorrectly expected zero polls. Operations/counts/stop assertions passed.",
+    "harness_fix": "Compare observations and callback time to the actual elapsed deadline; negotiate before waiting. Scaled 1-second lifecycle passed in 4.060 s.",
+    "scaled_log": "/tmp/smack-004-helper-clock-fix.log",
+    "raw_run_result": "failed: two harness timing assertions",
+    "user_acceptance": {
+      "date": "2026-11-01T17:38:35Z",
+      "quote": "Accept observed lifecycle with caveat"
+    },
+    "corrected_full_hour_rerun": "not performed; user accepted the observed lifecycle",
+    "scaled_regression_result": "passed"
+  },
+  "validation": {
+    "direct_suite": "422 tests reported, passed; opt-in/privileged checks not enabled are skipped and evidenced separately",
+    "direct_log": "/tmp/smack-004-final-clock-tests.log",
+    "app_store_compile": "passed",
+    "app_store_log": "/tmp/smack-004-completion-store.log"
+  },
+  "deferred": {
+    "kernel_dropped": "optional, not reproduced",
+    "root_helper_cpu": "Existing per-sample process collection, outside spec; profiling not performed",
+    "first_history_cpu_sample": "Existing placeholder remains",
+    "release": "Explicit approval and authorized remote cask binary stanza still required; local tap untouched",
+    "shortcuts_helper_upgrade": "Previously accepted by user without recorded per-action/upgrade output"
+  },
+  "preservation": "Original staged binary diff and protected .gitignore/untracked evidence/trace hashes match the pre-session snapshot. No staging, commits, pushes or tap changes.",
+  "preservation_unrelated_unstaged_files": [
+    ".gitignore",
+    ".swiftpm/xcode/xcuserdata/al.xcuserdatad/xcschemes/xcschememanagement.plist",
+    "Sources/Smack/AlertEngine.swift",
+    "Sources/Smack/AutomationSnapshot.swift",
+    "Sources/Smack/Models.swift",
+    "Sources/Smack/PersistenceWatcher.swift",
+    "Sources/Smack/StartupItems.swift",
+    "Sources/Smack/SystemCollector.swift",
+    "Tests/SmackTests/AlertEngineTests.swift",
+    "Tests/SmackTests/DevEnvironmentMonitorTests.swift",
+    "Tests/SmackTests/NativeMenuBarTests.swift",
+    "Tests/SmackTests/Phase0Measurements.swift",
+    "Tests/SmackTests/PostureTests.swift",
+    "Tests/SmackTests/PrivilegedSamplingTests.swift",
+    "Tests/SmackTests/ThermalSensorReaderTests.swift"
+  ],
+  "release_plan": {
+    "target": "1.0.0",
+    "specs": [
+      "004-alerts-automation-security",
+      "005-dev-sessions-baseline-export"
+    ],
+    "spec005_status": "draft, not implemented",
+    "export_scope": "baseline JSON and JSON/Markdown drift reports; Prometheus metrics export will not be implemented",
+    "commit_authorization": "User authorized committing all current changes; push, publication and tap edits remain unauthorized"
+  }
+}

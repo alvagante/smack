@@ -32,15 +32,21 @@ enum AppRoute: Hashable {
     case settings
     case systemDetails
     case advancedSystemDetails
+    case security
+    case unavailable(String)
 }
 
 @MainActor
 final class MonitorStore: ObservableObject {
+    @Published private(set) var posture: PostureSnapshot?
+    func receive(_ snapshot: PostureSnapshot) { posture = snapshot }
+    func receive(_ inventory: StartupInventory) { startupItemsModel.receiveCached(inventory) }
     @Published var system: SystemSample?
     @Published var processes: ProcessSnapshot?
     @Published var route: AppRoute = .summary {
         didSet {
             guard route != oldValue else { return }
+            if route != .applications { navigationFilters.banner = nil }
             if route == .summary {
                 routeHistory.removeAll()
             } else if !isNavigatingBack {
@@ -86,6 +92,64 @@ final class MonitorStore: ObservableObject {
     @Published private(set) var activityDiffUnavailable = false
     private var scheduledInventories: [String: ProcessInventory] = [:]
 
+    lazy var alertRules: AlertRuleStore = makeAlertRuleStore()
+    private func makeAlertRuleStore() -> AlertRuleStore {
+        AlertRuleStore(fileURL: nil, onChange: { [weak self] rules in
+            guard let self else { return }
+            Task {
+                await self.scheduler.update(rules: rules)
+                await self.alertDispatcher?.prepare(rules: rules)
+            }
+        })
+    }
+    var alertDispatcher: AlertDispatcher? {
+        didSet { alertDispatcher?.enabled = settingsStore.settings.alertsEnabled }
+    }
+    func alertRuntime() async -> [UUID: AlertRuntime] { await scheduler.alertRuntime() }
+    func alertTargetVisible(_ target: AlertTarget?) -> Bool {
+        guard panelVisible, let target else { return false }
+        let link = resolveDeepLink(target.url)
+        guard link.route == route else { return false }
+        switch route {
+        case .networkPorts:
+            return link.filters.port == networkPortsViewModel.port && networkPortsViewModel.query.isEmpty
+        case .applications: return link.filters.search == applicationListViewModel.query
+        case .timeline:
+            return link.filters.search == timelineViewModel.query && link.filters.timelineKinds == timelineViewModel.selectedKinds
+                && (link.filters.timelineInterval == nil || link.filters.timelineInterval == timelineViewModel.window().duration)
+        case .settings: return link.filters.settingsPane == nil || link.filters.settingsPane == settingsViewModel.pane
+        default: return true
+        }
+    }
+
+    @Published private(set) var navigationFilters = ViewFilters()
+
+    func resolveDeepLink(_ url: URL) -> DeepLink {
+        DeepLinkParser.parse(url, resolveProcess: { self.process(pid: $0)?.id },
+            resolveApplication: { bundle in self.processes?.applications.first { $0.bundleIdentifier == bundle }?.id })
+    }
+
+    func navigate(to url: URL, now: Date = Date()) {
+        let link = resolveDeepLink(url)
+        navigationFilters = link.filters
+        if link.route == .applications { applicationListViewModel.query = link.filters.search }
+        if link.route == .networkPorts {
+            networkPortsViewModel.query = ""
+            networkPortsViewModel.port = link.filters.port
+            networkPortsViewModel.mode = .listening
+        }
+        if link.route == .timeline {
+            timelineViewModel.select(range: .hour1)
+            if let interval = link.filters.timelineInterval {
+                timelineViewModel.open(window: DateInterval(start: now.addingTimeInterval(-interval), end: now))
+            }
+            timelineViewModel.query = link.filters.search
+            timelineViewModel.selectedKinds = link.filters.timelineKinds
+        }
+        if let pane = link.filters.settingsPane { settingsViewModel.pane = pane }
+        route = link.route
+    }
+
     let settingsStore: SettingsStore
     let privilegedSampling: PrivilegedSamplingController?
     let history: HistoryRepository
@@ -112,6 +176,23 @@ final class MonitorStore: ObservableObject {
     private var panelVisible = false
     private var settingsObservation: AnyCancellable?
     private var appliedPages: Set<SummaryPage> = []
+    private var securityMonitoringStarted = false
+    private var enrichmentEnabled: Bool?
+    private var persistenceWatcher: PersistenceWatcher?
+    func stopSecurityMonitoring() {
+        securityMonitoringStarted = false
+        persistenceWatcher?.stop()
+        Task { await scheduler.stop() }
+    }
+    func startSecurityMonitoring() {
+        securityMonitoringStarted = true
+        Task { await scheduler.restoreSecurityCache() }
+        if persistenceWatcher == nil {
+            let scheduler = scheduler
+            persistenceWatcher = PersistenceWatcher { hourly in await scheduler.scanPersistence(hourly: hourly) }
+        }
+        applyEnvironmentSettings(settingsStore.settings)
+    }
     static let lastSeenDefaultsKey = "smack.activity.lastSeen"
     static let lastSeenMetadataKey = "activity.lastSeen"
     static let recentEventLimit = 500
@@ -151,6 +232,16 @@ final class MonitorStore: ObservableObject {
 
     /// Pushes settings that do not affect sampling to the page monitors, at launch and on every change.
     private func applyEnvironmentSettings(_ settings: CollectionSettings) {
+        let enableAlerts = settings.alertsEnabled && alertDispatcher?.enabled == false
+        alertDispatcher?.enabled = settings.alertsEnabled
+        if enableAlerts { Task { await alertDispatcher?.prepare(rules: alertRules.rules) } }
+        if securityMonitoringStarted {
+            Task { await scheduler.updateFeatureSettings(settings) }
+            if enrichmentEnabled != settings.persistenceEnrichmentEnabled { persistenceWatcher?.stop() }
+            enrichmentEnabled = settings.persistenceEnrichmentEnabled
+            if settings.watchPersistence { persistenceWatcher?.start(pollInterval: settings.persistencePollInterval) }
+            else { persistenceWatcher?.stop() }
+        }
         dockerModel.configure(refreshSeconds: settings.dockerRefreshSeconds, liveStats: settings.dockerLiveStats, cache: settings.inventoryCache)
         homebrewModel.cache = settings.inventoryCache
         devEnvironmentModel.configure(folders: settings.devProjectFolders, depth: settings.devScanDepth, cache: settings.inventoryCache)
@@ -210,6 +301,7 @@ final class MonitorStore: ObservableObject {
         let known = Set(recentEvents.map(\.id))
         let fresh = events.filter { !known.contains($0.id) }
         guard !fresh.isEmpty else { return }
+        AutomationSnapshot.publish(fresh, from: self)
         recentEvents = Array((fresh + recentEvents).sorted { $0.timestamp > $1.timestamp }.prefix(Self.recentEventLimit))
     }
 

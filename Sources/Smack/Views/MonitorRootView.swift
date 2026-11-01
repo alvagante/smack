@@ -72,6 +72,9 @@ struct MonitorRootView: View {
                     .hoverHint(store.historyHealth.details)
                 Divider()
             }
+            if let banner = store.navigationFilters.banner, store.route == .applications {
+                Text(banner).foregroundStyle(.secondary).padding(8)
+            }
             Group {
                 switch store.route {
                 case .summary: SummaryView(store: store)
@@ -92,6 +95,10 @@ struct MonitorRootView: View {
                 case .history: HistoryView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
+                case .security:
+                    SecurityView(store: store)
+                case .unavailable(let message):
+                    ContentUnavailableView(message, systemImage: "lock")
                 case .advancedSystemDetails: AdvancedSystemDetailsView(store: store)
                 }
             }

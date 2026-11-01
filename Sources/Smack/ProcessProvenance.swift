@@ -8,8 +8,8 @@ struct ProcessAncestor: Identifiable, Sendable, Equatable {
     var isExited: Bool
 }
 
-struct CodeSignatureInfo: Sendable, Equatable {
-    enum Trust: String, Sendable { case signed, adHoc, unsigned, unavailable }
+struct CodeSignatureInfo: Sendable, Equatable, Codable {
+    enum Trust: String, Sendable, Codable { case signed, adHoc, unsigned, unavailable }
     var trust: Trust
     var identifier: String?
     var teamIdentifier: String?
