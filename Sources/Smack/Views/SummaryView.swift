@@ -25,6 +25,13 @@ struct SummaryView: View {
                         batteryCard(battery)
                     }
                     ActivityDiffCard(store: store)
+                    Button { store.route = .security } label: {
+                        MetricCard(title: "Security", systemImage: "shield", color: .green, isSummary: true) {
+                            if let snapshot = store.posture {
+                                Text("\(snapshot.checks.filter { [.warn, .fail].contains($0.status) }.count) findings, \(snapshot.checks.filter { $0.status == .unknown }.count) unknown")
+                            } else { Text(Capabilities.supportsPostureChecks ? "Awaiting checks" : "Unavailable in this edition") }
+                        }
+                    }.buttonStyle(.plain)
                     if Capabilities.supportsNetworkPortInspection {
                         networkPortsCard
                     }

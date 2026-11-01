@@ -9,6 +9,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case superuser = "Superuser Sampling"
     case environment = "Local Environment"
     case activity = "Activity Timeline"
+    case alerts = "Alerts"
+    case security = "Security"
+    case automation = "Automation"
     case history = "Historical Data"
     case storage = "Storage Usage"
     case about = "About"
@@ -23,6 +26,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .superuser: "lock.shield.fill"
         case .environment: "shippingbox.fill"
         case .activity: "list.bullet.rectangle.fill"
+        case .alerts: "bell.badge.fill"
+        case .security: "shield.fill"
+        case .automation: "terminal.fill"
         case .history: "clock.arrow.circlepath"
         case .storage: "internaldrive.fill"
         case .about: "info.circle.fill"
@@ -35,8 +41,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .appearance: Color(white: 0.2)
         case .collection: .orange
         case .superuser: .indigo
+        case .security, .automation: .indigo
         case .environment: .brown
-        case .activity: .purple
+        case .activity, .alerts: .purple
         case .history: .teal
         case .storage: .green
         }
@@ -46,13 +53,14 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .superuser: Capabilities.supportsPrivilegedSampling
         case .environment: !Capabilities.isSandboxed
+        case .security: Capabilities.supportsPostureChecks
         default: true
         }
     }
 
     /// Sidebar groups, separated by a gap as in System Settings; unavailable panes are dropped.
     static var groups: [[SettingsPane]] {
-        [[.general, .appearance], [.collection, .superuser, .environment], [.activity, .history, .storage], [.about]]
+        [[.general, .appearance], [.collection, .superuser, .environment], [.alerts, .security, .automation, .activity, .history, .storage], [.about]]
             .map { $0.filter(\.isAvailable) }
             .filter { !$0.isEmpty }
     }
@@ -156,6 +164,16 @@ struct SettingsView: View {
                 }
             }
         case .environment: environmentPane
+        case .alerts:
+            Section {
+                Toggle(isOn: localBinding(\.alertsEnabled)) {
+                    SettingsLabel("Enable alerts", help: "Stops rule evaluation and new alert delivery when off. Saved rules are kept. Pause and snooze only suppress delivery.",
+                        subtitle: "CPU grows with enabled rules and matching processes; no extra sampling. Production CPU budget remains unverified.")
+                }
+            }
+            AlertsSettingsView(store: store, rules: store.alertRules).disabled(!settings.settings.alertsEnabled)
+        case .security: securityPane
+        case .automation: automationPane
         case .activity: activityPane
         case .history: historyPane
         case .storage: storagePane
@@ -235,6 +253,8 @@ struct SettingsView: View {
             }
         } header: {
             Text("While the panel is open")
+        } footer: {
+            SettingsFooter("Faster refresh increases CPU use. Per-process network rates run an additional sampler while visible; disabling rates stops it. Hardware sensors are read only on relevant pages. CPU cost depends on process count.")
         }
         Section {
             IntervalRow(title: "System metrics", help: "CPU, memory, disk and network samples taken while the panel is closed. They feed the history graphs and system events. Approximate storage per hour at full resolution; compacted to about a tenth after the full-resolution window.", estimate: StorageEstimate.system, seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
@@ -260,6 +280,7 @@ struct SettingsView: View {
                 SettingsFooter(Capabilities.isSandboxed
                     ? "Scheduled inventories are unavailable in the App Sandbox; use the on-demand inventory button on a process."
                     : "Process inventories are on demand unless scheduled.")
+                SettingsFooter("System/process/port sampling costs grow with frequency and process count. Scheduled inventories can be expensive: they inspect each process and retain results in memory. Off stops the corresponding background loop; visible pages still collect live data.")
             }
         }
         Section {
@@ -287,7 +308,7 @@ struct SettingsView: View {
                 SettingsLabel("Record activity", help: "Master switch. When off, no timeline events are stored or shown. Metric history is unaffected.")
             }
         } footer: {
-            SettingsFooter("Smack records events only while it is running.")
+            SettingsFooter("Smack records events only while it is running. Recording adds disk writes, roughly 335 bytes per event before retention/compaction. Off stops event storage, while collectors and enabled alert rules keep running.")
         }
         if settings.settings.recordActivity {
             Section {
@@ -326,6 +347,51 @@ struct SettingsView: View {
                 StepperRow(title: "Event retention", help: "How long timeline events are kept. Events are also capped in number.", text: "\(settings.settings.eventRetentionDays) days", value: binding(\.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
                 StepperRow(title: "Maximum events", help: "The newest events kept regardless of retention; older ones are deleted first. About 335 bytes each on disk.",
                            text: settings.settings.maximumEventRows.formatted(), value: binding(\.maximumEventRows), range: CollectionSettings.maximumEventRowsRange, step: 10_000)
+            }
+        }
+    }
+
+    @ViewBuilder private var securityPane: some View {
+        Section {
+            IntervalRow(title: "Posture checks", help: "Offline checks of security settings. First check runs after 60 seconds. Off cancels collection; the last cached result is kept.",
+                estimate: { _ in "Brief CPU and file/tool activity per run; serial probes capped at 5 s each and 20 s combined. Total resource budget unverified." },
+                seconds: localBinding(\.postureCheckInterval), minimum: 60, defaultSeconds: 21_600)
+        } header: { Text("Scheduled checks") }
+        footer: { SettingsFooter("Expected brief CPU and disk activity per check cycle. Actual total CPU, wall time and energy are unmeasured; command deadlines are limits, not measured resource usage.") }
+        Section {
+            Toggle(isOn: localBinding(\.watchPersistence)) {
+                SettingsLabel("Watch persistence", help: "Launch agents, daemons and selected SSH, shell and system files. Off stops the watcher, pending rescans and scheduled persistence polls.",
+                    subtitle: "Expected low idle CPU; file changes trigger hashing and rescans after a 2 s debounce. File reads capped at 1 MiB each. Production CPU/energy impact unmeasured.")
+            }
+            Toggle(isOn: localBinding(\.persistenceEnrichmentEnabled)) {
+                SettingsLabel("Enrich changed items", help: "Offline signature verification, quarantine and location details. Off keeps file hashes and change detection.",
+                    subtitle: "Extra CPU and file reads during changes; at most 20 items per scan, 3 s per item within the scan deadline.")
+            }.disabled(!settings.settings.watchPersistence)
+            IntervalRow(title: "Scheduled persistence scans", help: "Polls crontab and, with an enabled v2 helper, background tasks and configuration profiles. No password prompts. Off leaves file watching active.",
+                estimate: { _ in "Periodic tool/helper CPU and I/O; commands have 5 s deadlines. CPU/energy impact unmeasured." },
+                seconds: localBinding(\.persistencePollInterval), minimum: 3600, defaultSeconds: 3600)
+                .disabled(!settings.settings.watchPersistence)
+        } header: { Text("Persistence monitoring") }
+        footer: { SettingsFooter("Scheduled scans add periodic tool/helper work. File changes can cause CPU and disk bursts, especially with enrichment enabled; production impact is unmeasured. Collection switches stop work. Activity Timeline recording switches only control stored events. Cached results remain available when collection is off.") }
+    }
+
+    @ViewBuilder private var automationPane: some View {
+        if Capabilities.supportsControlSocket {
+            Section {
+                Toggle(isOn: localBinding(\.controlSocketEnabled)) {
+                    SettingsLabel("CLI and local control socket", help: "Accepts same-user cached queries and delivery-only alert controls. Off closes the listener and connected followers immediately.",
+                        subtitle: "Expected low idle overhead; requests use cached data/history. Follow adds per-client buffering and 2 s heartbeats. Production budget unverified.")
+                }
+            }
+        }
+        Section {
+            Toggle(isOn: localBinding(\.appIntentsEnabled)) {
+                SettingsLabel("Shortcuts and App Intents", help: "Off rejects intent execution and entity queries. Packaged intents may remain listed in Shortcuts.",
+                    subtitle: "No periodic collection; CPU and bounded cached/history reads on invocation. Cold invocation may launch Smack.")
+            }
+            Toggle(isOn: localBinding(\.urlNavigationEnabled)) {
+                SettingsLabel("URL navigation", help: "Allows smack:// navigation from launchers, CLI, Shortcuts and notification Open actions. Off ignores URL opens.",
+                    subtitle: "No idle polling. Opening a page starts its normal visible-page work.")
             }
         }
     }
@@ -449,6 +515,8 @@ struct SettingsView: View {
             }
         } header: {
             Text("Docker")
+        } footer: {
+            SettingsFooter("Expected CPU and daemon work on each refresh; live statistics add per-container queries. Only on request stops automatic refresh. Hide the Docker page above to stop Summary discovery. Production CPU/energy costs vary with container count.")
         }
         Section {
             StepperRow(title: "Project scan depth", help: "Directory levels searched below each project folder for virtual environments and project-local runtimes.",
@@ -615,7 +683,7 @@ struct PrivilegedSamplingSection: View {
                 Spacer(minLength: 8)
                 Toggle(toggleTitle, isOn: isEnabled).labelsHidden().toggleStyle(.switch).disabled(controller.isWorking)
             }
-            SettingsFooter("Uses a root helper for process metrics, open-file and connection inventory, listening ports, and optional full-disk directory size scans. It cannot read file contents or run commands. \(setupHint)")
+            SettingsFooter("Uses a root helper for process metrics, open-file and connection inventory, listening ports, optional full-disk size scans, and scheduled BTM/profile inventory. Those inventory commands are fixed and bounded. Expected CPU/I/O grows with sampling frequency and scan size; helper energy cost is not yet measured. Off stops app requests; removing the helper also removes the installed daemon. \(setupHint)")
             if settings.settings.privilegedSampling {
                 HStack(spacing: 8) {
                     Image(systemName: statusImage)
@@ -801,6 +869,7 @@ private struct IntervalRow: View {
     var estimate: ((TimeInterval) -> String)?
     @Binding var seconds: TimeInterval?
     let minimum: Double
+    var defaultSeconds: TimeInterval = 5
 
     var body: some View {
         LabeledContent {
@@ -808,7 +877,7 @@ private struct IntervalRow: View {
                 if seconds != nil {
                     NumberField(value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), unit: "s")
                 }
-                Toggle(title, isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, 5) : nil }))
+                Toggle(title, isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, defaultSeconds) : nil }))
                     .labelsHidden().toggleStyle(.switch)
             }
         } label: {

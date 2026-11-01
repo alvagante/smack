@@ -147,6 +147,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     var postureCheckInterval: TimeInterval? = 6 * 3600
     var watchPersistence = true
     var controlSocketEnabled = true
+    var alertsEnabled = true
+    var appIntentsEnabled = true
+    var urlNavigationEnabled = true
+    var persistenceEnrichmentEnabled = true
+    var persistencePollInterval: TimeInterval? = 3600
     /// Sampling period for system and process metrics while the panel is visible.
     var liveRefreshSeconds: TimeInterval = 1
     /// Background intervals are multiplied by this on battery power or in Low Power Mode; 1 disables it.
@@ -246,9 +251,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         if let interval = postureCheckInterval {
             postureCheckInterval = min(max(interval, 60), 86_400)
         }
+        if let interval = persistencePollInterval { persistencePollInterval = interval.isFinite ? min(max(interval, 3600), 86_400) : 3600 }
         if !Capabilities.supportsControlSocket { controlSocketEnabled = false }
         if !Capabilities.supportsPostureChecks { postureCheckInterval = nil }
         if !Capabilities.supportsPersistenceWatching { watchPersistence = false }
+        if !Capabilities.supportsPersistenceWatching { persistencePollInterval = nil; persistenceEnrichmentEnabled = false }
         if !Capabilities.supportsPrivilegedSampling {
             privilegedSampling = false
         }
@@ -300,6 +307,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case postureCheckInterval
         case watchPersistence
         case controlSocketEnabled
+        case alertsEnabled, appIntentsEnabled, urlNavigationEnabled, persistenceEnrichmentEnabled, persistencePollInterval
         case liveRefreshSeconds
         case constrainedPowerMultiplier
         case processNetworkRateEnabled
@@ -353,6 +361,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         try container.encode(postureCheckInterval, forKey: .postureCheckInterval)
         try container.encode(watchPersistence, forKey: .watchPersistence)
         try container.encode(controlSocketEnabled, forKey: .controlSocketEnabled)
+        try container.encode(alertsEnabled, forKey: .alertsEnabled)
+        try container.encode(appIntentsEnabled, forKey: .appIntentsEnabled)
+        try container.encode(urlNavigationEnabled, forKey: .urlNavigationEnabled)
+        try container.encode(persistenceEnrichmentEnabled, forKey: .persistenceEnrichmentEnabled)
+        try container.encode(persistencePollInterval, forKey: .persistencePollInterval)
         try container.encode(liveRefreshSeconds, forKey: .liveRefreshSeconds)
         try container.encode(constrainedPowerMultiplier, forKey: .constrainedPowerMultiplier)
         try container.encode(processNetworkRateEnabled, forKey: .processNetworkRateEnabled)
@@ -416,6 +429,11 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         recordSecurityEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSecurityEvents) ?? defaults.recordSecurityEvents
         watchPersistence = try container.decodeIfPresent(Bool.self, forKey: .watchPersistence) ?? defaults.watchPersistence
         controlSocketEnabled = try container.decodeIfPresent(Bool.self, forKey: .controlSocketEnabled) ?? defaults.controlSocketEnabled
+        alertsEnabled = try container.decodeIfPresent(Bool.self, forKey: .alertsEnabled) ?? defaults.alertsEnabled
+        appIntentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .appIntentsEnabled) ?? defaults.appIntentsEnabled
+        urlNavigationEnabled = try container.decodeIfPresent(Bool.self, forKey: .urlNavigationEnabled) ?? defaults.urlNavigationEnabled
+        persistenceEnrichmentEnabled = try container.decodeIfPresent(Bool.self, forKey: .persistenceEnrichmentEnabled) ?? defaults.persistenceEnrichmentEnabled
+        persistencePollInterval = container.contains(.persistencePollInterval) ? try container.decodeIfPresent(TimeInterval.self, forKey: .persistencePollInterval) : defaults.persistencePollInterval
         postureCheckInterval = container.contains(.postureCheckInterval) ? try container.decodeIfPresent(TimeInterval.self, forKey: .postureCheckInterval) : defaults.postureCheckInterval
         // Unknown enum values (written by a newer build) fall back to defaults instead of discarding every setting.
         liveRefreshSeconds = (try? container.decodeIfPresent(TimeInterval.self, forKey: .liveRefreshSeconds)) ?? defaults.liveRefreshSeconds

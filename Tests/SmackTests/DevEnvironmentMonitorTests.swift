@@ -159,7 +159,9 @@ struct DevEnvironmentMonitorTests {
         #expect(deeper.environments.contains { $0.executable == deep })
     }
 
-    @Test @MainActor func settingsChangedDuringDiscoveryAreAppliedAfterIt() async {
+    // App Store refresh returns before discovery, so the wait below would never end.
+    @Test(.enabled(if: !Capabilities.isSandboxed)) @MainActor
+    func settingsChangedDuringDiscoveryAreAppliedAfterIt() async {
         let calls = Mutex<[Int]>([])
         let gate = AsyncStream<Void>.makeStream()
         let model = DevEnvironmentMonitor(discover: { _, depth in

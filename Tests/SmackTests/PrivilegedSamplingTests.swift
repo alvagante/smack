@@ -133,11 +133,13 @@ import Testing
     #expect(PrivilegedHelperState.legacy(installed: true, current: false, responding: true) == .running(updateAvailable: true))
 }
 
+#if !SMACK_APP_STORE
 @Test func helperScriptResultRecognisesCancellation() {
     #expect(LegacyHelperInstaller.result(status: 0, message: "") == .completed)
     #expect(LegacyHelperInstaller.result(status: 1, message: "execution error: User canceled. (-128)") == .cancelled)
     #expect(LegacyHelperInstaller.result(status: 1, message: "error: run with sudo") == .failed("error: run with sudo"))
 }
+#endif
 
 private final class StubPrivilegedSampler: PrivilegedSamplingProviding, @unchecked Sendable {
     var payload: ProcessSnapshotPayload?

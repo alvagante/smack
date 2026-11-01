@@ -2,6 +2,7 @@ import Foundation
 
 /// Names shared by the app and its privileged helper.
 public enum SmackIPC {
+    public static let helperProtocolVersion = 2
     public static let appBundleIdentifier = "it.lab42.smack"
     public static let helperIdentifier = "it.lab42.smack.helper"
     public static let machServiceName = helperIdentifier
@@ -15,6 +16,9 @@ public enum SmackIPC {
 /// description. Storage scans use a fixed root (/), expose metadata only, and never
 /// accept a client-supplied path or command. Process inspection accepts a PID and start time.
 @objc public protocol SmackPrivilegedSampling {
+    @objc optional func protocolVersion(reply: @escaping (Int) -> Void)
+    @objc optional func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void)
+    @objc optional func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void)
     func startStorageScan(reply: @escaping (Data?, String?) -> Void)
     func storageScanStatus(reply: @escaping (Data?, String?) -> Void)
     func cancelStorageScan(reply: @escaping (Data?, String?) -> Void)
@@ -79,10 +83,12 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
 public struct ProcessSnapshotPayload: Codable, Sendable, Equatable {
     public var timestamp: Date
     public var records: [ProcessRecord]
+    public var helperProtocolVersion: Int?
 
-    public init(timestamp: Date, records: [ProcessRecord]) {
+    public init(timestamp: Date, records: [ProcessRecord], helperProtocolVersion: Int? = nil) {
         self.timestamp = timestamp
         self.records = records
+        self.helperProtocolVersion = helperProtocolVersion
     }
 }
 

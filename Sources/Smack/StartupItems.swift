@@ -154,6 +154,13 @@ struct LaunchdPlist: Equatable, Sendable {
         )
     }
 
+    /// A well-formed dictionary without a `Label`, such as the `{}` left by some uninstallers, is ignored
+    /// by launchd, so it does not make a scan uncertain. Anything else `parse` rejects stays uncertain.
+    static func isIgnoredByLaunchd(_ data: Data) -> Bool {
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return false }
+        return !(plist["Label"] is String)
+    }
+
     static func trigger(_ plist: [String: Any]) -> String {
         var triggers: [String] = []
         if plist["RunAtLoad"] as? Bool == true { triggers.append("At load") }
@@ -546,6 +553,15 @@ final class StartupItemsModel: ObservableObject {
     }
 
     var removedLoginItems: [String] { defaults.stringArray(forKey: Self.removedLoginItemsKey) ?? [] }
+
+    func receiveCached(_ partial: StartupInventory) {
+        guard let previous = inventory else { inventory = partial; return }
+        inventory = StartupInventory(timestamp: partial.timestamp,
+            items: previous.items.filter { !partial.includedCategories.contains($0.category) } + partial.items,
+            warnings: partial.warnings,
+            includesBackgroundTasks: partial.includesBackgroundTasks || previous.includesBackgroundTasks,
+            includedCategories: previous.includedCategories.union(partial.includedCategories))
+    }
 
     /// Refreshing repeats the last kind of scan, so a full scan stays full.
     func load(includeBackgroundTasks: Bool? = nil) {

@@ -18,6 +18,19 @@ native menu-bar icons support macOS 27. These features require the direct build.
 
 See [the changelog](CHANGELOG.md#070---2026-10-31) for the full release notes.
 
+Release 1.0.0 is unreleased and combines specs 004 and
+[005](docs/specs/005-dev-sessions-baseline-export.md). Spec 005 remains planned: dev servers,
+agent sessions, baseline drift and file export; Prometheus export will not be implemented.
+Completed spec 004 work includes: disabled-by-default alert templates, navigation URLs,
+cached CLI/typed intents, CSV/TSV exports, offline Security checks and bounded persistence monitoring.
+Security checks start after 60 seconds and default to a six-hour schedule. Unknown results explicitly
+cover missing Full Disk Access, helper/version limitations and unreadable preferences.
+See [CLI](docs/cli.md), [URLs](docs/url-scheme.md), [capabilities](docs/distribution.md) and
+[validation/release gates](docs/spec-004-validation.md). Validation uses M5 Max/macOS 27.2;
+M1/macOS 15 remain unverified and accepted. Shortcuts and the helper upgrade were accepted by the user.
+Distribution remains GitHub releases and the Homebrew cask without Developer ID or notarization;
+1.0.0 has not been approved for release.
+
 ## Core features: see, change, monitor
 
 What you can **see** and **monitor**:

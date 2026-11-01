@@ -8,6 +8,8 @@ struct CPUSample: Sendable, Equatable {
     var systemUsage: Double = 0
     /// 1, 5 and 15 minute load averages; empty when unavailable.
     var loadAverage: [Double] = []
+    /// False for the first sample (no earlier tick counts to compare), when `totalUsage` is a placeholder 0.
+    var hasUsage = true
 
     var idleUsage: Double { max(0, 100 - userUsage - systemUsage) }
 }
@@ -90,6 +92,7 @@ struct BatterySample: Sendable, Equatable {
     var timeRemaining: TimeInterval?
     var health: String?
     var cycleCount: Int?
+    var isOnBattery: Bool? = nil
 }
 
 enum ThermalCondition: String, Sendable, Codable {

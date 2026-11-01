@@ -19,7 +19,7 @@ if [ "$FLAVOR" = "app-store" ]; then
 fi
 
 BUILD_DIR="$ROOT/.build/$CONFIGURATION"
-APP_DIR="$ROOT/dist/Smack.app"
+APP_DIR="${SMACK_APP_OUTPUT:-$ROOT/dist/Smack.app}"
 CONTENTS="$APP_DIR/Contents"
 ENTITLEMENTS="$ROOT/Sources/Smack/Resources/Smack.entitlements"
 DIRECT_ENTITLEMENTS="$ROOT/Sources/Smack/Resources/Smack-direct.entitlements"
@@ -29,7 +29,9 @@ cd "$ROOT"
 swift build -c "$CONFIGURATION" ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} --product Smack
 BINARY="$(swift build -c "$CONFIGURATION" ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} --product Smack --show-bin-path)/Smack"
 
-rm -rf "$APP_DIR"
+if [ -e "$APP_DIR" ]; then
+    mv "$APP_DIR" "$APP_DIR.previous.$(date -u +%Y%m%dT%H%M%SZ).$$"
+fi
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BINARY" "$CONTENTS/MacOS/Smack"
 cp "$ROOT/Sources/Smack/Resources/Info.plist" "$CONTENTS/Info.plist"
@@ -46,6 +48,10 @@ if [ "$FLAVOR" = "app-store" ]; then
         cp "$SMACK_PROVISIONING_PROFILE" "$CONTENTS/embedded.provisionprofile"
     fi
 else
+    swift build -c "$CONFIGURATION" --product SmackCLI
+    CLI_BINARY="$(swift build -c "$CONFIGURATION" --product SmackCLI --show-bin-path)/SmackCLI"
+    mkdir -p "$CONTENTS/Helpers"
+    cp "$CLI_BINARY" "$CONTENTS/Helpers/smack"
     swift build -c "$CONFIGURATION" --product SmackHelper
     HELPER_BINARY="$(swift build -c "$CONFIGURATION" --product SmackHelper --show-bin-path)/SmackHelper"
     cp "$HELPER_BINARY" "$CONTENTS/MacOS/SmackHelper"
@@ -54,6 +60,8 @@ else
     # Builds without Developer ID install the helper with this script instead of SMAppService.
     install -m 755 "$ROOT/Sources/SmackHelper/Resources/install-helper.sh" "$CONTENTS/Resources/install-helper.sh"
 fi
+
+python3 "$ROOT/Scripts/extract-app-intents.py" "$BINARY" "$CONTENTS/Resources" "$FLAVOR" "$CONFIGURATION"
 
 if command -v codesign >/dev/null; then
     LOCAL_IDENTITY="Smack Local Dev"
@@ -82,6 +90,7 @@ if command -v codesign >/dev/null; then
     fi
 
     if [ "$FLAVOR" = "direct" ]; then
+        codesign "${SIGN_ARGS[@]}" --identifier it.lab42.smack.cli "$CONTENTS/Helpers/smack" >/dev/null
         # The helper derives its client requirement from this signature at launch.
         codesign "${SIGN_ARGS[@]}" --identifier it.lab42.smack.helper "$CONTENTS/MacOS/SmackHelper" >/dev/null
         # The hardened runtime blocks Apple Events (System Events login items) without this entitlement.

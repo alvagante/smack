@@ -10,6 +10,7 @@ enum NetworkViewMode: String, CaseIterable, Identifiable {
 @MainActor
 final class NetworkPortsViewModel: ObservableObject {
     @Published var query = ""
+    @Published var port: UInt16?
     @Published var expanded: Set<String> = []
     @Published var collapsedConnectionGroups: Set<String> = []
     @Published var mode: NetworkViewMode = .allConnections
@@ -31,7 +32,7 @@ struct NetworkPortsView: View {
     }
 
     private var ports: [ListeningPort] {
-        let ports = store.networkPorts?.ports ?? []
+        let ports = (store.networkPorts?.ports ?? []).filter { model.port == nil || $0.port == model.port }
         guard !query.isEmpty else { return ports }
         return ports.filter {
             "\($0.localAddress) \($0.port) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.scope.rawValue)"
@@ -87,6 +88,12 @@ struct NetworkPortsView: View {
             .accessibilityLabel("Network View")
             .padding(.horizontal)
 
+            if let port = model.port {
+                HStack {
+                    Text("Port \(port)")
+                    Button("Clear port filter") { model.port = nil }
+                }.padding(.horizontal)
+            }
             TextField(
                 model.mode == .listening ? "Search ports, addresses, and processes" : "Search applications, connections, and processes",
                 text: $model.query
@@ -109,6 +116,9 @@ struct NetworkPortsView: View {
             case .allConnections:
                 allConnectionsContent
             }
+        }
+        .onChange(of: model.mode) { _, mode in
+            if mode == .allConnections { model.port = nil }
         }
         .onAppear {
             if store.networkPorts == nil { store.loadNetworkPorts() }

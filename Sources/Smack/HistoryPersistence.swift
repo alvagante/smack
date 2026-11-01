@@ -23,6 +23,7 @@ enum HistoryOperation: String, CaseIterable, Sendable {
     case processes = "Process history"
     case events = "Activity events"
     case maintenance = "History maintenance"
+    case security = "Security baseline"
 }
 
 struct HistoryHealth: Equatable, Sendable {
@@ -83,6 +84,11 @@ actor HistoryPersistence {
             try await writer.maintain(settings: settings)
             report(.maintenance, error: nil)
         } catch { report(.maintenance, error: error) }
+    }
+
+    func saveMetadata(_ key: String, value: String, to metadata: any ActivityMetadataStoring) async {
+        do { try await metadata.setMetadata(key, value: value); report(.security, error: nil) }
+        catch { report(.security, error: error) }
     }
 
     private func report(_ operation: HistoryOperation, error: Error?) {

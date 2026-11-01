@@ -1,12 +1,14 @@
 # Distribution flavors
 
-Smack ships in two flavors from one source tree. They are not interchangeable: the App
-Store requires App Sandbox, and App Sandbox makes a root sampling helper impossible.
+Smack is distributed through GitHub releases and the `alvagante/tap` cask, without Developer ID or
+notarization for now (decision 2026-11-01). The cask strips quarantine. The App Store flavor is retained
+for compilation only and is not planned for distribution; its runtime and 42 existing test issues are
+out of scope. App Sandbox prevents that flavor from using the root sampling helper.
 
 | | Direct build | App Store build |
 |---|---|---|
 | Sandbox | no | `com.apple.security.app-sandbox` |
-| Signing | Developer ID Application, notarized | Apple Distribution, provisioning profile |
+| Signing | ad hoc or local self-signed; no Developer ID/notarization required | not distributed; future packaging requirements below |
 | Directory usage scans | home or startup disk, optional root access | user-selected folder |
 | Superuser sampling | opt-in root helper | unavailable |
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
@@ -33,7 +35,13 @@ Store requires App Sandbox, and App Sandbox makes a root sampling helper impossi
 | Profiling (`footprint`, `vmmap`, `heap`, `leaks`, `sample`) | on demand, own-user processes | unavailable: the sandbox denies launching these tools |
 | Terminate and Force Kill | yes; Terminate asks applications to quit, Force Kill sends SIGKILL | unavailable: the sandbox denies signaling other processes |
 | Hardware temperature sensors | yes, undocumented IOHIDEventSystemClient, read only while the thermal page is open | unavailable: private interface, not compiled in |
-| Update channel | GitHub release zip | App Store |
+| Update channel | GitHub release zip and `alvagante/tap` cask | not planned |
+| Threshold/event alerts and navigation URLs (unreleased) | yes | yes, available metrics only |
+| Typed App Intents (unreleased) | five packaged actions; macOS 27.2 checks accepted by user, macOS 15 unverified | compile only; runtime out of scope |
+| Same-UID control socket and CLI (unreleased) | cached queries, bounded history, future-only follow, delivery controls, CSV/TSV output | unavailable, no socket/CLI |
+| Offline posture (unreleased) | scheduled checks, explicit unknown states; TCC requires FDA | unavailable, explicit edition limitation |
+| Persistence (unreleased) | launchd and selected file hashes, bounded offline signature verification | unavailable |
+| BTM and profile polling (unreleased) | hourly with v2 helper; BTM stays manual without helper | unavailable |
 
 ## Why superuser cannot be in the App Store build
 
@@ -58,7 +66,11 @@ Scripts/build-app.sh release
 open dist/Smack.app
 ```
 
-For a release, sign and notarize as described in [signing.md](signing.md):
+1.0.0 is unreleased. Before publication, obtain explicit release approval and separately update the remote
+`alvagante/tap` cask with `binary "#{appdir}/Smack.app/Contents/Helpers/smack"`. The local tap clone is stale
+at 0.5.0; `release.yml` currently updates only version and sha256. No tap change is part of this work.
+
+Developer ID and notarization are deferred. If adopted later, use [signing.md](signing.md):
 
 ```bash
 export SMACK_SIGN_IDENTITY="Developer ID Application: Alessandro Franceschi (TEAMID)"
@@ -71,14 +83,15 @@ The helper is a separate executable, `SmackHelper`, embedded at
 `Contents/MacOS/SmackHelper` with its launchd property list at
 `Contents/Library/LaunchDaemons/it.lab42.smack.helper.plist`.
 
-- The app registers it with `SMAppService.daemon(plistName:)`.
-- The user must approve it in System Settings > General > Login Items & Extensions.
+- Current self-signed builds use the classic installer described below, only on explicit user request.
+- `SMAppService.daemon(plistName:)` and Login Items approval apply to a future Developer ID build.
 - The app talks to it over the Mach service `it.lab42.smack.helper`.
 - The helper exposes read-only process snapshots, inventory for a PID and start time,
   socket collection, and storage scan start/status/cancel operations. Storage scans have
-  a fixed root (`/`), return directory sizes and file counts, and accept no paths. Each
+  a fixed root (`/`), return directory sizes and file counts, and accept no paths. Protocol v2 also exposes
+  bounded fixed BTM/profile probes; old helpers skip these operations without prompting. Each
   connection owns one cancellable scan; disconnecting cancels it.
-- It cannot read file contents or process memory, execute commands, or accept a path. The
+- It accepts no arbitrary command or path and cannot read process memory. The
   PID is client-supplied: an accepted client can inspect the open files, sockets, threads,
   and loaded images of any process, root processes included. The start-time check only
   guards against PID reuse; it is not an access control, because the snapshot returns
@@ -152,7 +165,7 @@ sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
   /Library/PrivilegedHelperTools/it.lab42.smack.helper
 ```
 
-## App Store build
+## App Store build (compile-only, not planned for distribution)
 
 ```bash
 SMACK_FLAVOR=app-store Scripts/build-app.sh release

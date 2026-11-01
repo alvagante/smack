@@ -1,6 +1,7 @@
 import Testing
 @testable import Smack
 
+#if !SMACK_APP_STORE
 @Test func thermalSensorsCollapseDuplicatesKeepingHottest() {
     let collapsed = ThermalSensorReader.collapse([
         TemperatureSensor(name: "PMU tdie", celsius: 40),
@@ -13,3 +14,4 @@ import Testing
 @Test func thermalSensorReadNeverCrashesAndStaysPlausible() {
     for sensor in ThermalSensorReader().read() { #expect((1.0...150.0).contains(sensor.celsius)) }
 }
+#endif

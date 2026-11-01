@@ -122,6 +122,12 @@ final class PanelController: NSObject, NSWindowDelegate {
         stickButton?.setAccessibilityLabel(label)
     }
 
+    func showPinned() {
+        hoverTask?.cancel()
+        pinned = true
+        open()
+    }
+
     func togglePinned() {
         if panel.isVisible {
             close()

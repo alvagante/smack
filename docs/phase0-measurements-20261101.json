@@ -1,0 +1,289 @@
+{
+  "host": {
+    "cpu": "Apple M5 Max",
+    "logical_cpus": 18,
+    "ram_bytes": 137438953472,
+    "macOS": "27.2 (26B123)",
+    "Xcode": "27.2 (27B52)"
+  },
+  "alerts": [
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.05925,
+      "maxrss_end_bytes": 45514752,
+      "maxrss_start_bytes": 45285376,
+      "mean_ms": 0.00980649799999996,
+      "p50_ms": 0.009708,
+      "p95_ms": 0.010542,
+      "workload": "system-50-armed"
+    },
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.034291,
+      "maxrss_end_bytes": 47513600,
+      "maxrss_start_bytes": 47431680,
+      "mean_ms": 0.012765936999999967,
+      "p50_ms": 0.012625,
+      "p95_ms": 0.013583,
+      "workload": "system-50-pending"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 0.599875,
+      "maxrss_end_bytes": 48693248,
+      "maxrss_start_bytes": 47529984,
+      "mean_ms": 0.5183728999999999,
+      "p50_ms": 0.515625,
+      "p95_ms": 0.549541,
+      "workload": "process-1-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 5.110833,
+      "maxrss_end_bytes": 49299456,
+      "maxrss_start_bytes": 48693248,
+      "mean_ms": 4.68134289,
+      "p50_ms": 4.688708,
+      "p95_ms": 4.886833,
+      "workload": "process-10-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 1.658042,
+      "maxrss_end_bytes": 49332224,
+      "maxrss_start_bytes": 49315840,
+      "mean_ms": 1.5284920299999998,
+      "p50_ms": 1.504458,
+      "p95_ms": 1.643833,
+      "workload": "process-50-exact-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 24.13425,
+      "maxrss_end_bytes": 52723712,
+      "maxrss_start_bytes": 49332224,
+      "mean_ms": 22.835027450000005,
+      "p50_ms": 22.872958,
+      "p95_ms": 23.712875,
+      "workload": "process-50-any-1000"
+    }
+  ],
+  "watcher": {
+    "callbacks": 1,
+    "cpu_percent_one_core": 9.175079136081243e-05,
+    "cpu_s": 0.0005780000000000004,
+    "elapsed_s": 629.9673184583226,
+    "events": 2,
+    "maxrss_end_bytes": 6373376,
+    "maxrss_start_bytes": 6193152,
+    "mode": "watch",
+    "rescan_flags": 0
+  },
+  "baseline": {
+    "callbacks": 0,
+    "cpu_percent_one_core": 0.00012905411079373413,
+    "cpu_s": 0.0008130000000000012,
+    "elapsed_s": 629.9683094166685,
+    "events": 0,
+    "maxrss_end_bytes": 6176768,
+    "maxrss_start_bytes": 6029312,
+    "mode": "baseline",
+    "rescan_flags": 0
+  },
+  "burst": {
+    "callbacks": 9,
+    "cpu_percent_one_core": 0.011505562353471463,
+    "cpu_s": 0.0014490000000000002,
+    "elapsed_s": 12.593908541661222,
+    "events": 201,
+    "first_callback_s": 2.007031208326225,
+    "last_callback_s": 6.00837062500068,
+    "maxrss_end_bytes": 7274496,
+    "maxrss_start_bytes": 6209536,
+    "mode": "watch",
+    "rescan_flags": 0,
+    "started_uptime": 72797.87113270834,
+    "synthetic_unique_files": 200
+  },
+  "burst_writer": {
+    "files": 200,
+    "writer_start_uptime": 72801.87130566667,
+    "writer_end_uptime": 72801.88437216668,
+    "writer_duration_s": 0.013066500003333203
+  },
+  "burst_complete_within_s": 2.00819766666973,
+  "socket": {
+    "cross_uid": "not tested",
+    "directory_mode": "0o700",
+    "fallback_path_bytes": 54,
+    "fallback_roundtrip": true,
+    "getpeereid_gid_matches": true,
+    "getpeereid_uid_matches": true,
+    "path_bytes": {
+      "103": "bound",
+      "104": "AF_UNIX path too long",
+      "110": "AF_UNIX path too long",
+      "160": "AF_UNIX path too long"
+    },
+    "socket_mode": "0o600",
+    "stale_connect": "ECONNREFUSED",
+    "stale_owner_matches": true
+  },
+  "socket_idle": {
+    "elapsed_s": 125.98480224999366,
+    "cpu_s": 0.0003199999999999991,
+    "cpu_percent_one_core": 0.00025399889056857664,
+    "maxrss_start_bytes": 5931008,
+    "maxrss_end_bytes": 6012928,
+    "context_switches": 5
+  },
+  "procusage": {
+    "after": {
+      "553": {
+        "error": 1
+      },
+      "65252": {
+        "exit_abstime": 0,
+        "footprint_bytes": 2015664,
+        "interrupt_wakeups": 1,
+        "package_idle_wakeups": 0,
+        "pageins": 1,
+        "resident_bytes": 6144000,
+        "start_abstime": 1739528128788,
+        "system_ns": 113376,
+        "user_ns": 107161,
+        "wired_bytes": 0
+      },
+      "65253": {
+        "exit_abstime": 0,
+        "footprint_bytes": 2130376,
+        "interrupt_wakeups": 1,
+        "package_idle_wakeups": 0,
+        "pageins": 1,
+        "resident_bytes": 6307840,
+        "start_abstime": 1739528162546,
+        "system_ns": 110411,
+        "user_ns": 111348,
+        "wired_bytes": 0
+      }
+    },
+    "before": {
+      "553": {
+        "error": 1
+      },
+      "65252": {
+        "exit_abstime": 0,
+        "footprint_bytes": 1999280,
+        "interrupt_wakeups": 1,
+        "package_idle_wakeups": 0,
+        "pageins": 1,
+        "resident_bytes": 6144000,
+        "start_abstime": 1739528128788,
+        "system_ns": 113376,
+        "user_ns": 107161,
+        "wired_bytes": 0
+      },
+      "65253": {
+        "exit_abstime": 0,
+        "footprint_bytes": 2113992,
+        "interrupt_wakeups": 1,
+        "package_idle_wakeups": 0,
+        "pageins": 1,
+        "resident_bytes": 6307840,
+        "start_abstime": 1739528162546,
+        "system_ns": 110411,
+        "user_ns": 111348,
+        "wired_bytes": 0
+      }
+    },
+    "elapsed_s": 180.004483
+  },
+  "daemon_observation": {
+    "elapsed_s": 60.012342999999994,
+    "before_cpu_rss": "3:57.93  10768",
+    "after_cpu_rss": "3:57.97  10784",
+    "attribution": "shared daemon; observational only"
+  },
+  "intent_metadata": [
+    {
+      "actionsdata_bytes": 1362,
+      "compile_seconds": 0.079594666,
+      "flavor_define": "direct",
+      "metadata_seconds": 0.054011292000000016
+    },
+    {
+      "actionsdata_bytes": 1362,
+      "compile_seconds": 0.078927833,
+      "flavor_define": "app-store",
+      "metadata_seconds": 0.054402667000000016
+    }
+  ],
+  "intent_runtime": [
+    {
+      "footprint_bytes": 1786264,
+      "interrupt_wakeups": 1,
+      "mode": "baseline",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 5783552,
+      "system_ns": 34817,
+      "trial": 0,
+      "user_ns": 33449
+    },
+    {
+      "footprint_bytes": 1900952,
+      "interrupt_wakeups": 0,
+      "mode": "intent-linked",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 8617984,
+      "system_ns": 36592,
+      "trial": 0,
+      "user_ns": 41747
+    },
+    {
+      "footprint_bytes": 1786264,
+      "interrupt_wakeups": 0,
+      "mode": "baseline",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 5783552,
+      "system_ns": 95368,
+      "trial": 1,
+      "user_ns": 84253
+    },
+    {
+      "footprint_bytes": 1900952,
+      "interrupt_wakeups": 0,
+      "mode": "intent-linked",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 8617984,
+      "system_ns": 82826,
+      "trial": 1,
+      "user_ns": 92533
+    },
+    {
+      "footprint_bytes": 1786264,
+      "interrupt_wakeups": 0,
+      "mode": "baseline",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 5783552,
+      "system_ns": 88566,
+      "trial": 2,
+      "user_ns": 84566
+    },
+    {
+      "footprint_bytes": 1900952,
+      "interrupt_wakeups": 0,
+      "mode": "intent-linked",
+      "package_idle_wakeups": 0,
+      "resident_bytes": 8617984,
+      "system_ns": 70705,
+      "trial": 2,
+      "user_ns": 89411
+    }
+  ]
+}

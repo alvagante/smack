@@ -49,7 +49,8 @@ private func makeTestTempDir() throws -> URL {
             statusItem: statusItem,
             smackSound: sound
         )
-        controller.open()
+        controller.showPinned()
+        controller.showPinned()
         defer { controller.close() }
 
         #expect(sound.lastPlayedSound == .pop)

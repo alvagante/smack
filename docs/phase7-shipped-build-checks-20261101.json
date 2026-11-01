@@ -1,0 +1,27 @@
+{
+ "build": "SMACK_SIGN_IDENTITY=- SMACK_APP_OUTPUT=/tmp/smack-ship/Smack.app Scripts/build-app.sh release (ad hoc, like release.yml without secrets); designated => cdhash H\"6d380dfb2f6314b5b367547afb9058fbae5dca5c\"",
+ "date": "2026-11-01",
+ "helper_v2_check": {
+  "command": "dist/Smack.app/Contents/MacOS/Smack --diagnose-helper",
+  "note": "Hashes differ because dist/Smack.app was rebuilt after the helper was installed; the installed helper answers protocol 2, which is the check. Settings offers Update Helper for the newer bundled helper.",
+  "result": "snapshotAvailable=true helperProtocol=2 btmBytes=145092 profilesBytes=181",
+  "sha256_bundled_dist": "6df31fe169bb58ab39c931a66cbb13049bbd5637831532b945bc2f5f94ff9b96",
+  "sha256_installed": "a47cf3f968aa024e57fead8874e2b6f5d2b5be508f9a7f4a498854e0375e106b"
+ },
+ "host": "M5 Max, macOS 27.2 (26B123); no macOS 15 machine available",
+ "notes": {
+  "alertFired": "AlertDispatcher.test posts a notification only and records no alertFired event by design, so an empty `smack events --kinds alertFired` after test delivery is expected. Denial recording needs a real firing and is still to be checked.",
+  "shortcuts": "linkd logged 73 'Failed to generate bundleIdentity: Unable to get teamId from it.lab42.smack' errors in 5 h; both dist/Smack.app and the shipped-style build report TeamIdentifier=not set. Hypothesis (not proven): App Intents are not exposed to Shortcuts for apps without a Team ID. To confirm, sign a build with an Apple Development identity (free personal team has a Team ID) and look for the five actions.",
+  "shortcuts_crash": "Four Shortcuts.app crashes (14:47 to 14:49) are EXC_BREAKPOINT from an uncaught NSException raised in -[NSWindow _postWindowNeedsUpdateConstraints] while an NSHostingView changes safe-area insets during NSView layout (Shortcuts' own SwiftUI/AppKit UI, main thread). The user's docs/shortcut-trace.txt (830 lines) and the .ips reports contain no Smack frames or strings. Not attributable to Smack.",
+  "team_id_experiment": "Re-run with the self-signed Smack Local Dev SHA-1 (the keychain has no Apple Development certificate): TeamIdentifier=not set, and the user then found the Smack actions in Shortcuts. So a Team ID is NOT required to list the intents; the linkd 'Unable to get teamId' errors are not fatal. The earlier 'no action found' on the ad hoc /tmp/smack-ship build is unexplained: the user suspects looking in the wrong place; linkd may also have shown actions registered from dist/Smack.app (same bundle ID)."
+ },
+ "results": {
+  "cold_launch_and_cli": "pass",
+  "notifications": "pass (permission prompt, actions, denial banner); the alertFired check was a test mistake, see note",
+  "shortcuts": "inconclusive: no action found on the ad hoc build at first; actions found later with a self-signed (no Team ID) build. Execution of the actions not yet tested.",
+  "ui": "pass",
+  "url_scheme": "pass",
+  "watcher_in_app_optional": "not run"
+ },
+ "run_by": "user"
+}

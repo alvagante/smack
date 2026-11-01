@@ -87,6 +87,8 @@ import Testing
         #expect(panes.last == .about)
         #expect(panes.contains(.superuser) == Capabilities.supportsPrivilegedSampling)
         #expect(panes.contains(.environment) == !Capabilities.isSandboxed)
+        #expect(panes.contains(.security) == Capabilities.supportsPostureChecks)
+        #expect(panes.contains(.automation))
         #expect(Set(panes).count == panes.count)
     }
 }

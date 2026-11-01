@@ -17,7 +17,21 @@ actor CollectionScheduler {
     private let inventoryCollector: InventoryCollecting
     private let networkPortCollector: NetworkPortCollecting
     private let history: HistoryPersistence
+    private let metadata: HistoryRepository
+    private let onPosture: @Sendable (PostureSnapshot) -> Void
+    private let onStartup: @Sendable (StartupInventory) -> Void
+    private var postureTask: Task<Void, Never>?
+    private var postureInterval: TimeInterval?
+    private var cachedListeners: NetworkPortSnapshot?
+    private let persistenceScanner = PersistenceScanner()
+    private let helper: PrivilegedSamplingClient?
+    private var cachedProfile: PostureCheck?
+    private var lastPosture: PostureSnapshot?
     private let activity: any ActivityRecording
+    private let alertEngine = AlertEngine()
+    private var configuredAlertRules: [AlertRule] = []
+    private let onAlert: @Sendable (FiredAlert) async -> ActivityEvent
+    private let onWake: @Sendable (Date) async -> Void
     private var settings: CollectionSettings
     private var visible = false
     /// Pages currently showing sensor readings; counted so overlapping appear/disappear calls never cancel out.
@@ -50,8 +64,21 @@ actor CollectionScheduler {
         onHistoryHealth: @escaping @Sendable (HistoryHealth) -> Void = { _ in },
         activity: (any ActivityRecording)? = nil,
         onEvents: @escaping @Sendable ([ActivityEvent]) -> Void = { _ in },
+        onPosture: @escaping @Sendable (PostureSnapshot) -> Void = { _ in },
+        onStartup: @escaping @Sendable (StartupInventory) -> Void = { _ in },
+        helper: PrivilegedSamplingClient? = nil,
+        onAlert: @escaping @Sendable (FiredAlert) async -> ActivityEvent = { alert in
+            .make(kind: .alertFired, timestamp: alert.timestamp, subject: alert.rule.name, severity: .warning, details: alert.details)
+        },
+        onWake: @escaping @Sendable (Date) async -> Void = { _ in },
         isPowerConstrained: @escaping @Sendable () -> Bool = PowerConstraint.current
     ) {
+        self.onAlert = onAlert
+        self.metadata = history
+        self.helper = helper
+        self.onPosture = onPosture
+        self.onStartup = onStartup
+        self.onWake = onWake
         self.systemCollector = systemCollector
         self.processCollector = processCollector
         self.inventoryCollector = inventoryCollector
@@ -79,13 +106,15 @@ actor CollectionScheduler {
         visible = value
         await processCollector.setNetworkSampling(visible: value, interval: networkRateInterval)
         guard visible == value else { return }
-        restartSampling()
+        await restartSampling()
     }
 
     func update(settings: CollectionSettings) async {
+        let alertsChanged = self.settings.alertsEnabled != settings.alertsEnabled
         self.settings = settings
+        if alertsChanged { await alertEngine.update(rules: settings.alertsEnabled ? configuredAlertRules : []) }
         await processCollector.setNetworkSampling(visible: visible, interval: networkRateInterval)
-        restartSampling()
+        await restartSampling()
         await maintainHistory()
     }
 
@@ -114,7 +143,27 @@ actor CollectionScheduler {
         return multiplier > 1 && isPowerConstrained() ? background * Double(multiplier) : background
     }
 
-    private func restartSampling() {
+    func update(rules: [AlertRule]) async {
+        configuredAlertRules = rules
+        await alertEngine.update(rules: settings.alertsEnabled ? rules : [])
+    }
+
+    func updateFeatureSettings(_ value: CollectionSettings) async {
+        let alertsChanged = settings.alertsEnabled != value.alertsEnabled
+        settings.alertsEnabled = value.alertsEnabled
+        settings.postureCheckInterval = value.postureCheckInterval
+        settings.watchPersistence = value.watchPersistence
+        settings.persistenceEnrichmentEnabled = value.persistenceEnrichmentEnabled
+        settings.persistencePollInterval = value.persistencePollInterval
+        configurePosture()
+        if alertsChanged { await alertEngine.update(rules: value.alertsEnabled ? configuredAlertRules : []) }
+    }
+
+    func alertRuntime() async -> [UUID: AlertRuntime] { await alertEngine.runtime }
+
+    private func restartSampling() async {
+        configurePosture()
+        await alertEngine.noteGap(at: Date())
         systemTask?.cancel()
         processTask?.cancel()
         inventoryTask?.cancel()
@@ -149,6 +198,9 @@ actor CollectionScheduler {
                 includeGPUProcesses: visible && gpuProcessClients > 0
             )
             onSystem(sample)
+            if settings.alertsEnabled, let interval = sleepInterval(background: settings.backgroundSystemInterval) {
+                await deliverAlerts(await alertEngine.evaluate(system: sample, expectedInterval: interval))
+            }
             await history.save(system: sample)
             await deliver(await activity.record(system: sample, settings: settings))
             guard let interval = sleepInterval(background: settings.backgroundSystemInterval) else { return }
@@ -163,6 +215,9 @@ actor CollectionScheduler {
             guard !Task.isCancelled else { return }
             if let snapshot {
                 onProcesses(snapshot)
+                if settings.alertsEnabled, let interval = sleepInterval(background: settings.backgroundProcessInterval) {
+                    await deliverAlerts(await alertEngine.evaluate(processes: snapshot, expectedInterval: interval, networkAvailable: visible && settings.processNetworkRateEnabled))
+                }
                 if settings.recordProcessHistory {
                     await history.save(processes: snapshot.trimmedForHistory(limit: settings.processHistoryTopCount))
                 }
@@ -182,6 +237,7 @@ actor CollectionScheduler {
             )
             guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
+            cachedListeners = snapshot
             await deliver(await activity.record(network: snapshot, settings: settings))
             guard let interval = sleepInterval(background: settings.backgroundNetworkInterval, live: 5) else { return }
             try? await Task.sleep(for: .seconds(interval))
@@ -210,6 +266,16 @@ actor CollectionScheduler {
     /// still shows the events while the health banner reports that history may be incomplete.
     /// Recorders keep tracking state even for disabled groups, so re-enabling one emits only new changes.
     private func deliver(_ events: [ActivityEvent]) async {
+        if settings.alertsEnabled { await deliverAlerts(await alertEngine.evaluate(events: events)) }
+        await persistEvents(events)
+    }
+
+    private func deliverAlerts(_ alerts: [FiredAlert]) async {
+        guard settings.alertsEnabled else { return }
+        for alert in alerts { await persistEvents([await onAlert(alert)]) }
+    }
+
+    private func persistEvents(_ events: [ActivityEvent]) async {
         let settings = settings
         let events = events.filter { settings.records($0.kind.group) }
         guard !events.isEmpty else { return }
@@ -218,6 +284,7 @@ actor CollectionScheduler {
     }
 
     func record(startup inventory: StartupInventory) async {
+        onStartup(inventory)
         await deliver(await activity.record(startup: inventory))
     }
 
@@ -230,10 +297,13 @@ actor CollectionScheduler {
     }
 
     func recordSleep() async {
+        await alertEngine.noteGap(at: Date())
         await deliver([await activity.recordSleep(at: Date())])
     }
 
     func recordWake() async {
+        await alertEngine.noteGap(at: Date())
+        await onWake(Date())
         await deliver([await activity.recordWake(at: Date())])
     }
 
@@ -243,5 +313,98 @@ actor CollectionScheduler {
 
     private func maintainHistory() async {
         await history.maintain(settings: settings)
+    }
+
+    func scanPersistence(hourly: Bool) async {
+        guard settings.watchPersistence, Capabilities.supportsPersistenceWatching, !Task.isCancelled else { return }
+        let (inventory, events) = await persistenceScanner.scan(metadata: metadata, enrich: settings.persistenceEnrichmentEnabled)
+        guard !Task.isCancelled, settings.watchPersistence else { return }
+        if let inventory {
+            onStartup(inventory)
+            var startupEvents = await activity.record(startup: inventory)
+            for index in startupEvents.indices {
+                if let id = startupEvents[index].details["item"],
+                   let enriched = events.first(where: { "launchd:" + $0.subject == id }) {
+                    startupEvents[index].details.merge(enriched.details) { _, new in new }
+                }
+            }
+            await deliver(startupEvents)
+        }
+        await deliver(events)
+        guard hourly, settings.persistencePollInterval != nil else { return }
+        let cron = await CommandRunner.run("/usr/bin/crontab", ["-l"], timeout: 5, outputLimit: 65_536)
+        if cron.status == 0 && !cron.truncated && !cron.cancelled {
+            var sources = StartupSources(); sources.crontab = cron.output
+            await record(startup: .init(timestamp: Date(), items: StartupItemCollector.items(from: sources),
+                warnings: [], includesBackgroundTasks: false, includedCategories: [.scheduled]))
+        }
+        guard !Task.isCancelled, settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return }
+        if let text = await helper.dumpBackgroundTasks(), !Task.isCancelled, text.contains("Records for UID") {
+            var sources = StartupSources(); sources.btm = StartupParsers.btmRecords(text)
+            await record(startup: .init(timestamp: Date(), items: StartupItemCollector.items(from: sources).filter {
+                StartupInventory.backgroundTaskCategories.contains($0.category)
+            }, warnings: [], includesBackgroundTasks: true, includedCategories: StartupInventory.backgroundTaskCategories))
+        }
+        guard !Task.isCancelled, let text = await helper.listConfigurationProfiles(), !Task.isCancelled,
+              let events = await persistenceScanner.profiles(text, metadata: metadata) else { return }
+        await deliver(events)
+        let check = PostureCheck(id: "config-profiles", status: .pass, summary: "Configuration profile inventory available (informational)",
+            evidence: "Helper v2, checked \(Date().ISO8601Format()); changes tracked by digest")
+        cachedProfile = check
+        if var snapshot = lastPosture, let index = snapshot.checks.firstIndex(where: { $0.id == check.id }) {
+            snapshot.checks[index] = check
+            await savePosture(snapshot, previous: nil)
+        }
+    }
+
+    func stop() {
+        systemTask?.cancel(); processTask?.cancel(); inventoryTask?.cancel()
+        networkPortTask?.cancel(); maintenanceTask?.cancel(); postureTask?.cancel()
+    }
+
+    private func configurePosture() {
+        let interval = Capabilities.supportsPostureChecks ? settings.postureCheckInterval : nil
+        guard interval != postureInterval else { return }
+        postureInterval = interval
+        postureTask?.cancel()
+        postureTask = nil
+        guard let interval else { return }
+        postureTask = Task { [weak self] in
+            guard let self else { return }
+            var previous = await self.loadPosture()
+            if let previous { await self.publishPosture(previous) }
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            while !Task.isCancelled {
+                let snapshot = await PostureCollector().collect(listeners: self.cachedListeners, profile: self.cachedProfile)
+                guard !Task.isCancelled else { return }
+                await self.savePosture(snapshot, previous: previous)
+                previous = snapshot
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
+            }
+        }
+    }
+
+    private func loadPosture() async -> PostureSnapshot? {
+        guard let text = try? await metadata.metadata(PostureSnapshot.metadataKey) else { return nil }
+        return try? JSONDecoder().decode(PostureSnapshot.self, from: Data(text.utf8))
+    }
+
+    private func publishPosture(_ snapshot: PostureSnapshot) { lastPosture = snapshot; onPosture(snapshot) }
+
+    private func savePosture(_ snapshot: PostureSnapshot, previous: PostureSnapshot?) async {
+        if let data = try? JSONEncoder().encode(snapshot), let text = String(data: data, encoding: .utf8) {
+            await history.saveMetadata(PostureSnapshot.metadataKey, value: text, to: metadata)
+        }
+        publishPosture(snapshot)
+        await deliver(snapshot.changes(from: previous))
+    }
+
+    func restoreSecurityCache() async {
+        if let snapshot = await loadPosture() {
+            publishPosture(snapshot)
+            cachedProfile = snapshot.checks.first { $0.id == "config-profiles" }
+        } else if !Capabilities.supportsPostureChecks {
+            onPosture(.init(timestamp: Date(), checks: PostureParser.ids.map { .unknown($0, "Not available in this edition") }))
+        }
     }
 }
