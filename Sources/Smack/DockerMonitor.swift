@@ -163,7 +163,20 @@ struct DockerNetwork: Decodable, Identifiable, Sendable {
     let Name: String
     let Driver: String
     let Scope: String
+    /// Filled from `network inspect`: subnets in CIDR form and attached container names.
+    var subnets: [String] = []
+    var containers: [String] = []
     var id: String { self.ID }
+    enum CodingKeys: String, CodingKey { case ID, Name, Driver, Scope }
+}
+
+/// Monitoring fields of `network inspect`; every field is optional so older engines decode.
+struct DockerNetworkDetails: Decodable, Sendable {
+    struct IPAMConfig: Decodable, Sendable { let Subnet: String? }
+    struct Endpoint: Decodable, Sendable { let Name: String? }
+    let id: String?
+    let subnets: [IPAMConfig]?
+    let containers: [String: Endpoint]?
 }
 
 struct DockerSnapshot: Sendable {
@@ -283,6 +296,28 @@ struct DockerCollector: Sendable {
             do {
                 snapshot.networks = try Self.decodeLines(try await command(["network", "ls", "--no-trunc", "--format", "{{json .}}"]), as: DockerNetwork.self)
             } catch { snapshot.warnings.append("Networks unavailable: \(error.localizedDescription)") }
+            if var networks = snapshot.networks, !networks.isEmpty, !Task.isCancelled {
+                // Select only addressing and membership; endpoint MAC and driver options are not needed.
+                let template = #"{"id":{{json .Id}},"subnets":{{json .IPAM.Config}},"containers":{{json .Containers}}}"#
+                do {
+                    var details: [String: DockerNetworkDetails] = [:]
+                    for start in stride(from: 0, to: networks.count, by: 100) {
+                        let batch = networks[start..<min(start + 100, networks.count)].map(\.ID)
+                        let output = try await command(["network", "inspect", "--format", template] + batch)
+                        for line in output.split(whereSeparator: \.isNewline) {
+                            if let value = try? JSONDecoder().decode(DockerNetworkDetails.self, from: Data(line.utf8)), let id = value.id {
+                                details[id] = value
+                            }
+                        }
+                    }
+                    for index in networks.indices {
+                        guard let value = details[networks[index].ID] else { continue }
+                        networks[index].subnets = (value.subnets ?? []).compactMap(\.Subnet)
+                        networks[index].containers = (value.containers ?? [:]).values.compactMap(\.Name).sorted()
+                    }
+                    snapshot.networks = networks
+                } catch { snapshot.warnings.append("Network details unavailable: \(error.localizedDescription)") }
+            }
         }
         snapshot.timestamp = Date()
         return snapshot

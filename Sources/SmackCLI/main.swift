@@ -141,20 +141,21 @@ func main() -> Int32 {
                 continue
             }
             if let error = response.error {
-                if let message = response.metadata?["message"] { fputs(message + "\n", stderr) }
+                if let message = response.metadata?["message"] { fputs(try CLIOutputFormat.escaped(message) + "\n", stderr) }
                 fputs("\(error.rawValue) (app protocol \(response.version), CLI protocol \(request.version))\n", stderr)
                 return error == .unsupportedVersion && !baselineInvocation ? 4 : 1
             }
             if op == "baseline" {
-                if let path = response.metadata?["path"] { print(path) }
+                if let path = response.metadata?["path"] { print(try CLIOutputFormat.escaped(path)) }
                 if let payload = response.metadata?["payload"] {
-                    let text = request.action == "diff" && !json && explicitFormat != .json ? response.metadata?["markdown"] ?? payload : payload
+                    let text = request.action == "diff" && format == .table ? response.metadata?["markdown"] ?? payload : payload
                     if let outputPath { try Data(text.utf8).write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
+                    else if format == .table { print(try CLIOutputFormat.terminalMarkdown(text)) }
                     else { print(text) }
                 }
                 if request.action == "list" {
                     if json { print(String(decoding: try JSONEncoder().encode(response.records), as: UTF8.self)) }
-                    else { for row in response.records { print(row.id + "\t" + row.title) } }
+                    else { for row in response.records { print(try CLIOutputFormat.escaped(row.id) + "\t" + CLIOutputFormat.escaped(row.title)) } }
                 }
                 return response.metadata?["drift"] == "true" ? 2 : 0
             }
@@ -169,7 +170,11 @@ func main() -> Int32 {
             fflush(stdout)
         } while true
         return 0
-    } catch { fputs("Control request failed: \(error)\n", stderr); return 1 }
+    } catch {
+        let message = (try? CLIOutputFormat.escaped(String(describing: error))) ?? "Unknown error"
+        fputs("Control request failed: \(message)\n", stderr)
+        return 1
+    }
 }
 func duration(_ value: String) -> Double? {
     if let seconds = Double(value), seconds.isFinite { return seconds }

@@ -8,6 +8,15 @@ Release target: 1.0.0, combining specs 004 and 005 (dev servers, agent sessions,
 baseline drift and file export). Prometheus metrics export is excluded and will not be implemented.
 Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
+### Fixed
+
+- Prevent overlapping agent updates from restoring stale sessions; refresh project context and retain newer network annotations.
+- Target Dev Server Stop actions at listener owners, independently of project grouping.
+- Reject blocking project metadata files and escape terminal control characters in baseline CLI output.
+- Preserve newest battery samples when history reaches its row limit and disclose truncation.
+- Propagate failed listener collection into baseline completeness and collect fresh listeners for manual and scheduled captures.
+- Enforce baseline section deadlines with supervised workers for blocking scans, including descendant cleanup.
+
 ### Added
 
 - Add project-grouped Dev Servers with git context, Compose mapping, directory actions, confirmed stop and cached CLI v2 queries.

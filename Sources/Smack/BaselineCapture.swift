@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Darwin
+import Synchronization
 
 protocol BaselineSectionCollector: Sendable {
     var id: String { get }
@@ -14,6 +15,7 @@ struct MachineBaselineCollector: BaselineSectionCollector {
     var listeners: NetworkPortSnapshot?
     var profiles: String?
     var backgroundTasks: String? = nil
+    var workerExecutable: String? = nil
     var timeout: Duration {
         .seconds(["system": 5, "posture": 20, "startup": 15, "listeners": 5, "apps": 20,
                   "homebrew": 20, "runtimes": 30, "agents": 10, "profiles": 10,
@@ -21,6 +23,16 @@ struct MachineBaselineCollector: BaselineSectionCollector {
     }
 
     func collect() async -> BaselineSection {
+        // These sections only transform an already-collected, bounded snapshot.
+        if ["listeners", "profiles"].contains(id) { return await collectLocally() }
+        return await collect(executable: workerExecutable ?? Bundle.main.executableURL!.path)
+    }
+
+    func collect(executable: String, deadline: Duration? = nil) async -> BaselineSection {
+        await BaselineWorker.collect(self, executable: executable, deadline: deadline ?? timeout)
+    }
+
+    func collectLocally() async -> BaselineSection {
         if Capabilities.isSandboxed && !["system", "apps"].contains(id) {
             return .init(status: .unavailable, error: "Not available in this edition")
         }
@@ -70,7 +82,7 @@ struct MachineBaselineCollector: BaselineSectionCollector {
                      "program": port.processName, "path": Self.executablePath(port.pid) ?? ""]
                 }
                 var grouped: [String: BaselineItem] = [:]
-                var failed = false
+                var failed = listeners.warning != nil
                 for item in items.sorted(by: { ($0["path"] ?? "") < ($1["path"] ?? "") }) {
                     let key = BaselineDiff.key(item, section: id)
                     if let previous = grouped[key], previous["path"] != item["path"] { failed = true }
@@ -78,7 +90,7 @@ struct MachineBaselineCollector: BaselineSectionCollector {
                     grouped[key] = item
                 }
                 return .init(status: failed ? .incomplete : .complete,
-                             error: failed ? "Listener executable paths unavailable or ambiguous" : nil,
+                             error: listeners.warning ?? (failed ? "Listener executable paths unavailable or ambiguous" : nil),
                              items: Array(grouped.values))
             case "apps":
                 let apps = InstalledAppsCollector().discover().apps
@@ -209,22 +221,11 @@ enum BaselineCapture {
             for collector in collectors {
                 group.addTask {
                     let start = ContinuousClock.now
-                    let section = await withTaskGroup(of: BaselineSection.self) { race in
-                        race.addTask { await collector.collect() }
-                        race.addTask {
-                            do { try await Task.sleep(for: collector.timeout) } catch {
-                                return .init(status: .incomplete, error: "Cancelled")
-                            }
-                            return .init(status: .incomplete, error: "Section timed out")
-                        }
-                        let first = await race.next()!
-                        race.cancelAll()
-                        // Cooperative collectors return partial inventory after cancellation.
-                        var result = first
-                        for await partial in race where result.status == .incomplete && !partial.items.isEmpty {
-                            result.items = partial.items
-                        }
-                        return result
+                    let work = BaselineSectionWork()
+                    let section = await withTaskCancellationHandler {
+                        await withCheckedContinuation { continuation in work.start(collector, continuation: continuation) }
+                    } onCancel: {
+                        work.finish(.init(status: .incomplete, error: "Cancelled"))
                     }
                     var result = section
                     let normalized = result.items.map { $0.mapValues {
@@ -248,5 +249,63 @@ enum BaselineCapture {
         try Task.checkCancellation()
         // Normalize before comparing, as well as before persisting.
         return try BaselineDocument.decode(document.encoded())
+    }
+}
+
+
+// A task-group race cannot bound a collector that ignores cancellation: leaving the group joins it.
+private final class BaselineSectionWork: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<BaselineSection, Never>?
+        var result: BaselineSection?
+        var expired = false
+        var tasks: [Task<Void, Never>] = []
+    }
+    private let state = Mutex(State())
+
+    func start(_ collector: any BaselineSectionCollector, continuation: CheckedContinuation<BaselineSection, Never>) {
+        let early = state.withLock { state -> BaselineSection? in
+            if let result = state.result { return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let early { continuation.resume(returning: early); return }
+        let operation = Task.detached { self.finish(await collector.collect()) }
+        let timer = Task.detached {
+            do { try await Task.sleep(for: collector.timeout) } catch { return }
+            let tasks = self.state.withLock { state -> [Task<Void, Never>] in
+                guard state.result == nil else { return [] }
+                state.expired = true
+                return state.tasks
+            }
+            operation.cancel()
+            // Retain partial results from cooperative collectors without joining stalled work.
+            do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+            self.finish(.init(status: .incomplete, error: "Section timed out"))
+            tasks.forEach { $0.cancel() }
+        }
+        let completed = state.withLock { state -> Bool in
+            guard state.result == nil else { return true }
+            state.tasks = [operation, timer]
+            return false
+        }
+        if completed { operation.cancel(); timer.cancel() }
+    }
+
+    func finish(_ value: BaselineSection) {
+        let completion = state.withLock { state -> (CheckedContinuation<BaselineSection, Never>?, BaselineSection, [Task<Void, Never>])? in
+            guard state.result == nil else { return nil }
+            var result = value
+            if state.expired { result.status = .incomplete; result.error = "Section timed out" }
+            state.result = result
+            let completion = (state.continuation, result, state.tasks)
+            state.continuation = nil
+            state.tasks = []
+            return completion
+        }
+        if let (continuation, result, tasks) = completion {
+            continuation?.resume(returning: result)
+            tasks.forEach { $0.cancel() }
+        }
     }
 }

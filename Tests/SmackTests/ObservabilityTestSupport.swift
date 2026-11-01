@@ -60,3 +60,13 @@ actor MemoryMetadata: ActivityMetadataStoring {
     func metadata(_ key: String) async throws -> String? { values[key] }
     func setMetadata(_ key: String, value: String) async throws { values[key] = value }
 }
+
+func obsProduct(_ name: String) -> URL {
+#if DEBUG
+    let configuration = "debug"
+#else
+    let configuration = "release"
+#endif
+    return URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent(".build/\(configuration)/\(name)")
+}

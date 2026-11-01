@@ -76,7 +76,7 @@ struct AgentSession: Identifiable, Codable, Sendable {
 
 actor AgentSessionTracker {
     private let definitions: [AgentDefinition]
-    private let resolver: ProjectResolver
+    private let resolver: any ProjectResolving
     private let arguments: @Sendable (ProcessIdentity) -> [String]?
     private let directory: @Sendable (ProcessIdentity) -> String?
     private let mcp: McpConfigReader
@@ -90,12 +90,14 @@ actor AgentSessionTracker {
     private var seeded = false
     private var seedPending: Set<ProcessIdentity> = []
     private var lastTimestamp: Date?
+    private var latestRequest: Date?
+    private var latestNetwork: NetworkPortSnapshot?
     private var mcpChecked: [String: Date] = [:]
     private var configuredServers: [String: [McpServerDefinition]] = [:]
     private var logs: [String: AgentSessionLog] = [:]
     private var logChecked: [String: Date] = [:]
 
-    init(definitions: [AgentDefinition] = AgentDefinition.catalog, mcp: McpConfigReader = McpConfigReader(), resolver: ProjectResolver = ProjectResolver(),
+    init(definitions: [AgentDefinition] = AgentDefinition.catalog, mcp: McpConfigReader = McpConfigReader(), resolver: any ProjectResolving = ProjectResolver(),
          arguments: @escaping @Sendable (ProcessIdentity) -> [String]? = {
              guard ProcessInspection.isCurrentUserProcess($0) else { return nil }
              let values = ProcessInspection.launchContext(pid: $0.pid)?.arguments
@@ -112,10 +114,10 @@ actor AgentSessionTracker {
 
     func update(_ snapshot: ProcessSnapshot, network: NetworkPortSnapshot? = nil) async -> (sessions: [AgentSession], events: [ActivityEvent]) {
         guard !Capabilities.isSandboxed else { return ([], []) }
-        guard lastTimestamp.map({ snapshot.timestamp > $0 }) ?? true else { return (ordered(), []) }
+        guard !Task.isCancelled, (latestRequest ?? lastTimestamp).map({ snapshot.timestamp > $0 }) ?? true else { return (ordered(), []) }
         let all = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         guard !all.isEmpty, snapshot.warning == nil else { return (ordered(), []) }
-        lastTimestamp = snapshot.timestamp
+        latestRequest = snapshot.timestamp
         let live = Set(all.map(\.identity))
         if !seeded { seedPending = live }
         seedPending.formIntersection(live)
@@ -141,6 +143,30 @@ actor AgentSessionTracker {
                 matches[process.identity] = agent.id
             }
         }
+        // Enrichment can suspend. Commit session state only once, after every dependency has returned.
+        var projects: [ProcessIdentity: ProjectContext] = [:]
+        var servers = configuredServers
+        var checked = mcpChecked
+        let matched = all.filter { matches[$0.identity] != nil }
+        for process in matched {
+            if let path = directory(process.identity) {
+                let project = await resolver.context(forDirectory: path, now: snapshot.timestamp)
+                guard !Task.isCancelled, latestRequest == snapshot.timestamp else { return (ordered(), []) }
+                projects[process.identity] = project
+            }
+        }
+        for agentID in Set(matched.compactMap { matches[$0.identity] }) {
+            if checked[agentID].map({ snapshot.timestamp.timeIntervalSince($0) >= 30 }) ?? true {
+                let values = await mcp.servers(for: definitions.first { $0.id == agentID })
+                guard !Task.isCancelled, latestRequest == snapshot.timestamp else { return (ordered(), []) }
+                servers[agentID] = values
+                checked[agentID] = snapshot.timestamp
+            }
+        }
+        guard !Task.isCancelled, latestRequest == snapshot.timestamp else { return (ordered(), []) }
+        lastTimestamp = snapshot.timestamp
+        configuredServers = servers
+        mcpChecked = checked
         let byPID = Dictionary(all.map { ($0.identity.pid, $0) }, uniquingKeysWith: { a, _ in a })
         let children = Dictionary(grouping: all, by: { $0.parentPID ?? -1 })
         var events: [ActivityEvent] = []
@@ -193,13 +219,7 @@ actor AgentSessionTracker {
                     exitedAt: snapshot.timestamp))
             }
             session.recentCommands = Array(session.recentCommands.suffix(200))
-            if session.project == nil, session.endedAt == nil, let path = directory(session.root) {
-                session.project = await resolver.context(forDirectory: path)
-            }
-            if mcpChecked[session.agentID].map({ snapshot.timestamp.timeIntervalSince($0) >= 30 }) ?? true {
-                configuredServers[session.agentID] = await mcp.servers(for: definitions.first { $0.id == session.agentID })
-                mcpChecked[session.agentID] = snapshot.timestamp
-            }
+            if session.endedAt == nil { session.project = projects[session.root] }
             let configured = configuredServers[session.agentID] ?? []
             session.mcpServers = []; session.helpers = []; session.totals = ResourceTotals()
             for process in byOwner[id] ?? [] {
@@ -252,8 +272,8 @@ actor AgentSessionTracker {
                 parent = sessions[key]?.parentSession
             }
         }
-        if let network { annotate(network) }
-        // Project resolution happens after root detection.
+        if let network, latestNetwork.map({ network.timestamp >= $0.timestamp }) ?? true { latestNetwork = network }
+        if let latestNetwork { annotate(latestNetwork) }
         events = events.map { value in
             var value = value
             if let id = value.details["agentSession"], let project = sessions[id]?.project { value.details["project"] = project.name }
@@ -263,11 +283,16 @@ actor AgentSessionTracker {
     }
 
     func annotate(_ network: NetworkPortSnapshot) {
+        guard latestNetwork.map({ network.timestamp >= $0.timestamp }) ?? true else { return }
+        latestNetwork = network
         for id in sessions.keys where sessions[id]?.endedAt == nil {
-            sessions[id]?.listeners = network.ports.filter { belongs($0.pid, to: id, at: network.timestamp) }
-            sessions[id]?.remoteHosts = Set(network.connections.filter {
+            // Membership lookup reads sessions, so finish it before opening a dictionary write access.
+            let listeners = network.ports.filter { belongs($0.pid, to: id, at: network.timestamp) }
+            let remoteHosts = Set(network.connections.filter {
                 belongs($0.pid, to: id, at: network.timestamp) && $0.state != "LISTEN" && !$0.remoteAddress.isEmpty && $0.remoteAddress != "*:*"
             }.map(\.remoteAddress)).sorted().map { RemoteHostSummary(address: $0) }
+            sessions[id]?.listeners = listeners
+            sessions[id]?.remoteHosts = remoteHosts
         }
     }
 

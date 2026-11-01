@@ -118,11 +118,8 @@ struct ThermalView: View {
     }
 
     private var stats: [ResourceStat] {
-        let condition = store.system?.thermalCondition ?? .unavailable
         let hottest = sensors?.max { $0.celsius < $1.celsius }
         var stats = [
-            ResourceStat(title: "Pressure", systemImage: "gauge.with.dots.needle.67percent", value: condition.rawValue.capitalized,
-                         help: "macOS thermal-pressure state."),
             ResourceStat(title: "Hottest", systemImage: "flame", value: hottest.map { String(format: "%.0f °C", $0.celsius) } ?? "–",
                          detail: hottest?.name, color: hottest.map { Self.temperatureColor($0.celsius) }),
         ]

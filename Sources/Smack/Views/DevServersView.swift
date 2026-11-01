@@ -95,7 +95,7 @@ struct DevServersView: View {
                                     Button(action.title) { containerOperation = DockerContainerOperation(action: action, container: container) }
                                 }
                             } else if row.container == nil, Capabilities.supportsProcessTermination,
-                                      row.process.startTime != .distantPast {
+                                      !row.listenerProcesses.isEmpty {
                                 Button("Stop", role: .destructive) { stopping = row }
                             }
                         }
@@ -105,17 +105,19 @@ struct DevServersView: View {
             if store.devServers?.isEmpty == true { Text("No dev servers reported.").padding() }
         }
         .onAppear { store.refreshDevServers(); if store.networkPorts == nil { store.loadNetworkPorts() } }
-        .confirmationDialog("Stop \(stopping?.processName ?? "server")?", isPresented: Binding(
+        .confirmationDialog("Stop listening processes?", isPresented: Binding(
             get: { stopping != nil }, set: { if !$0 { stopping = nil } }), titleVisibility: .visible) {
                 if let row = stopping {
                     Button("Stop", role: .destructive) {
                         let current = (store.processes?.applications.flatMap(\.processes) ?? []) + (store.processes?.backgroundProcesses ?? [])
-                        let result = ProcessTerminator.terminate(targets: [row.process], current: current.map(\.identity),
+                        let result = ProcessTerminator.terminate(targets: row.listenerProcesses, current: current.map(\.identity),
                             force: false, requestQuit: { _ in nil })
                         store.errorMessage = result.summary
                         stopping = nil
                     }
                 }
+        } message: {
+            Text("Send SIGTERM to PIDs " + (stopping?.listenerProcesses.map { String($0.pid) }.joined(separator: ", ") ?? "") + ".")
         }
         .confirmationDialog(containerOperation?.title ?? "Container action", isPresented: Binding(
             get: { containerOperation != nil }, set: { if !$0 { containerOperation = nil } }), titleVisibility: .visible) {

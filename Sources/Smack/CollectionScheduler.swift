@@ -384,9 +384,11 @@ actor CollectionScheduler {
             }
             async let profile = enabled.contains("profiles") ? baselineProfiles() : nil
             async let btm = enabled.contains("startup") ? baselineBackgroundTasks() : nil
-            let (profileValue, btmValue) = await (profile, btm)
+            async let listeners: NetworkPortSnapshot? = enabled.contains("listeners") || enabled.contains("posture")
+                ? networkPorts() : nil
+            let (profileValue, btmValue, listenerValue) = await (profile, btm, listeners)
             var current = try await capture(enabled.map {
-                MachineBaselineCollector(id: $0, settings: settings, listeners: cachedListeners, profiles: profileValue, backgroundTasks: btmValue)
+                MachineBaselineCollector(id: $0, settings: settings, listeners: listenerValue, profiles: profileValue, backgroundTasks: btmValue)
             })
             try Task.checkCancellation()
             guard settings.scheduledDriftCheck, settings.goldenBaselineID == golden else { return }

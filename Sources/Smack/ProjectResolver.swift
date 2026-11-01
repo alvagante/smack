@@ -18,7 +18,11 @@ struct ProjectContext: Codable, Sendable, Equatable {
     var git: GitHead?
 }
 
-actor ProjectResolver {
+protocol ProjectResolving: Sendable {
+    func context(forDirectory path: String, now: Date) async -> ProjectContext?
+}
+
+actor ProjectResolver: ProjectResolving {
     private struct Entry {
         var value: ProjectContext
         var head: String?
@@ -103,9 +107,7 @@ actor ProjectResolver {
     }
 
     private static func text(_ url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 262_145), data.count <= 262_144 else { return nil }
+        guard let data = BoundedFile.read(url.path, limit: 262_144, followLinks: true) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 

@@ -4,6 +4,10 @@ import Synchronization
 
 /// Shared by app commands and helper traces; the helper never exposes this API over XPC.
 public enum Subprocess {
+    public enum ProcessGroup: Sendable {
+        case new, inherited, supervised
+    }
+
     public struct Result: Sendable {
         public var status: Int32
         public var output: String
@@ -33,13 +37,14 @@ public enum Subprocess {
 
     public static func run(_ executable: String, _ arguments: [String], input: String? = nil,
                            timeout: TimeInterval? = nil, outputLimit: Int = .max,
-                           cancellable: Bool = true) async -> Result {
+                           cancellable: Bool = true, processGroup: ProcessGroup = .new) async -> Result {
         let cancellation = Cancellation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     continuation.resume(returning: runBlocking(executable, arguments, input: input,
-                        timeout: timeout, outputLimit: outputLimit, cancellation: cancellation))
+                        timeout: timeout, outputLimit: outputLimit, cancellation: cancellation,
+                        processGroup: processGroup))
                 }
             }
         } onCancel: {
@@ -69,7 +74,9 @@ public enum Subprocess {
     }
 
     private static func runBlocking(_ executable: String, _ arguments: [String], input: String?,
-                                    timeout: TimeInterval?, outputLimit: Int, cancellation: Cancellation) -> Result {
+                                    timeout: TimeInterval?, outputLimit: Int, cancellation: Cancellation,
+                                    processGroup: ProcessGroup) -> Result {
+        let newProcessGroup = processGroup != .inherited
         if cancellation.requested.withLock({ $0 }) {
             return Result(status: -1, output: "", error: "Cancelled.", cancelled: true)
         }
@@ -89,8 +96,8 @@ public enum Subprocess {
             try check(posix_spawn_file_actions_adddup2(&actions, stdin[0], STDIN_FILENO))
             try check(posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO))
             try check(posix_spawn_file_actions_adddup2(&actions, errors[1], STDERR_FILENO))
-            try check(posix_spawnattr_setpgroup(&attributes, 0))
-            try check(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)))
+            if newProcessGroup { try check(posix_spawnattr_setpgroup(&attributes, 0)) }
+            try check(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | (newProcessGroup ? POSIX_SPAWN_SETPGROUP : 0))))
             let argv = ([executable] + arguments).map { strdup($0) } + [nil]
             let env = ProcessInfo.processInfo.environment.map { strdup($0.key + "=" + $0.value) } + [nil]
             defer { argv.forEach { free($0) }; env.forEach { free($0) } }
@@ -106,13 +113,14 @@ public enum Subprocess {
             // Only this worker owns descriptor closure. Polling avoids blocked readers/writers
             // retaining threads forever when descendants keep inherited descriptors open.
             return communicate(pid: pid, output: &output, errors: &errors, stdin: &stdin,
-                               input: input, timeout: timeout, limit: max(0, outputLimit), cancellation: cancellation)
+                               input: input, timeout: timeout, limit: max(0, outputLimit), cancellation: cancellation,
+                               signalTarget: newProcessGroup ? -pid : pid, terminateDescendants: processGroup == .supervised)
         } catch { return .unavailable(error.localizedDescription) }
     }
 
     private static func communicate(pid: pid_t, output: inout [Int32], errors: inout [Int32], stdin: inout [Int32],
                                     input: String?, timeout: TimeInterval?, limit: Int,
-                                    cancellation: Cancellation) -> Result {
+                                    cancellation: Cancellation, signalTarget: pid_t, terminateDescendants: Bool) -> Result {
         let outFD = output[0], errFD = errors[0], inFD = stdin[1]
         close(output[1]); output[1] = -1
         close(errors[1]); errors[1] = -1
@@ -144,12 +152,12 @@ public enum Subprocess {
                 timedOut = timeout.map { now - started >= $0 } ?? false
                 // A successful parent can still leave pipes open in a background descendant.
                 if let exitedAt, now - exitedAt >= 0.25, openOutput || openError { timedOut = true }
-                if cancelled || timedOut { stopAt = now; _ = kill(-pid, SIGTERM) }
+                if cancelled || timedOut { stopAt = now; _ = kill(signalTarget, SIGTERM) }
             }
             if let stopAt {
-                if now - stopAt >= 0.25 { _ = kill(-pid, SIGKILL) }
+                if now - stopAt >= 0.25 { _ = kill(signalTarget, SIGKILL) }
                 if (exited && !openOutput && !openError) || now - stopAt >= 0.5 {
-                    _ = kill(-pid, SIGKILL)
+                    _ = kill(signalTarget, SIGKILL)
                     break
                 }
             } else if exited && !openOutput && !openError { break }
@@ -187,6 +195,8 @@ public enum Subprocess {
                 }
             }
         }
+        // Worker children inherit this group; reap the leader only after stopping any remaining descendants.
+        if terminateDescendants { _ = kill(signalTarget, SIGKILL) }
         var status: Int32 = 0
         if exited {
             while waitpid(pid, &status, 0) < 0 && errno == EINTR {}

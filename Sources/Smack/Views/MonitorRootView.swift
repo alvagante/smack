@@ -50,8 +50,9 @@ struct MonitorRootView: View {
                 if let date = store.system?.timestamp {
                     Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
-                Button { store.route = .baseline } label: { Image(systemName: "arrow.triangle.branch") }
-                    .accessibilityLabel("Baselines")
+                Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
+                    .hoverHint("System details")
+                    .accessibilityLabel("System details")
                 Button { store.route = .settings } label: { Image(systemName: "gear") }
                     .hoverHint("Settings")
                     .accessibilityLabel("Settings")

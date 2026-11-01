@@ -233,31 +233,47 @@ struct ApplicationAboutCard: View {
 
     var body: some View {
         MetricCard(title: "About", systemImage: "info.circle", color: .gray) {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
-                row("Version", info.flatMap { info in info.version.map { v in info.build.map { $0 == v ? v : "\(v) (\($0))" } ?? v } })
-                row("Category", info?.category)
-                row("Architecture", info?.architectures)
-                row("Requires", info?.minimumSystem.map { "macOS \($0) or later" })
-                row("Kind", info.map { $0.isAgent ? "Agent (no Dock icon)" : "Regular application" })
-                row("Bundle ID", app.bundleIdentifier)
-                row("Bundle", info?.bundlePath)
-                row("Executable", app.executablePath)
-                row("Main PID", ApplicationReadings.mainProcess(app).map { String($0.identity.pid) })
-                row("Started", ApplicationReadings.startTime(app).map { $0.formatted(date: .abbreviated, time: .shortened) })
-                row("Users", ApplicationReadings.users(app).joined(separator: ", "))
-                row("Copyright", info?.copyright)
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 4) {
+                ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
+                    GridRow {
+                        cell(pair[0])
+                        if pair.count > 1 { cell(pair[1]) } else { Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]).gridCellColumns(2) }
+                    }
+                }
+                if let executable = app.executablePath, !executable.isEmpty {
+                    GridRow {
+                        Text("Executable").foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+                        Text(executable).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                            .help(executable).gridCellColumns(3)
+                    }
+                }
             }
             .font(.caption)
         }
     }
 
+    /// Short facts laid out two per row; empty ones are skipped.
+    private var pairs: [[(String, String)]] {
+        let facts: [(String, String?)] = [
+            ("Version", info.flatMap { info in info.version.map { v in info.build.map { $0 == v ? v : "\(v) (\($0))" } ?? v } }),
+            ("Category", info?.category),
+            ("Architecture", info?.architectures),
+            ("Requires", info?.minimumSystem.map { "macOS \($0) or later" }),
+            ("Kind", info.map { $0.isAgent ? "Agent (no Dock icon)" : "Regular application" }),
+            ("Main PID", ApplicationReadings.mainProcess(app).map { String($0.identity.pid) }),
+            ("Started", ApplicationReadings.startTime(app).map { $0.formatted(date: .abbreviated, time: .shortened) }),
+            ("Users", ApplicationReadings.users(app).joined(separator: ", ")),
+            ("Bundle ID", app.bundleIdentifier),
+            ("Bundle", info?.bundlePath),
+            ("Copyright", info?.copyright),
+        ]
+        let present = facts.compactMap { title, value in value.flatMap { $0.isEmpty ? nil : (title, $0) } }
+        return stride(from: 0, to: present.count, by: 2).map { Array(present[$0..<min($0 + 2, present.count)]) }
+    }
+
     @ViewBuilder
-    private func row(_ title: String, _ value: String?) -> some View {
-        if let value, !value.isEmpty {
-            GridRow {
-                Text(title).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
-                Text(value).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
-            }
-        }
+    private func cell(_ fact: (String, String)) -> some View {
+        Text(fact.0).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+        Text(fact.1).textSelection(.enabled).lineLimit(1).truncationMode(.middle).help(fact.1)
     }
 }
