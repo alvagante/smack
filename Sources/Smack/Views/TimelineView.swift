@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 enum TimelineRange: String, CaseIterable, Identifiable {
@@ -116,6 +117,27 @@ final class TimelineViewModel: ObservableObject {
         return result
     }
 
+    /// Graph lanes: every group, or only the groups of the selected kinds, in declaration order.
+    var lanes: [ActivityEventKind.Group] { Self.lanes(for: selectedKinds) }
+
+    nonisolated static func lanes(for kinds: Set<ActivityEventKind>) -> [ActivityEventKind.Group] {
+        guard !kinds.isEmpty else { return ActivityEventKind.Group.allCases }
+        let groups = Set(kinds.map(\.group))
+        return ActivityEventKind.Group.allCases.filter { groups.contains($0) }
+    }
+
+    /// When the read limit cut older events off, the oldest loaded instant; the graph shades the window before it.
+    var truncatedBefore: Date? {
+        loaded.count >= Self.fetchLimit ? loaded.map(\.timestamp).min() : nil
+    }
+
+    /// Events in `lane` within `tolerance` of `date`, closest first; the graph's hover hit test.
+    nonisolated static func events(near date: Date, lane: ActivityEventKind.Group, in events: [ActivityEvent], tolerance: TimeInterval) -> [ActivityEvent] {
+        events
+            .filter { $0.kind.group == lane && abs($0.timestamp.timeIntervalSince(date)) <= tolerance }
+            .sorted { abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date)) }
+    }
+
     func load(using loader: (_ start: Date, _ end: Date, _ limit: Int) async throws -> [ActivityEvent]) async {
         loading = true
         defer { loading = false }
@@ -136,6 +158,8 @@ final class TimelineViewModel: ObservableObject {
 struct TimelineView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: TimelineViewModel
+    @AppStorage("timeline.graphLayout") private var graphLayout = false
+    @State private var hover: TimelineHover?
 
     init(store: MonitorStore) {
         self.store = store
@@ -172,6 +196,11 @@ struct TimelineView: View {
                 ], color: .mint)
             }
             HStack(spacing: 8) {
+                Picker("Layout", selection: $graphLayout) {
+                    Image(systemName: "list.bullet").help("Log").tag(false)
+                    Image(systemName: "chart.dots.scatter").help("Graph").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
                 Picker("Range", selection: Binding(get: { model.range }, set: { model.select(range: $0) })) {
                     ForEach(TimelineRange.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -231,6 +260,8 @@ struct TimelineView: View {
         } else if model.visibleEvents.isEmpty, !model.loading {
             ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
                                    description: Text("No activity events in \(model.windowPhrase)."))
+        } else if graphLayout {
+            graph
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -288,11 +319,194 @@ struct TimelineView: View {
         .accessibilityElement(children: .combine)
     }
 
+    // MARK: Graph
+
+    private var graph: some View {
+        let events = model.filtered
+        let lanes = model.lanes
+        let window = model.window()
+        let domain = window.start...window.end
+        let truncated = model.truncatedBefore.flatMap { $0 > window.start ? $0 : nil }
+        let nearby = hover.map { TimelineViewModel.events(near: $0.date, lane: $0.lane, in: events, tolerance: $0.tolerance) } ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            Chart {
+                if let truncated {
+                    RectangleMark(xStart: .value("From", window.start), xEnd: .value("To", truncated))
+                        .foregroundStyle(.secondary.opacity(0.08))
+                        .annotation(position: .overlay, alignment: .topLeading) {
+                            Text("Older events not loaded").font(.caption2).foregroundStyle(.secondary).padding(4)
+                        }
+                }
+                ForEach(events) { event in
+                    PointMark(x: .value("Time", event.timestamp), y: .value("Group", event.kind.group.rawValue))
+                        .foregroundStyle(event.kind.group.color.opacity(0.75))
+                        .symbol(symbol(event.severity))
+                        .symbolSize(symbolSize(event.severity))
+                }
+                if let first = nearby.first {
+                    RuleMark(x: .value("Pointer", first.timestamp))
+                        .foregroundStyle(.secondary.opacity(0.4))
+                        .lineStyle(StrokeStyle(lineWidth: 0.8, dash: [2, 3]))
+                    PointMark(x: .value("Time", first.timestamp), y: .value("Group", first.kind.group.rawValue))
+                        .foregroundStyle(first.kind.group.color)
+                        .symbol(symbol(first.severity))
+                        .symbolSize(symbolSize(first.severity) * 2.5)
+                        .annotation(position: .top, alignment: .center, spacing: 6,
+                                    overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                            tooltip(nearby)
+                        }
+                }
+            }
+            .chartXScale(domain: domain)
+            .chartYScale(domain: lanes.map(\.rawValue))
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) { Text(date, format: TimeGrid.format(for: domain)) }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let name = value.as(String.self), let group = ActivityEventKind.Group(rawValue: name) {
+                            Text(name).foregroundStyle(group.color)
+                        }
+                    }
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                hover = hitTest(location, proxy: proxy, geometry: geometry, window: window)
+                            case .ended:
+                                hover = nil
+                            }
+                        }
+                        .onTapGesture {
+                            if let first = nearby.first, let target = store.liveProcess(for: first) {
+                                store.route = .process(target.id)
+                            }
+                        }
+                }
+            }
+            .frame(minHeight: CGFloat(lanes.count) * 36 + 30)
+            legend(events, lanes: lanes)
+        }
+        .padding()
+    }
+
+    /// Maps the pointer to a lane and a time, with an 8 pt hit radius converted to seconds at the current scale.
+    private func hitTest(_ location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy, window: DateInterval) -> TimelineHover? {
+        guard let plot = proxy.plotFrame else { return nil }
+        let frame = geometry[plot]
+        let x = location.x - frame.origin.x
+        let y = location.y - frame.origin.y
+        guard frame.width > 0,
+              let date = proxy.value(atX: x, as: Date.self),
+              let name = proxy.value(atY: y, as: String.self),
+              let lane = ActivityEventKind.Group(rawValue: name) else { return nil }
+        return TimelineHover(date: date, lane: lane, tolerance: 8 * window.duration / frame.width)
+    }
+
+    private func tooltip(_ events: [ActivityEvent]) -> some View {
+        let shown = events.prefix(3)
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(shown)) { event in
+                VStack(alignment: .leading, spacing: 1) {
+                    Label(event.kind.title, systemImage: event.kind.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(event.kind.group.color)
+                    Text(event.subject).font(.caption).lineLimit(2)
+                    Text([event.timestamp.formatted(date: .abbreviated, time: .standard), event.processName].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                    ForEach(event.details.keys.sorted().prefix(4), id: \.self) { key in
+                        Text("\(key): \(event.details[key] ?? "")").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if event.severity != .info {
+                        Text(event.severity.rawValue.capitalized).font(.caption2.weight(.semibold)).foregroundStyle(color(event.severity))
+                    }
+                }
+            }
+            if events.count > shown.count {
+                Text("+\(events.count - shown.count) more nearby").font(.caption2).foregroundStyle(.secondary)
+            }
+            if let first = events.first, store.liveProcess(for: first) != nil {
+                Text("Click to open \(first.processName ?? first.subject)").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: 300, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.secondary.opacity(0.2)))
+    }
+
+    private func legend(_ events: [ActivityEvent], lanes: [ActivityEventKind.Group]) -> some View {
+        let counts = Dictionary(grouping: events, by: \.kind.group).mapValues(\.count)
+        return HStack(spacing: 14) {
+            ForEach(lanes, id: \.self) { group in
+                HStack(spacing: 4) {
+                    Circle().fill(group.color).frame(width: 8, height: 8)
+                    Text("\(group.rawValue) \(counts[group] ?? 0)").monospacedDigit()
+                }
+            }
+            Spacer()
+            HStack(spacing: 4) { Image(systemName: "circle.fill"); Text("Info") }
+            HStack(spacing: 4) { Image(systemName: "diamond.fill"); Text("Notice") }
+            HStack(spacing: 4) { Image(systemName: "triangle.fill"); Text("Warning") }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private func symbol(_ severity: ActivityEventSeverity) -> BasicChartSymbolShape {
+        switch severity {
+        case .info: .circle
+        case .notice: .diamond
+        case .warning: .triangle
+        }
+    }
+
+    private func symbolSize(_ severity: ActivityEventSeverity) -> CGFloat {
+        switch severity {
+        case .info: 40
+        case .notice: 70
+        case .warning: 100
+        }
+    }
+
     private func color(_ severity: ActivityEventSeverity) -> Color {
         switch severity {
         case .info: .secondary
         case .notice: .orange
         case .warning: .red
+        }
+    }
+}
+
+private struct TimelineHover: Equatable {
+    var date: Date
+    var lane: ActivityEventKind.Group
+    /// Hit radius in seconds at the current plot width.
+    var tolerance: TimeInterval
+}
+
+extension ActivityEventKind.Group {
+    /// Graph colors; red and orange stay reserved for warning and notice severity.
+    var color: Color {
+        switch self {
+        case .agents: .purple
+        case .processes: .blue
+        case .network: .teal
+        case .startup: .indigo
+        case .system: .gray
+        case .alerts: .pink
+        case .security: .green
         }
     }
 }

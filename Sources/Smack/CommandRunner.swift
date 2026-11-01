@@ -13,7 +13,8 @@ enum CommandRunner {
         .unavailable("Unavailable in the App Store build.")
 #else
         await Subprocess.run(executable, arguments, input: input, timeout: timeout,
-                             outputLimit: outputLimit, cancellable: cancellable)
+                             outputLimit: outputLimit, cancellable: cancellable,
+                             processGroup: BaselineWorker.isRunning ? .inherited : .new)
 #endif
     }
 }

@@ -92,6 +92,28 @@ struct DockerMonitorTests {
         #expect(missingStats.containerMemoryBytes == nil)
     }
 
+    @Test func networksIncludeSubnetsAndContainerNames() async {
+        let collector = DockerCollector(run: { _, args in
+            switch (args.first, args.dropFirst().first) {
+            case ("info", _): return .init(status: 0, output: Self.engine, error: "")
+            case ("container", "ls"): return .init(status: 0, output: "", error: "")
+            case ("network", "ls"):
+                return .init(status: 0, output: #"{"ID":"n1","Name":"demo","Driver":"bridge","Scope":"local"}"# + "\n" +
+                             #"{"ID":"n2","Name":"none","Driver":"null","Scope":"local"}"#, error: "")
+            case ("network", "inspect"):
+                #expect(args.suffix(2) == ["n1", "n2"])
+                return .init(status: 0, output: #"{"id":"n1","subnets":[{"Subnet":"172.18.0.0/16","Gateway":"172.18.0.1"}],"containers":{"c2":{"Name":"web"},"c1":{"Name":"db"}}}"# + "\n" +
+                             #"{"id":"n2","subnets":null,"containers":{}}"#, error: "")
+            default: return .unavailable("Unexpected command")
+            }
+        })
+        let snapshot = await collector.collect(executable: "/docker", details: true, section: .networks)
+        #expect(snapshot.warnings.isEmpty)
+        #expect(snapshot.networks?.first?.subnets == ["172.18.0.0/16"])
+        #expect(snapshot.networks?.first?.containers == ["db", "web"])
+        #expect(snapshot.networks?.last?.subnets == [])
+    }
+
     @Test func summarySkipsStatsAndDiskCommands() async {
         let collector = DockerCollector(run: { _, args in
             switch args.first {

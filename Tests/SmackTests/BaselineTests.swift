@@ -192,7 +192,7 @@ private struct FixtureBaselineCollector: BaselineSectionCollector {
     guard ProcessInfo.processInfo.environment["SMACK_BASELINE_LIVE"] == "1" else { return }
     let start = ContinuousClock.now
     let document = try await BaselineCapture.capture(collectors: BaselineDiff.rules.keys.sorted().map {
-        MachineBaselineCollector(id: $0, settings: CollectionSettings())
+        MachineBaselineCollector(id: $0, settings: CollectionSettings(), workerExecutable: obsProduct("Smack").path)
     }, name: "Live validation")
     let elapsed = start.duration(to: .now)
     print("Baseline live capture: \(elapsed)")

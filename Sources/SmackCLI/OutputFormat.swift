@@ -43,15 +43,26 @@ enum CLIOutputFormat: String {
             return ([record.id, record.title] + fields(op: op).map { record.fields[$0] ?? "" })
                 .map(quoted).joined(separator: separator)
         case .table:
-            func escaped(_ text: String) throws -> String {
-                let encoded = String(decoding: try JSONEncoder().encode(text), as: UTF8.self)
-                return String(encoded.dropFirst().dropLast())
-            }
             let values = try record.fields.keys.sorted().map { key in
-                key + "=" + (try escaped(record.fields[key]!))
+                key + "=" + (try Self.escaped(record.fields[key]!))
             }.joined(separator: " ")
-            return "\(try escaped(record.id))\t\(try escaped(record.title))\t\(values)"
+            return "\(try Self.escaped(record.id))\t\(try Self.escaped(record.title))\t\(values)"
         }
+    }
+
+    static func escaped(_ text: String) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let encoded = String(decoding: try encoder.encode(text), as: UTF8.self)
+        return encoded.dropFirst().dropLast().unicodeScalars.map { scalar in
+            CharacterSet.controlCharacters.contains(scalar) ? String(format: "\\u%04x", scalar.value) : String(scalar)
+        }.joined()
+    }
+
+    static func terminalMarkdown(_ text: String) throws -> String {
+        try text.components(separatedBy: "\n").map { line in
+            try line.components(separatedBy: "\t").map(escaped).joined(separator: "\t")
+        }.joined(separator: "\n")
     }
 
     private func quoted(_ value: String) -> String {

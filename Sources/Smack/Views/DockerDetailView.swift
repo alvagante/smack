@@ -273,8 +273,12 @@ struct DockerDetailView: View {
                             Spacer()
                             inspectButton(.network, id: network.ID, name: network.Name)
                         }
-                        Text("Driver: \(network.Driver) · Scope: \(network.Scope)")
+                        Text(((network.subnets.isEmpty ? [] : [network.subnets.joined(separator: ", ")]) + ["Driver: \(network.Driver)", "Scope: \(network.Scope)"])
+                                .joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
+                        if !network.containers.isEmpty {
+                            Label(network.containers.joined(separator: ", "), systemImage: "shippingbox").font(.caption)
+                        }
                         Text(network.ID).font(.caption.monospaced()).foregroundStyle(.secondary)
                     }.textSelection(.enabled)
                     Divider()
@@ -398,33 +402,38 @@ struct DockerDetailView: View {
 
     private func containerRow(_ container: DockerContainer, snapshot: DockerSnapshot) -> some View {
         let stats = snapshot.stats.first { $0.ID == container.id || container.id.hasPrefix($0.ID) }
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack {
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
                 Circle().fill(container.isRunning ? .green : .secondary).frame(width: 7, height: 7)
                 Text(container.displayName).font(.headline)
                 Spacer()
                 Text(container.status).font(.caption).foregroundStyle(.secondary)
+                ForEach(containerActions(for: container), id: \.self) { action in
+                    Button { pending = DockerContainerOperation(action: action, container: container) } label: {
+                        Image(systemName: action.systemImage).foregroundStyle(action.color).frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(action.title)
+                    .accessibilityLabel("\(action.title) \(container.displayName)")
+                    .disabled(model.busy)
+                }
+                Button { inspectionTarget = DockerInspectionTarget(kind: .container, identifier: container.id, name: container.displayName) } label: {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.blue).frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .help("Inspect")
+                .accessibilityLabel("Inspect \(container.displayName)")
             }
             Text("\(container.image) · \(container.id.prefix(12))").font(.caption).foregroundStyle(.secondary)
             if let stats, container.isRunning {
-                Text("CPU \(stats.CPUPerc) · Memory \(stats.MemUsage) (\(stats.MemPerc)) · PIDs \(stats.PIDs)")
+                Text("CPU \(stats.CPUPerc) · Memory \(stats.MemUsage) (\(stats.MemPerc)) · PIDs \(stats.PIDs) · Network I/O \(stats.NetIO) · Block I/O \(stats.BlockIO)")
                     .font(.callout).monospacedDigit()
-                Text("Network I/O \(stats.NetIO) · Block I/O \(stats.BlockIO)")
-                    .font(.caption).foregroundStyle(.secondary)
             } else if container.isRunning {
                 Text("Resource statistics unavailable").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(container.portDescriptions, id: \.self) { port in
                 Label(port, systemImage: "network").font(.caption.monospaced())
             }
-            HStack {
-                ForEach(containerActions(for: container), id: \.self) { action in
-                    Button(action.title) { pending = DockerContainerOperation(action: action, container: container) }
-                        .disabled(model.busy)
-                }
-                Spacer()
-                inspectButton(.container, id: container.id, name: container.displayName)
-            }.controlSize(.small)
         }.textSelection(.enabled)
     }
 }
@@ -480,6 +489,27 @@ struct DockerInspectionView: View {
                 self.error = error.localizedDescription
             }
             loading = false
+        }
+    }
+}
+
+extension DockerContainerAction {
+    var systemImage: String {
+        switch self {
+        case .start: "play.fill"
+        case .stop: "stop.fill"
+        case .restart: "arrow.clockwise"
+        case .pause: "pause.fill"
+        case .unpause: "playpause.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .start, .unpause: .green
+        case .stop: .red
+        case .restart: .orange
+        case .pause: .yellow
         }
     }
 }

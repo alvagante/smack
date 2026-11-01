@@ -10,6 +10,10 @@ import SwiftUI
 @MainActor
 enum SmackMain {
     static func main() {
+        if CommandLine.arguments == [CommandLine.arguments[0], "--baseline-section"] {
+            Task.detached { exit(await BaselineWorker.run()) }
+            dispatchMain()
+        }
 #if !SMACK_APP_STORE
         if CommandLine.arguments == [CommandLine.arguments[0], "--diagnose-helper"] {
             Task.detached {

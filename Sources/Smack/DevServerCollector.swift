@@ -16,6 +16,7 @@ struct DevServer: Identifiable, Sendable, Equatable {
     var project: ProjectContext?
     var container: ContainerBinding?
     var agentSession: String?
+    var listenerProcesses: [ProcessIdentity] = []
 }
 
 actor DevServerCollector {
@@ -99,6 +100,9 @@ actor DevServerCollector {
                         ports: [], project: project, container: binding)
                 }
                 rows[id]?.ports.append(port)
+                if let identity = process?.identity, rows[id]?.listenerProcesses.contains(identity) == false {
+                    rows[id]?.listenerProcesses.append(identity)
+                }
             }
         }
         return rows.values.sorted { $0.id < $1.id }

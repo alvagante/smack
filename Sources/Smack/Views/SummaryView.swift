@@ -27,7 +27,7 @@ struct SummaryView: View {
                         batteryCard(battery)
                     }
                     securityCard
-                    systemCard
+                    BaselineSummaryTile(model: store.baselines, settingsStore: store.settingsStore) { store.route = .baseline }
                 }
                 SummaryGroup(title: "Activity", systemImage: "waveform.path.ecg") {
                     ActivityDiffCard(store: store)
@@ -124,33 +124,6 @@ struct SummaryView: View {
             }
         }
         .buttonStyle(.plain)
-    }
-
-    private var systemCard: some View {
-        Button { store.route = .systemDetails } label: {
-            MetricCard(title: "System", systemImage: "info.circle", color: .gray, isSummary: true) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(systemDetail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-            }
-        }
-        .buttonStyle(.plain)
-        .help("Hardware, firmware, software, displays and kernel limits.")
-    }
-
-    private var systemDetail: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
-        var parts = ["macOS \(version.majorVersion).\(version.minorVersion)"]
-        if let boot = SystemInformation.bootTime { parts.append("up \(CPUReadings.uptime(Date().timeIntervalSince(boot)))") }
-        return parts.joined(separator: " · ")
     }
 
     private var historyCard: some View {
@@ -412,5 +385,36 @@ private struct SummaryGroup<Content: View>: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) { content }
         }
+    }
+}
+
+/// Saved baselines and the golden one the daily drift check compares against.
+struct BaselineSummaryTile: View {
+    @ObservedObject var model: BaselineModel
+    @ObservedObject var settingsStore: SettingsStore
+    let open: () -> Void
+
+    var body: some View {
+        let settings = settingsStore.settings
+        let golden = settings.goldenBaselineID.flatMap { id in model.rows.first { $0.0.lastPathComponent == id }?.1 }
+        Button(action: open) {
+            MetricCard(title: "Baselines", systemImage: "arrow.triangle.branch", color: .indigo, isSummary: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.rows.isEmpty ? "None saved" : "\(model.rows.count) saved")
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(golden.map { "Golden: \($0.name.isEmpty ? "Unnamed" : $0.name)" + (settings.scheduledDriftCheck ? " · daily check" : "") }
+                         ?? "Snapshot configuration, detect drift")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Capture this Mac's configuration and compare it later to find what changed.")
+        // The Baselines page keeps rows current after its own changes; load once for the tile.
+        .task { if model.rows.isEmpty { await model.refresh() } }
     }
 }

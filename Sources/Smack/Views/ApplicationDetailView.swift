@@ -243,16 +243,20 @@ struct ApplicationDetailView: View {
         let cores = store.system?.cpu.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount
         let cpu = ApplicationCPUCard(app: app, coreCount: cores) { store.route = .process($0.id) }
         let gpu = ApplicationGPUCard(store: store, app: app)
-        return VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    cpu.frame(minWidth: 360)
-                    gpu.frame(width: 260)
-                }
-                VStack(spacing: 12) { cpu; gpu }
+        let about = ApplicationAboutCard(app: app, info: model.bundleInfo)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                cpu.frame(width: 260)
+                gpu.frame(width: 260)
+                about.frame(minWidth: 420)
             }
             .fixedSize(horizontal: false, vertical: true)
-            ApplicationAboutCard(app: app, info: model.bundleInfo)
+            VStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) { cpu; gpu }.fixedSize(horizontal: false, vertical: true)
+                about
+            }
+            .frame(minWidth: 532)
+            VStack(spacing: 12) { cpu; gpu; about }
         }
     }
 

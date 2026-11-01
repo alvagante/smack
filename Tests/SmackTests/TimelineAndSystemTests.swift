@@ -77,6 +77,33 @@ import Testing
     #expect(model.loaded.count == 1)
 }
 
+@MainActor
+@Test func graphLanesFollowTheKindFilter() {
+    #expect(TimelineViewModel.lanes(for: []) == ActivityEventKind.Group.allCases)
+    #expect(TimelineViewModel.lanes(for: [.systemWake, .processStarted, .processExited]) == [.processes, .system])
+}
+
+@Test func graphHitTestPicksTheLaneAndClosestEventsFirst() {
+    let events = [
+        obsEvent(.processStarted, at: 100, subject: "far"),
+        obsEvent(.processStarted, at: 104, subject: "near"),
+        obsEvent(.processExited, at: 107, subject: "nearer"),
+        obsEvent(.listenerOpened, at: 105, subject: "other lane"),
+    ]
+    let hits = TimelineViewModel.events(near: Date(timeIntervalSince1970: 105), lane: .processes, in: events, tolerance: 3)
+    #expect(hits.map(\.subject) == ["near", "nearer"])
+}
+
+@MainActor
+@Test func truncationIsReportedOnlyAtTheReadLimit() async {
+    let model = TimelineViewModel()
+    await model.load { _, _, _ in [obsEvent(at: 5), obsEvent(at: 2)] }
+    #expect(model.truncatedBefore == nil)
+    let full = (0..<TimelineViewModel.fetchLimit).map { obsEvent(at: 10_000 - Double($0), subject: "e\($0)") }
+    await model.load { _, _, _ in full }
+    #expect(model.truncatedBefore == Date(timeIntervalSince1970: 10_000 - Double(TimelineViewModel.fetchLimit - 1)))
+}
+
 // MARK: Wakeups
 
 @Test func wakeupRatesNeedTwoSamplesAndNeverSpikeOnReset() {
