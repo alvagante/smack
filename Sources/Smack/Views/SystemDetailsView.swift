@@ -7,13 +7,14 @@ struct SystemDetailsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
+            DetailPageHeader(padding: MonitorStyle.spacing) {
                 ResourceTitle(title: "System Details", systemImage: "info.circle", color: .gray,
                               subtitle: SystemInformation.modelName ?? SystemInformation.modelIdentifier)
-                DetailStatsGrid(stats: stats, color: .gray)
-                Spacer(minLength: 0)
+            } actions: {
+                EmptyView()
+            } overview: {
+                ResourceStatsRow(stats: stats)
             }
-            .padding()
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                     ForEach(SystemInformation.sections(gpuName: store.system?.gpuName ?? "", gpuCoreCount: store.system?.gpuCoreCount)) { section in

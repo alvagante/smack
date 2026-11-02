@@ -10,7 +10,8 @@ struct AgentsSummaryTile: View {
             SummaryNavigationRow(route: .agents,
                 value: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
                 detail: "Configuration, logs, memory and skills", open: open)
-                .task { if model.snapshot == nil { await model.refresh() } }
+                .background(MonitorStyle.page)
+        .task { if model.snapshot == nil { await model.refresh() } }
         }
     }
 }
@@ -22,6 +23,7 @@ struct AgentDetailView: View {
     @State private var category: AgentCategory = .configuration
     @State private var selectedArtifact: String?
     @State private var query = ""
+    @State private var showingSessions = false
     @StateObject private var browser = UserHomeMonitor()
     @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
@@ -33,30 +35,33 @@ struct AgentDetailView: View {
     private var artifact: AgentArtifact? { artifacts.first { $0.id == selectedArtifact } ?? artifacts.first }
 
     private var overview: some View {
-        DetailStatsGrid(stats: [
-            ResourceStat(title: "Agents", systemImage: "sparkles", value: model.snapshot.map { String($0.agents.count) } ?? "Unavailable"),
+        ResourceStatsRow(headline: model.snapshot.map { String($0.agents.count) } ?? "–", unit: "agents", stats: [
             ResourceStat(title: "Executables", systemImage: "terminal", value: model.snapshot.map { String($0.agents.filter { $0.executable != nil }.count) } ?? "Unavailable"),
             ResourceStat(title: "Artifacts", systemImage: "doc.text", value: model.snapshot.map { String($0.agents.reduce(0) { $0 + $1.artifacts.count }) } ?? "Unavailable")
-        ], color: .purple)
+        ], headlineWidth: 120)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    ResourceTitle(title: "Agents", systemImage: "sparkles", color: .purple)
-                    if let snapshot = model.snapshot {
-                        Text("\(snapshot.agents.count) detected · Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                overview
-                Spacer()
+            DetailPageHeader {
+                ResourceTitle(title: "Agents", systemImage: "sparkles", color: .purple,
+                              subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" })
+            } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
                 RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
-            }.padding()
-            AgentSessionsView(model: model, store: store)
-                .frame(maxHeight: 300)
+            } overview: {
+                overview
+            }
+            Divider()
+            DisclosureGroup(isExpanded: $showingSessions) {
+                AgentSessionsView(model: model, store: store)
+                    .frame(height: 220)
+            } label: {
+                Label("Live sessions (\(model.sessions.filter { $0.endedAt == nil }.count))", systemImage: "terminal")
+                    .font(.callout.weight(.semibold))
+            }
+            .padding(.horizontal, MonitorStyle.inset)
+            .padding(.vertical, 12)
             Divider()
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -72,15 +77,11 @@ struct AgentDetailView: View {
                                         Text(agent.name)
                                         Spacer(minLength: 0)
                                     }
-                                    .font(.callout).padding(8)
-                                    .background(current?.id == agent.id ? Color.accentColor.opacity(0.15) : .clear,
-                                                in: RoundedRectangle(cornerRadius: 6))
-                                    .contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(DetailNavigationStyle(selected: current?.id == agent.id))
                             }
-                        }.padding(10)
+                        }.padding(12)
                     }
-                }.padding(.top, 10).frame(width: 180)
+                }.padding(.top, 10).frame(width: 184)
                 Divider()
                 VStack(alignment: .leading, spacing: 10) {
                     if let agent = current {
@@ -141,7 +142,7 @@ struct AgentDetailView: View {
                         ContentUnavailableView(model.loading ? "Discovering agents" : "No matching agents", systemImage: "sparkles",
                             description: Text("Detects AI tools from their user directories or executables on inherited PATH."))
                     }
-                }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }.padding(MonitorStyle.inset).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .task { if model.snapshot == nil { await model.refresh() } }

@@ -116,4 +116,13 @@ struct CommandRunnerTests {
         #expect(result.timedOut)
     }
 
+    @Test func heldInputStaysOpenUntilStop() async {
+        let started = ProcessInfo.processInfo.systemUptime
+        let result = await Subprocess.run("/bin/sh", ["-c", "cat; printf eof"], input: "payload",
+                                          timeout: 0.3, holdInput: true)
+        #expect(result.timedOut)
+        #expect(result.output.hasPrefix("payload"))
+        #expect(ProcessInfo.processInfo.systemUptime - started < 2)
+    }
+
 }

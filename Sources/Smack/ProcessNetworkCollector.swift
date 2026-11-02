@@ -29,12 +29,15 @@ enum ProcessNetworkCollector {
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 defer { continuation.finish() }
+                // nettop ignores write errors and macOS has no parent-death signal, so an abrupt Smack exit would
+                // orphan it forever. The watcher gets EOF on held stdin when Smack dies and kills nettop, which
+                // exec keeps as the spawned PID for signals and exit status.
+                let nettop = "/usr/bin/nettop -P -L 0 -d -s \(Int(interval.rounded(.up))) -n -x -J bytes_in,bytes_out"
                 let result = await Subprocess.run(
-                    "/usr/bin/nettop", ["-P", "-L", "0", "-d", "-s", String(Int(interval.rounded(.up))),
-                                        "-n", "-x", "-J", "bytes_in,bytes_out"],
+                    "/bin/sh", ["-c", "(cat >/dev/null; kill $$) <&0 >/dev/null 2>&1 & exec \(nettop) </dev/null"],
                     outputLimit: 16 * 1_024,
                     processGroup: BaselineWorker.isRunning ? .inherited : .new,
-                    terminalOutput: true, outputTimeout: max(10, interval * 3),
+                    terminalOutput: true, outputTimeout: max(10, interval * 3), holdInput: true,
                     onOutput: { event in
                         parser.withLock { parser in
                             for sample in parser.consume(event) { continuation.yield(sample) }

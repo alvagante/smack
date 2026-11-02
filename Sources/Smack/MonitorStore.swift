@@ -43,6 +43,9 @@ final class MonitorStore: ObservableObject {
     func receive(_ snapshot: PostureSnapshot) { posture = snapshot }
     func receive(_ inventory: StartupInventory) { startupItemsModel.receiveCached(inventory) }
     @Published var system: SystemSample?
+    /// Hostname and primary network for the titlebar, re-read only when interface addresses change.
+    @Published private(set) var hostIdentity = HostIdentity()
+    private var hostIdentityKey: [String: [String]]?
     @Published var processes: ProcessSnapshot?
     @Published var route: AppRoute = .summary {
         didSet {
@@ -429,6 +432,11 @@ final class MonitorStore: ObservableObject {
 
     func receive(_ sample: SystemSample) {
         system = sample
+        let addresses = Dictionary(sample.interfaces.map { ($0.name, $0.addresses) }, uniquingKeysWith: { first, _ in first })
+        if addresses != hostIdentityKey {
+            hostIdentityKey = addresses
+            hostIdentity = .current()
+        }
         // Samples carry GPU clients only while a GPU page is open; once they stop, the live window is dropped.
         if let gpu = sample.gpuProcesses {
             recordGPUPoints(gpu, at: sample.timestamp)

@@ -5,6 +5,41 @@ import Testing
 @testable import Smack
 
 #if !SMACK_APP_STORE
+@Test func nativeMenuBarNormalizesLightDarkShadedAndTransparentCaptures() throws {
+    for background in [0.0, 0.4, 1.0, -1.0] {
+        let context = try #require(CGContext(data: nil, width: 12, height: 12, bitsPerComponent: 8,
+                                            bytesPerRow: 48, space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        if background >= 0 {
+            for y in 0..<12 {
+                let shade = min(1, background + Double(y) / 110)
+                context.setFillColor(CGColor(gray: shade, alpha: 1))
+                context.fill(CGRect(x: 0, y: y, width: 12, height: 1))
+            }
+        }
+        context.setFillColor(CGColor(gray: background > 0.5 ? 0 : 1, alpha: 1))
+        context.fill(CGRect(x: 4, y: 3, width: 4, height: 6))
+        let capture = try #require(context.makeImage())
+        let normalized = try #require(NativeMenuBarDiscovery.normalizedIcon(capture))
+        context.clear(CGRect(x: 0, y: 0, width: 12, height: 12))
+        context.draw(normalized, in: CGRect(x: 0, y: 0, width: 12, height: 12))
+        let pixels = try #require(context.data).bindMemory(to: UInt8.self, capacity: 576)
+        #expect(pixels[(6 * 12 + 6) * 4 + 3] > 240)
+        #expect(pixels[(6 * 12 + 1) * 4 + 3] < 5)
+        #expect(pixels[3] == 0)
+        #expect(normalized.width == capture.width && normalized.height == capture.height)
+    }
+}
+
+@Test func nativeMenuBarRejectsUniformOpaqueCaptures() throws {
+    let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8,
+                                        bytesPerRow: 32, space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(gray: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+    #expect(NativeMenuBarDiscovery.normalizedIcon(try #require(context.makeImage())) == nil)
+}
+
 @Test func nativeMenuBarDiscoveryIncludesHiddenItemsInNativeOrder() {
     let currentPID = ProcessInfo.processInfo.processIdentifier
     let hidden = menuBarWindow(id: 1, x: -240)

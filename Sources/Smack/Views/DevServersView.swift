@@ -36,74 +36,99 @@ struct DevServersView: View {
 
     init(store: MonitorStore) { self.store = store; settings = store.settingsStore }
 
+    private var servers: [DevServer] {
+        (store.devServers ?? []).filter { row in
+            store.navigationFilters.port == nil || row.ports.contains { $0.port == store.navigationFilters.port }
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
-                ResourceTitle(title: "Dev servers", systemImage: "server.rack", color: .cyan)
-                Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+            DetailPageHeader {
+                ResourceTitle(title: "Dev servers", systemImage: "server.rack", color: .cyan, subtitle: "Local development servers listening on ports")
+            } actions: {
                 Toggle("Show system listeners", isOn: Binding(
                     get: { settings.settings.devServersShowSystem },
                     set: { value in settings.update { $0.devServersShowSystem = value }; store.refreshDevServers() }))
                 RefreshButton(isLoading: store.networkPortsLoading) { store.loadNetworkPorts() }
-            }.padding()
+            } overview: {
+                ResourceStatsRow(headline: store.devServers == nil ? "–" : String(servers.count), unit: "servers", stats: [
+                    ResourceStat(title: "Listeners", systemImage: "network", value: store.devServers == nil ? "Unavailable" : String(servers.reduce(0) { $0 + $1.ports.count }))
+                ], headlineWidth: 120)
+            }
+            Divider()
             if let port = store.navigationFilters.port {
                 HStack {
                     Text("Port \(port)")
                     Button("Clear filter") { store.navigate(to: URL(string: "smack://devservers")!) }
-                }.padding(.horizontal)
+                }.padding(.horizontal, MonitorStyle.inset).padding(.top, MonitorStyle.spacing)
             }
-            if let warning = store.networkPorts?.warning { Text(warning).font(.caption).padding(.horizontal) }
-            List {
-                ForEach((store.devServers ?? []).filter { row in
-                    store.navigationFilters.port == nil || row.ports.contains { $0.port == store.navigationFilters.port }
-                }) { row in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(row.project?.name ?? row.container?.name ?? "Other listeners").font(.headline)
-                        Text("\(row.processName) · PID \(row.process.pid)").font(.caption)
-                        if let project = row.project {
-                            Text(project.directory).textSelection(.enabled)
-                            Text([project.root, project.kind?.rawValue, project.git?.branch ?? project.git?.commit]
-                                .compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
-                        }
-                        if let container = row.container {
-                            Text([container.name, container.composeProject, container.composeWorkingDirectory]
-                                .compactMap { $0 }.joined(separator: " · ")).font(.caption)
-                        }
-                        ForEach(row.ports) { port in
+            if let warning = store.networkPorts?.warning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                    .padding(.horizontal, MonitorStyle.inset).padding(.top, MonitorStyle.spacing)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+                    ForEach(servers) { row in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(row.project?.name ?? row.container?.name ?? "Other listeners").font(.headline)
+                            Text("\(row.processName) · PID \(row.process.pid)").font(.caption).foregroundStyle(.secondary)
+                            if let project = row.project {
+                                Text(project.directory).font(.callout.monospaced()).textSelection(.enabled)
+                                Text([project.root, project.kind?.rawValue, project.git?.branch ?? project.git?.commit]
+                                    .compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let container = row.container {
+                                Text([container.name, container.composeProject, container.composeWorkingDirectory]
+                                    .compactMap { $0 }.joined(separator: " · ")).font(.caption)
+                            }
+                            ForEach(row.ports) { port in
+                                HStack {
+                                    Text("\(port.localAddress) · \(port.scope.rawValue)").monospaced()
+                                    if let url = port.browserURL { Link("Open", destination: url) }
+                                    Menu("Copy") {
+                                        if let url = port.browserURL { Button("URL") { copy(url.absoluteString) } }
+                                        Button("Host:port") { copy(port.localAddress) }
+                                        if let path = row.project?.root ?? row.project?.directory { Button("Project path") { copy(path) } }
+                                        Button("Summary") { copy("\(row.project?.name ?? row.processName): \(port.localAddress)") }
+                                    }.fixedSize()
+                                }
+                            }
                             HStack {
-                                Text("\(port.localAddress) · \(port.scope.rawValue)").monospaced()
-                                if let url = port.browserURL { Link("Open", destination: url) }
-                                Menu("Copy") {
-                                    if let url = port.browserURL { Button("URL") { copy(url.absoluteString) } }
-                                    Button("Host:port") { copy(port.localAddress) }
-                                    if let path = row.project?.root ?? row.project?.directory { Button("Project path") { copy(path) } }
-                                    Button("Summary") { copy("\(row.project?.name ?? row.processName): \(port.localAddress)") }
-                                }.fixedSize()
-                            }
-                        }
-                        HStack {
-                            if let path = row.project?.root ?? row.project?.directory {
-                                Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                                Button("Terminal") { ProjectApplications.open(path, with: settings.settings.terminalApp, store: store) }
-                                if let editor = settings.settings.editorApp {
-                                    Button("Editor") { ProjectApplications.open(path, with: editor, store: store) }
+                                if let path = row.project?.root ?? row.project?.directory {
+                                    Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+                                    Button("Terminal") { ProjectApplications.open(path, with: settings.settings.terminalApp, store: store) }
+                                    if let editor = settings.settings.editorApp {
+                                        Button("Editor") { ProjectApplications.open(path, with: editor, store: store) }
+                                    }
+                                }
+                                if let binding = row.container,
+                                   let container = store.dockerModel.snapshot?.containers?.first(where: { $0.id == binding.containerID }) {
+                                    ForEach(DockerContainerAction.allCases.filter { $0.isAvailable(for: container) }, id: \.self) { action in
+                                        Button(action.title) { containerOperation = DockerContainerOperation(action: action, container: container) }
+                                    }
+                                } else if row.container == nil, Capabilities.supportsProcessTermination,
+                                          !row.listenerProcesses.isEmpty {
+                                    Button("Stop", role: .destructive) { stopping = row }
                                 }
                             }
-                            if let binding = row.container,
-                               let container = store.dockerModel.snapshot?.containers?.first(where: { $0.id == binding.containerID }) {
-                                ForEach(DockerContainerAction.allCases.filter { $0.isAvailable(for: container) }, id: \.self) { action in
-                                    Button(action.title) { containerOperation = DockerContainerOperation(action: action, container: container) }
-                                }
-                            } else if row.container == nil, Capabilities.supportsProcessTermination,
-                                      !row.listenerProcesses.isEmpty {
-                                Button("Stop", role: .destructive) { stopping = row }
-                            }
                         }
-                    }.padding(.vertical, 6)
-                }
-            }.listStyle(.plain)
-            if store.devServers?.isEmpty == true { Text("No dev servers reported.").padding() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .padding(MonitorStyle.spacing)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .monitorSurface()
+                    }
+                    if servers.isEmpty {
+                        ContentUnavailableView(store.networkPortsLoading ? "Collecting dev servers" : "No dev servers reported",
+                            systemImage: "server.rack",
+                            description: Text(store.navigationFilters.port == nil ? "Listening development processes will appear here." : "No listeners match the selected port."))
+                    }
+                }.padding(MonitorStyle.inset)
+            }
         }
+        .background(MonitorStyle.page)
         .onAppear { store.refreshDevServers(); if store.networkPorts == nil { store.loadNetworkPorts() } }
         .confirmationDialog("Stop listening processes?", isPresented: Binding(
             get: { stopping != nil }, set: { if !$0 { stopping = nil } }), titleVisibility: .visible) {

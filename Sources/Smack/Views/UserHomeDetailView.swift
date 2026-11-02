@@ -28,25 +28,36 @@ struct UserHomeDetailView: View {
     private var current: HomeEntry? { entries.first { $0.id == selected } }
 
     private var overview: some View {
-        DetailStatsGrid(stats: [
-            ResourceStat(title: "Entries", systemImage: "list.bullet", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.count)),
+        ResourceStatsRow(headline: model.loading ? "…" : model.listing.error != nil ? "–" : String(model.listing.entries.count), unit: "entries", stats: [
             ResourceStat(title: "Folders", systemImage: "folder", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.filter(\.isDirectory).count)),
             ResourceStat(title: "Symbolic links", systemImage: "link", value: model.loading ? "Loading…" : model.listing.error != nil ? "Unavailable" : String(model.listing.entries.filter(\.isSymbolicLink).count))
-        ], color: .pink)
+        ], headlineWidth: 120)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    ResourceTitle(title: rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder", color: .pink)
-                    Text((rootDirectory ?? model.collector.home).path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            if rootDirectory == nil {
+                DetailPageHeader {
+                    ResourceTitle(title: rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder", color: .pink,
+                                  subtitle: (rootDirectory ?? model.collector.home).path)
+                } actions: {
+                    if model.loading { ProgressView().controlSize(.small) }
+                    RefreshButton { selected = nil; refreshID += 1 }
+                } overview: {
+                    overview
                 }
-                overview
-                Spacer()
-                if model.loading { ProgressView().controlSize(.small) }
-                RefreshButton { selected = nil; refreshID += 1 }
-            }.padding()
+            } else {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(rootDirectory?.lastPathComponent ?? "Folder").font(.headline)
+                        Text(model.loading ? "Reading folder…" : model.listing.error != nil ? "Folder unavailable" :
+                            "\(model.listing.entries.count) entries · \(model.listing.entries.filter(\.isDirectory).count) folders · \(model.listing.entries.filter(\.isSymbolicLink).count) symbolic links")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    RefreshButton { selected = nil; refreshID += 1 }
+                }.padding(MonitorStyle.spacing)
+            }
             Divider()
             HStack(spacing: 0) {
                 if rootDirectory == nil {
@@ -59,15 +70,11 @@ struct UserHomeDetailView: View {
                                     query = ""
                                     category = item
                                 } label: {
-                                    Text(item.rawValue).font(.callout)
-                                        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(category == item ? Color.accentColor.opacity(0.15) : .clear,
-                                                    in: RoundedRectangle(cornerRadius: 6))
-                                        .contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                    Text(item.rawValue)
+                                }.buttonStyle(DetailNavigationStyle(selected: category == item))
                             }
-                        }.padding(10)
-                    }.frame(width: 190, alignment: .top)
+                        }.padding(12)
+                    }.frame(width: 184, alignment: .top)
                     Divider()
                 }
                 VStack(alignment: .leading, spacing: 10) {
@@ -132,7 +139,7 @@ struct UserHomeDetailView: View {
                             if let item = entries.first(where: { ids.contains($0.id) }), item.isDirectory { openFolder(item) }
                         }
                     }
-                }.padding().frame(minWidth: 220, idealWidth: 280, maxWidth: 320, maxHeight: .infinity, alignment: .topLeading)
+                }.padding(MonitorStyle.spacing).frame(minWidth: 220, idealWidth: 280, maxWidth: 320, maxHeight: .infinity, alignment: .topLeading)
                 Divider()
                 FileContentsScrollView(wrap: wrap) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -163,9 +170,10 @@ struct UserHomeDetailView: View {
                             Text("Select a file or folder to show its details.").foregroundStyle(.secondary)
                         }
                     }.padding()
-                }.frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }.frame(minWidth: 240, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+        .background(MonitorStyle.page)
         .task(id: "\(category.id):\(directory.path):\(refreshID)") {
             guard !Capabilities.isSandboxed else { return }
             selected = nil

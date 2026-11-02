@@ -181,7 +181,10 @@ private struct NativeMenuBarItemButton: NSViewRepresentable {
         context.coordinator.onClick = onClick
         context.coordinator.onRightClick = onRightClick
         if let image = item.image {
-            button.image = NSImage(cgImage: image, size: item.pointSize)
+            let template = NSImage(cgImage: image, size: item.pointSize)
+            template.isTemplate = true
+            button.image = template
+            button.contentTintColor = .labelColor
             button.title = ""
             button.imagePosition = .imageOnly
         } else {

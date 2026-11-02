@@ -31,25 +31,18 @@ struct DevEnvironmentDetailView: View {
     private var current: DevEnvironment? { environments.first { $0.id == selected } ?? environments.first }
 
     private var overview: some View {
-        DetailStatsGrid(stats: [
-            ResourceStat(title: "Installations", systemImage: "terminal", value: model.snapshot.map { String($0.environments.count) } ?? "Unavailable"),
+        ResourceStatsRow(headline: model.snapshot.map { String($0.environments.count) } ?? "–", unit: "installations", stats: [
             ResourceStat(title: "Languages", systemImage: "chevron.left.forwardslash.chevron.right", value: model.snapshot.map { String(Set($0.environments.map(\.language)).count) } ?? "Unavailable"),
             ResourceStat(title: "On PATH", systemImage: "point.topleft.down.to.point.bottomright.curvepath", value: model.snapshot.map { String($0.environments.filter(\.onPath).count) } ?? "Unavailable")
-        ], color: .teal)
+        ], headlineWidth: 150)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal)
-                    if let snapshot = model.snapshot {
-                        Text("\(snapshot.environments.count) installations · Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                overview
-                Spacer()
+            DetailPageHeader {
+                ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal,
+                              subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" })
+            } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
                 ToolbarIconButton(title: "Discovery scope and limitations", systemImage: "info.circle", color: .teal) { showingDiscoveryScope.toggle() }
                     .popover(isPresented: $showingDiscoveryScope, arrowEdge: .bottom) {
@@ -57,18 +50,20 @@ struct DevEnvironmentDetailView: View {
                     }
                 ToolbarIconButton(title: "Add project folder…", systemImage: "folder.badge.plus", color: .blue, action: addFolder).disabled(model.loading)
                 RefreshButton { Task { await model.refresh() } }.disabled(model.loading || model.inspecting != nil)
-            }.padding()
+            } overview: {
+                overview
+            }
             Divider()
             HStack(alignment: .top, spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 5) {
                         languageButton(nil)
                         ForEach(DevLanguage.allCases) { language in languageButton(language) }
-                    }.padding(10)
-                }.frame(width: 165)
+                    }.padding(12)
+                }.frame(width: 184)
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                         TextField("Filter language, manager or path", text: $query).textFieldStyle(.roundedBorder)
                         Text("Discovers concrete runtimes in PATH, standard locations and common version managers. Versions and package details load when selected. PATH refers to Smack's inherited environment; shell activation may differ.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -95,10 +90,11 @@ struct DevEnvironmentDetailView: View {
                             }
                         }
                         if let item = current { details(item) }
-                    }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(MonitorStyle.inset).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .background(MonitorStyle.page)
         .task { if model.snapshot == nil { await model.refresh() } }
         .task(id: "\(current?.id ?? ""):\(model.snapshot?.timestamp.timeIntervalSince1970 ?? 0)") { if let item = current { await model.inspect(item) } }
         .onChange(of: model.snapshot?.timestamp) {
@@ -133,11 +129,7 @@ struct DevEnvironmentDetailView: View {
                 Spacer()
                 Text("\(count)").foregroundStyle(.secondary)
             }
-            .font(.callout).padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(language == item ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(DetailNavigationStyle(selected: language == item))
     }
 
     @ViewBuilder private func details(_ item: DevEnvironment) -> some View {

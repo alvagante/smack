@@ -69,7 +69,7 @@ struct MemoryStatsRow: View {
     let gpu: GPUSample?
 
     var body: some View {
-        ResourceStatsRow(headline: memory.map { String(Int(MemoryReadings.usedPercent($0).rounded())) } ?? "–", unit: "%", stats: stats)
+        ResourceStatsRow(headline: memory.map { String(Int(MemoryReadings.usedPercent($0).rounded())) } ?? "–", unit: "%", stats: stats, headlineWidth: 96)
     }
 
     private var stats: [ResourceStat] {
@@ -177,7 +177,7 @@ struct NetworkStatsRow: View {
     var body: some View {
         let total = (system?.receiveRate ?? 0) + (system?.sendRate ?? 0)
         let parts = Formatting.rate(total).split(separator: " ", maxSplits: 1).map(String.init)
-        ResourceStatsRow(headline: system == nil ? "–" : parts.first ?? "–", unit: parts.count > 1 ? parts[1] : nil, stats: stats)
+        ResourceStatsRow(headline: system == nil ? "–" : parts.first ?? "–", unit: parts.count > 1 ? parts[1] : nil, stats: stats, headlineWidth: 152)
     }
 
     private var stats: [ResourceStat] {
@@ -243,7 +243,7 @@ struct DiskStatsRow: View {
     var body: some View {
         let total = (system?.diskReadRate ?? 0) + (system?.diskWriteRate ?? 0)
         let parts = Formatting.rate(total).split(separator: " ", maxSplits: 1).map(String.init)
-        ResourceStatsRow(headline: system == nil ? "–" : parts.first ?? "–", unit: parts.count > 1 ? parts[1] : nil, stats: stats)
+        ResourceStatsRow(headline: system == nil ? "–" : parts.first ?? "–", unit: parts.count > 1 ? parts[1] : nil, stats: stats, headlineWidth: 152)
     }
 
     private var stats: [ResourceStat] {
@@ -346,16 +346,14 @@ enum GPUReadings {
     }
 }
 
-/// GPU utilization beside renderer, tiler, memory and recoveries. Owns the per-process GPU request, so the driver's
-/// clients are walked only while the GPU page is on screen.
+/// GPU utilization beside renderer, tiler, memory and recoveries. The page requests the per-process
+/// GPU figures (`ResourceInsightView.requestSensors`).
 struct GPUStatsRow: View {
     @ObservedObject var store: MonitorStore
 
     var body: some View {
         let gpu = store.system?.gpu
-        ResourceStatsRow(headline: gpu?.utilizationPercent.map { String(Int($0.rounded())) } ?? "–", unit: "%", stats: stats(gpu))
-            .onAppear { store.setGPUProcessesWanted(true) }
-            .onDisappear { store.setGPUProcessesWanted(false) }
+        ResourceStatsRow(headline: gpu?.utilizationPercent.map { String(Int($0.rounded())) } ?? "–", unit: "%", stats: stats(gpu), headlineWidth: 96)
     }
 
     private func stats(_ gpu: GPUSample?) -> [ResourceStat] {

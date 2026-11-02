@@ -78,17 +78,18 @@ struct BaselineView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 16) {
+        DetailPageHeader(padding: MonitorStyle.spacing) {
             ResourceTitle(title: "Baselines", systemImage: "arrow.triangle.branch", color: .indigo,
                           subtitle: "Snapshot configuration, detect drift", status: status)
-            DetailStatsGrid(stats: stats, color: .indigo)
-            Spacer(minLength: 0)
+        } actions: {
             if model.capturing { ProgressView().controlSize(.small) }
             ToolbarIconButton(title: "Import baseline", systemImage: "square.and.arrow.down", color: .indigo,
                               hint: "Import a baseline JSON file") { importing = true }
             RefreshButton(hint: "Reload saved baselines") { Task { await model.refresh() } }
+        } overview: {
+            ResourceStatsRow(headline: String(model.rows.count), unit: "saved", stats: stats, headlineWidth: 96,
+                             headlineHelp: "Saved baselines, keeping \(settingsStore.settings.baselineRetentionCount). Pinned ones are never pruned.")
         }
-        .padding()
     }
 
     private var status: ResourceStatus? {
@@ -110,9 +111,6 @@ struct BaselineView: View {
 
     private var stats: [ResourceStat] {
         [
-            ResourceStat(title: "Saved", systemImage: "tray.full", value: String(model.rows.count),
-                         detail: "keep \(settingsStore.settings.baselineRetentionCount)",
-                         help: "Saved baselines. Pinned ones are never pruned."),
             ResourceStat(title: "Golden", systemImage: "star.fill", value: goldenName.map { $0.isEmpty ? "Unnamed" : $0 } ?? "None",
                          help: "Baseline used for the daily drift check.", color: .yellow),
             ResourceStat(title: "Drift check", systemImage: "clock.arrow.circlepath",

@@ -1,6 +1,13 @@
 import Foundation
 import Synchronization
 
+enum PanelAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+    var id: String { rawValue }
+}
+
 enum PanelTrigger: String, Codable, CaseIterable, Identifiable {
     case hover = "Hover"
     case click = "Click"
@@ -191,6 +198,12 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     /// Translucent panel background: a behind-window blur shown at `glassOpacity`.
     var glassMode = false
     var glassOpacity = 0.5
+    var titleBar = TitleBarSettings()
+    var appearance: PanelAppearance = .system
+    var showTopBarIcons = CollectionSettings.defaultShowTopBarIcons(
+        majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+
+    static func defaultShowTopBarIcons(majorVersion: Int) -> Bool { majorVersion < 27 }
     static let glassOpacityRange: ClosedRange<Double> = 0.1...1
     var fullResolutionHours = 24
     var retentionDays = 7
@@ -365,6 +378,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         case launchAtLogin
         case glassMode
         case glassOpacity
+        case titleBar
+        case appearance, showTopBarIcons
         case fullResolutionHours
         case retentionDays
         case historyStorageLimitMB
@@ -425,6 +440,9 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
         try container.encode(glassMode, forKey: .glassMode)
         try container.encode(glassOpacity, forKey: .glassOpacity)
+        try container.encode(titleBar, forKey: .titleBar)
+        try container.encode(appearance, forKey: .appearance)
+        try container.encode(showTopBarIcons, forKey: .showTopBarIcons)
         try container.encode(fullResolutionHours, forKey: .fullResolutionHours)
         try container.encode(retentionDays, forKey: .retentionDays)
         try container.encode(historyStorageLimitMB, forKey: .historyStorageLimitMB)
@@ -504,6 +522,9 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
         glassMode = try container.decodeIfPresent(Bool.self, forKey: .glassMode) ?? defaults.glassMode
         glassOpacity = try container.decodeIfPresent(Double.self, forKey: .glassOpacity) ?? defaults.glassOpacity
+        titleBar = (try? container.decodeIfPresent(TitleBarSettings.self, forKey: .titleBar)) ?? defaults.titleBar
+        appearance = (try? container.decodeIfPresent(PanelAppearance.self, forKey: .appearance)) ?? defaults.appearance
+        showTopBarIcons = try container.decodeIfPresent(Bool.self, forKey: .showTopBarIcons) ?? defaults.showTopBarIcons
         fullResolutionHours = try container.decodeIfPresent(Int.self, forKey: .fullResolutionHours) ?? defaults.fullResolutionHours
         retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? defaults.retentionDays
         historyStorageLimitMB = try container.decodeIfPresent(Int.self, forKey: .historyStorageLimitMB) ?? defaults.historyStorageLimitMB

@@ -15,12 +15,16 @@ struct ThermalView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                ResourceTitle(title: "Thermal State", systemImage: "thermometer.medium", color: .red)
-                DetailStatsGrid(stats: stats, color: .red)
-                Spacer(minLength: 0)
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Thermal State", systemImage: "thermometer.medium", color: .red,
+                              subtitle: "Pressure \((store.system?.thermalCondition ?? .unavailable).rawValue.capitalized)")
+            } actions: {
+                EmptyView()
+            } overview: {
+                let hottest = sensors?.max { $0.celsius < $1.celsius }
+                ResourceStatsRow(headline: hottest.map { String(format: "%.0f", $0.celsius) } ?? "–", unit: "°C", stats: stats, headlineWidth: 96,
+                                 headlineHelp: hottest.map { "Hottest sensor: \($0.name)" } ?? "")
             }
-            .padding()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {

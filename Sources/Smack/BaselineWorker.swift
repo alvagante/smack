@@ -49,6 +49,8 @@ enum BaselineWorker {
     }
 
     static func run() async -> Int32 {
+        let parentWatch = exitWithParent()
+        defer { parentWatch.cancel() }
         do {
             var data = Data()
             while data.count <= BaselineDocument.sizeLimit {
@@ -64,5 +66,23 @@ enum BaselineWorker {
             FileHandle.standardOutput.write(try document.encoded())
             return 0
         } catch { return 1 }
+    }
+
+    /// The parent enforces the section deadline; once it is gone, nothing would stop a stuck section.
+    private static func exitWithParent() -> any DispatchSourceProcess {
+        let parent = getppid()
+        let source = DispatchSource.makeProcessSource(identifier: parent, eventMask: .exit, queue: .global(qos: .utility))
+        source.setEventHandler { terminate() }
+        source.resume()
+        // The parent may have exited before the source was registered.
+        if getppid() != parent { terminate() }
+        return source
+    }
+
+    private static func terminate() -> Never {
+        // Section commands share the worker's group. Signal it only as leader, never a shell's group.
+        if getpgrp() == getpid() { _ = kill(0, SIGKILL) }
+        // A thread may be stuck in a blocking call; exit handlers could deadlock on its locks.
+        _exit(1)
     }
 }

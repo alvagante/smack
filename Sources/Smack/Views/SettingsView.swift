@@ -95,7 +95,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var compactError: String?
 }
 
-/// Grouped preferences with a pane picker alongside the shared application sidebar.
+/// Grouped preferences with a settings navigation column alongside the shared application sidebar.
 ///
 /// Adding a setting: store it in `CollectionSettings` (default, clamp in `validate()`, decode with a default),
 /// then add one row to the pane of the feature it serves (see "Where a Setting goes" in CONTEXT.md) using the building
@@ -125,19 +125,22 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                panePicker
-                Spacer()
-            }
-            .padding(16)
+        HStack(spacing: 0) {
+            paneSidebar
             Divider()
-            Form { pane(model.pane) }
-                .formStyle(.grouped)
-                .toggleStyle(.switch)
-                .id(model.pane)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                ResourceTitle(title: model.pane.rawValue, systemImage: model.pane.systemImage, color: model.pane.tint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(MonitorStyle.inset)
+                Divider()
+                Form { pane(model.pane) }
+                    .formStyle(.grouped)
+                    .toggleStyle(.switch)
+                    .id(model.pane)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .background(MonitorStyle.page)
         .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
             Button("Delete History", role: .destructive) { Task { try? await store.history.deleteAll() } }
         }
@@ -148,20 +151,30 @@ struct SettingsView: View {
         }
     }
 
-    private var panePicker: some View {
-        Picker("Settings pane", selection: $model.pane) {
-            ForEach(Array(SettingsPane.groups.enumerated()), id: \.offset) { _, group in
-                Section {
-                    ForEach(group) { pane in
-                        Label { Text(pane.rawValue) } icon: { SettingsIcon(systemImage: pane.systemImage, tint: pane.tint) }
-                            .tag(pane)
+    private var paneSidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(Array(SettingsPane.groups.enumerated()), id: \.offset) { _, group in
+                    VStack(spacing: 4) {
+                        ForEach(group) { pane in
+                            Button { model.pane = pane } label: {
+                                HStack(spacing: 8) {
+                                    SettingsIcon(systemImage: pane.systemImage, tint: pane.tint)
+                                        .accessibilityHidden(true)
+                                    Text(pane.rawValue)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .buttonStyle(DetailNavigationStyle(selected: model.pane == pane))
+                        }
                     }
                 }
-            }
+            }.padding(16)
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(width: 240)
+        .frame(minWidth: 184, idealWidth: 208, maxWidth: 224)
+        .background(MonitorStyle.sidebar)
+        .accessibilityLabel("Settings panes")
     }
 
     @ViewBuilder private func pane(_ pane: SettingsPane) -> some View {
@@ -228,6 +241,16 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var appearancePane: some View {
+        Section("Appearance") {
+            Picker("Color scheme", selection: appearanceBinding(\.appearance)) {
+                ForEach(PanelAppearance.allCases) { Text($0.rawValue).tag($0) }
+            }
+        }
+        if Capabilities.supportsNativeMenuBarIcons {
+            Section("Menu-bar icons") {
+                Toggle("Show top bar icons row", isOn: appearanceBinding(\.showTopBarIcons))
+            }
+        }
         Section {
             Toggle(isOn: appearanceBinding(\.glassMode)) {
                 SettingsLabel("Glass mode", help: "Translucent panel background that shows the desktop through it.")
@@ -244,10 +267,75 @@ struct SettingsView: View {
                 }
             }
         }
+        titleBarSection
         Section("Charts") {
             Toggle(isOn: binding(\.showEventsOnCharts)) {
                 SettingsLabel("Show events on history charts", help: "Draws event markers on the history graphs. Display only; does not change what is recorded.")
             }
+        }
+    }
+
+    @ViewBuilder private var titleBarSection: some View {
+        let options = settings.settings.titleBar
+        Section {
+            if Capabilities.flavor == .direct {
+                Toggle(isOn: appearanceBinding(\.titleBar.showSponsor)) {
+                    SettingsLabel("Sponsor link", subtitle: "Opens GitHub Sponsors for Smack.")
+                }
+            }
+            Toggle(isOn: appearanceBinding(\.titleBar.showHostname)) {
+                SettingsLabel("Hostname", help: "Click it in the title bar to copy it.")
+            }
+            if options.showHostname {
+                Picker(selection: appearanceBinding(\.titleBar.hostnameStyle)) {
+                    ForEach(TitleBarSettings.HostnameStyle.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    SettingsLabel("Show as", subtitle: store.hostIdentity.hostname(options.hostnameStyle) ?? "Unavailable")
+                }
+            }
+            Toggle(isOn: appearanceBinding(\.titleBar.showNetwork)) {
+                SettingsLabel("Network address", help: "IPv4 address and prefix of the primary interface. Click it in the title bar to copy it.",
+                              subtitle: store.hostIdentity.cidr.map { cidr in
+                                  store.hostIdentity.primaryInterface.map { "\(cidr) on \($0)" } ?? cidr
+                              } ?? "No IPv4 network")
+            }
+            Toggle(isOn: appearanceBinding(\.titleBar.showClock)) {
+                SettingsLabel("Clock")
+            }
+            if options.showClock {
+                Picker(selection: appearanceBinding(\.titleBar.clockStyle)) {
+                    ForEach(TitleBarSettings.ClockStyle.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    SettingsLabel("Format", subtitle: options.clockText(Date()))
+                }
+                if options.clockStyle == .custom {
+                    LabeledContent {
+                        TextField("Pattern", text: appearanceBinding(\.titleBar.clockPattern),
+                                  prompt: Text(TitleBarSettings.defaultClockPattern))
+                            .font(.body.monospaced()).frame(width: 180)
+                    } label: {
+                        SettingsLabel("Pattern", help: "Unicode date pattern, for example yyyy-MM-dd HH:mm:ss, EEE d MMM HH:mm or 'week' w. Letters in single quotes are shown literally.")
+                    }
+                }
+            }
+        } header: {
+            Text("Title bar")
+        }
+        Section {
+            Toggle(isOn: appearanceBinding(\.titleBar.showUptime)) { SettingsLabel("Uptime") }
+            Toggle(isOn: appearanceBinding(\.titleBar.showLoadAverage)) {
+                SettingsLabel("Load average", subtitle: "One-minute value; all three on hover.")
+            }
+            Toggle(isOn: appearanceBinding(\.titleBar.showBattery)) {
+                SettingsLabel("Battery", subtitle: "Hidden on Macs without a battery.")
+            }
+            Toggle(isOn: appearanceBinding(\.titleBar.showThermal)) {
+                SettingsLabel("Thermal warning", subtitle: "Shown only while the Mac is thermally constrained.")
+            }
+        } header: {
+            Text("Title bar extras")
+        } footer: {
+            SettingsFooter("Title bar items reuse data Smack already collects and never start extra sampling. Items shorten when the panel is narrow.")
         }
     }
 

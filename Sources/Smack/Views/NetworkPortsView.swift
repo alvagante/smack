@@ -58,15 +58,9 @@ struct NetworkPortsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                ResourceTitle(title: "Network connections", systemImage: "cable.connector", color: .cyan)
-                DetailStatsGrid(stats: [
-                    ResourceStat(title: "Listening", systemImage: "ear", value: store.networkPorts.map { String($0.ports.count) } ?? "Unavailable"),
-                    ResourceStat(title: "External", systemImage: "network", value: store.networkPorts.map { String($0.externalCount) } ?? "Unavailable"),
-                    ResourceStat(title: "Localhost", systemImage: "house", value: store.networkPorts.map { String($0.localhostCount) } ?? "Unavailable"),
-                    ResourceStat(title: "Connections", systemImage: "point.3.connected.trianglepath.dotted", value: store.networkPorts.map { String($0.totalConnectionCount) } ?? "Unavailable")
-                ], color: .cyan)
-                Spacer()
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Network connections", systemImage: "cable.connector", color: .cyan, subtitle: "Listening ports and open connections")
+            } actions: {
                 if let timestamp = store.networkPorts?.timestamp {
                     Text(timestamp, style: .time)
                         .font(.caption)
@@ -75,8 +69,13 @@ struct NetworkPortsView: View {
                 }
                 RefreshButton(isLoading: store.networkPortsLoading) { store.loadNetworkPorts() }
                 .disabled(store.networkPortsLoading)
+            } overview: {
+                ResourceStatsRow(headline: store.networkPorts.map { String($0.totalConnectionCount) } ?? "–", unit: "connections", stats: [
+                    ResourceStat(title: "Listening", systemImage: "ear", value: store.networkPorts.map { String($0.ports.count) } ?? "Unavailable", detail: "ports"),
+                    ResourceStat(title: "External", systemImage: "network", value: store.networkPorts.map { String($0.externalCount) } ?? "Unavailable"),
+                    ResourceStat(title: "Localhost", systemImage: "house", value: store.networkPorts.map { String($0.localhostCount) } ?? "Unavailable")
+                ], headlineWidth: 150)
             }
-            .padding()
 
             Picker("Network View", selection: $model.mode) {
                 ForEach(NetworkViewMode.allCases) { mode in

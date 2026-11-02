@@ -50,16 +50,14 @@ struct CPUStatus: Equatable {
     var resourceStatus: ResourceStatus { ResourceStatus(title: title, color: color, help: help) }
 }
 
-/// Current usage beside load, temperature, fans, GPU, process count and uptime. Owns the sensor request, so
-/// temperatures and fans are read only while the CPU page is on screen.
+/// Current usage beside load, temperature, fans, GPU, process count and uptime. The page requests the sensors
+/// (`ResourceInsightView.requestSensors`).
 struct CPUStatsRow: View {
     @ObservedObject var store: MonitorStore
 
     var body: some View {
         let cpu = store.system?.cpu
-        ResourceStatsRow(headline: cpu.map { String(Int($0.totalUsage.rounded())) } ?? "–", unit: "%", stats: stats(cpu))
-            .onAppear { store.setTemperaturesWanted(true) }
-            .onDisappear { store.setTemperaturesWanted(false) }
+        ResourceStatsRow(headline: cpu.map { String(Int($0.totalUsage.rounded())) } ?? "–", unit: "%", stats: stats(cpu), headlineWidth: 96)
     }
 
     private func stats(_ cpu: CPUSample?) -> [ResourceStat] {

@@ -20,14 +20,17 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
     private var hoverTask: Task<Void, Never>?
-    private var dismissTask: Task<Void, Never>?
     private var pinned = false
-    /// User-chosen "keep in foreground": ignores mouse-away dismissal and outside clicks until unstuck or closed.
+    /// User-chosen "keep in foreground": ignores outside clicks until unstuck or closed.
     private var stuck = false
     private var stickButton: NSButton?
     /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
     private var hotZoneSuppressedUntil = Date.distantPast
     private var glassModeSubscription: AnyCancellable?
+    private var appearanceSubscription: AnyCancellable?
+    private var iconsSubscription: AnyCancellable?
+    private let titleBarLayout = TitleBarLayout()
+    private var titleBarView: NSView?
 
     /// Initializes the panel controller with the necessary stores and audio player.
     ///
@@ -56,6 +59,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.title = "Smack"
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
+        panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.minSize = NSSize(width: 720, height: 340)
@@ -64,20 +68,41 @@ final class PanelController: NSObject, NSWindowDelegate {
         let rootView = MonitorRootView(
             store: store,
             nativeMenuBarStore: nativeMenuBarStore,
+            titleBarLayout: titleBarLayout,
             onClose: { [weak self] in self?.close() }
         )
         panel.contentViewController = NSHostingController(rootView: rootView)
         let titleBarControls = NSTitlebarAccessoryViewController()
         titleBarControls.layoutAttribute = .right
-        let titleBarView = NSHostingView(rootView: rootView.titleBarControls)
-        titleBarView.setFrameSize(titleBarView.fittingSize)
+        let titleBarView = NSHostingView(rootView: rootView.titleBarControls(layout: titleBarLayout) { [weak self] width in
+            self?.titleBarView?.setFrameSize(NSSize(width: ceil(width), height: 28))
+        })
+        titleBarView.setFrameSize(NSSize(width: 400, height: 28))
         titleBarControls.view = titleBarView
+        self.titleBarView = titleBarView
         panel.addTitlebarAccessoryViewController(titleBarControls)
         glassModeSubscription = store.settingsStore.$settings
             .map(\.glassMode)
             .removeDuplicates()
             .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
+        appearanceSubscription = store.settingsStore.$settings
+            .map(\.appearance)
+            .removeDuplicates()
+            .sink { [weak self] appearance in
+                self?.panel.appearance = switch appearance {
+                case .system: nil
+                case .light: NSAppearance(named: .aqua)
+                case .dark: NSAppearance(named: .darkAqua)
+                }
+            }
+        iconsSubscription = store.settingsStore.$settings
+            .map { $0.showTopBarIcons && $0.showMenuBarItems }
+            .removeDuplicates()
+            .sink { [weak nativeMenuBarStore] enabled in
+                nativeMenuBarStore?.setFeatureEnabled(enabled)
+            }
         installStickButton()
+        updateTitleBarLayout()
         installMonitors()
         nativeMenuBarStore.onItemActivated = { [weak self] in
             guard let self, !self.stuck else { return }
@@ -119,8 +144,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         stickButton?.image = NSImage(systemSymbolName: name, accessibilityDescription: label)
         stickButton?.contentTintColor = stuck ? .controlAccentColor : .secondaryLabelColor
         stickButton?.toolTip = stuck
-            ? "Stuck: the window stays open when the mouse moves away or you click elsewhere.\nClick to unstick. Closing the window also unsticks it."
-            : "Keep this window in the foreground, even when the mouse moves away or you click elsewhere.\nClick to stick it."
+            ? "Stuck: the window stays open when you click elsewhere.\nClick to unstick. Closing the window also unsticks it."
+            : "Keep this window in the foreground, even when you click elsewhere.\nClick to stick it."
         stickButton?.setAccessibilityLabel(label)
     }
 
@@ -140,7 +165,6 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func open() {
-        dismissTask?.cancel()
         guard !panel.isVisible else { return }
         let target = targetFrame()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -236,17 +260,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         } else if !inHotZone {
             hoverTask?.cancel()
         }
-        guard panel.isVisible, !pinned, !stuck else { return }
-        let inPanel = panel.frame.contains(location)
-        if inHotZone || inPanel {
-            dismissTask?.cancel()
-        } else if dismissTask == nil {
-            dismissTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.hoverGracePeriod ?? 0.5))
-                guard let self, !Task.isCancelled else { return }
-                if !self.panel.frame.contains(NSEvent.mouseLocation) { self.close() }
-            }
-        }
     }
 
     private func mouseClicked() {
@@ -259,13 +272,20 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    func windowDidResize(_ notification: Notification) { updateTitleBarLayout() }
+
+    /// Keeps titlebar items clear of the traffic lights and pin button.
+    private func updateTitleBarLayout() {
+        let reserved = (stickButton?.frame.maxX ?? 100) + 16
+        titleBarLayout.available = max(160, panel.frame.width - reserved)
+        titleBarLayout.leading = reserved
+    }
+
     func windowWillClose(_ notification: Notification) {
         pinned = false
         stuck = false
         updateStickButton()
         hoverTask?.cancel()
-        dismissTask?.cancel()
-        dismissTask = nil
         nativeMenuBarStore.setPanelVisible(false)
         store.setVisible(false)
     }

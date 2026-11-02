@@ -46,15 +46,17 @@ struct BatteryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
+            DetailPageHeader(padding: MonitorStyle.spacing) {
                 ResourceTitle(title: "Battery", systemImage: "battery.100", color: .green, status: status)
-                if battery != nil { DetailStatsGrid(stats: stats, color: .green) }
-                Spacer(minLength: 0)
+            } actions: {
                 if battery != nil, !Capabilities.isSandboxed {
                     RefreshButton(isLoading: model.loading, hint: "Read battery history again") { Task { await model.load() } }
                 }
+            } overview: {
+                if let battery {
+                    ResourceStatsRow(headline: battery.chargePercent.map { String(Int($0.rounded())) } ?? "–", unit: "%", stats: stats, headlineWidth: 96)
+                }
             }
-            .padding()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) { content }
                     .padding([.horizontal, .bottom])
@@ -81,10 +83,12 @@ struct BatteryView: View {
         } else if let history = model.history {
             Text("Charge, charging habits, screen time and battery wear over the last weeks, read from the history macOS keeps for the Battery pane of System Settings. Smack does not record any of it.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Picker("Range", selection: $range) {
-                ForEach(BatteryRange.allCases) { Text($0.rawValue).tag($0) }
+            ChartToolbar {
+                Picker("Range", selection: $range) {
+                    ForEach(BatteryRange.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
             BatteryHistoryContent(history: history, range: range, now: now)
             Text("Read from macOS PowerLog, an undocumented system database; retention and contents vary by macOS version. Level samples cover about 30 days, screen time about 14 days, temperature and power about 2 days."
                  + (history.stale ? " The most recent hours could not be read." : "")
@@ -106,7 +110,6 @@ struct BatteryView: View {
         guard let battery else { return [] }
         let capacity = model.history?.daily?.last { $0.maximumCapacityPercent != nil }?.maximumCapacityPercent
         return [
-            ResourceStat(title: "Charge", systemImage: "battery.100", value: battery.chargePercent.map(Formatting.percent) ?? "Unavailable"),
             ResourceStat(title: "Time remaining", systemImage: "clock", value: Formatting.duration(battery.timeRemaining)),
             ResourceStat(title: "Health", systemImage: "heart", value: battery.health ?? "Unavailable",
                          detail: capacity.map { "\(Int($0))% capacity" }, help: "Maximum capacity relative to when the battery was new.", color: .pink),
