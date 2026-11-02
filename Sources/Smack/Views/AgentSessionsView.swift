@@ -6,13 +6,13 @@ struct AgentSessionsView: View {
     @ObservedObject var store: MonitorStore
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                 Text("Live sessions (\(model.sessions.filter { $0.endedAt == nil }.count))").font(.headline)
                 if model.sessions.isEmpty { Text("No running agents detected").foregroundStyle(.secondary) }
                 ForEach(model.sessions) { session in
                     AgentSessionRow(session: session, store: store)
                 }
-            }.padding().frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(MonitorStyle.inset).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -84,6 +84,9 @@ private struct AgentSessionRow: View {
         } label: {
             Text("\(AgentDefinition.catalog.first { $0.id == session.agentID }?.name ?? session.agentID) · \(session.project?.name ?? "Unknown project") · PID \(session.root.pid)\(session.endedAt == nil ? "" : " · Ended")")
         }
+        .padding(MonitorStyle.spacing)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .monitorSurface()
         .sheet(item: $inspection) { process in
             VStack {
                 ProcessInspectionView(store: store, process: process, tab: inspectionTab)

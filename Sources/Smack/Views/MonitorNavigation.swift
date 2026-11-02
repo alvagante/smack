@@ -133,25 +133,29 @@ struct MonitorSidebar: View {
     @ObservedObject var settingsStore: SettingsStore
 
     var body: some View {
-        List(selection: Binding<AppRoute?>(get: { store.route.sidebarRoute }, set: { route in
-            if let route, route != store.route { store.route = route }
-        })) {
+        // The selection is drawn here rather than by `List(selection:)`: the panel is non-activating, so at launch the
+        // window is not key and the system highlight is the inactive gray behind white text.
+        List {
             ForEach(MonitorNavigation.sections(settings: settingsStore.settings, hasBattery: store.system?.battery?.isPresent == true)) { section in
                 Section {
                     ForEach(section.routes, id: \.self) { route in
+                        let selected = store.route.sidebarRoute == route
                         Button { store.route = route } label: {
                             Label {
                                 Text(route.title).lineLimit(1)
-                                    .foregroundStyle(store.route.sidebarRoute == route ? Color.white : Color.primary)
+                                    .foregroundStyle(selected ? Color.white : Color.primary)
                             } icon: {
                                 ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 24)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 2)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
+                            .background(selected ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 6))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .tag(route)
+                        .listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4))
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                         .help(route.title)
                     }
                 } header: {
@@ -160,6 +164,10 @@ struct MonitorSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        // Rows scroll out of sight at the titlebar's lower edge instead of passing under the window controls.
+        .clipped()
+        .background(MonitorStyle.sidebar)
         .accessibilityLabel("Pages")
     }
 }

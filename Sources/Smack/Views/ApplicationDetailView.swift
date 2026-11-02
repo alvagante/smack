@@ -100,25 +100,14 @@ struct ApplicationDetailView: View {
         }
     }
 
-    /// Title and actions beside the key figures; on a narrow panel the figures move under the title.
+    /// Title, key figures and actions in the shared page header layout.
     private func headerRow(_ app: ApplicationMetrics) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 16) {
-                title(app).layoutPriority(1)
-                Spacer(minLength: 0)
-                HStack(spacing: 10) {
-                    ForEach(keyStats(app)) { ResourceStatCard(stat: $0).frame(width: 128) }
-                }
-                actions(app)
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center, spacing: 10) {
-                    title(app)
-                    Spacer(minLength: 8)
-                    actions(app)
-                }
-                DetailStatsGrid(stats: keyStats(app), color: .blue)
-            }
+        DetailPageHeader(padding: 0) {
+            title(app)
+        } actions: {
+            actions(app)
+        } overview: {
+            ResourceStatsRow(stats: keyStats(app))
         }
     }
 

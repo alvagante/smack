@@ -440,3 +440,23 @@ final class SpyUserDefaults: UserDefaults {
     minimal.processHistoryTopCount = 10
     #expect(PerformancePreset.matching(minimal) == .minimal, "hidden dependent settings do not break the match")
 }
+
+@Test func panelAppearanceAndIconsMigrateAndPersist() throws {
+    let legacy = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
+    #expect(legacy.appearance == .system)
+    #expect(legacy.showTopBarIcons == CollectionSettings.defaultShowTopBarIcons(
+        majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion))
+    #expect(CollectionSettings.defaultShowTopBarIcons(majorVersion: 26))
+    #expect(!CollectionSettings.defaultShowTopBarIcons(majorVersion: 27))
+    #expect(!CollectionSettings.defaultShowTopBarIcons(majorVersion: 28))
+    for appearance in PanelAppearance.allCases {
+        for visible in [false, true] {
+            var settings = CollectionSettings()
+            settings.appearance = appearance
+            settings.showTopBarIcons = visible
+            let restored = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+            #expect(restored.appearance == appearance)
+            #expect(restored.showTopBarIcons == visible)
+        }
+    }
+}

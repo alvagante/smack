@@ -81,14 +81,17 @@ struct ApplicationListView: View {
         let context = ApplicationListContext(snapshot: store.processes, ports: store.networkPorts, signatures: enrichment.signatures,
                                              startup: startup.inventory, launchdIndex: store.launchdIndex())
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                ResourceTitle(title: "Applications", systemImage: "app", color: .blue)
-                DetailStatsGrid(stats: [
-                    ResourceStat(title: "Applications", systemImage: "app", value: store.processes.map { String($0.applications.count) } ?? "Unavailable"),
-                    ResourceStat(title: "Background processes", systemImage: "terminal", value: store.processes.map { String($0.backgroundProcesses.count) } ?? "Unavailable"),
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Applications", systemImage: "app", color: .blue, subtitle: "Running applications and background processes")
+            } actions: {
+                EmptyView()
+            } overview: {
+                ResourceStatsRow(headline: store.processes.map { String($0.applications.count) } ?? "–", unit: "apps", stats: [
+                    ResourceStat(title: "Background", systemImage: "terminal", value: store.processes.map { String($0.backgroundProcesses.count) } ?? "Unavailable",
+                                 detail: "processes"),
                     ResourceStat(title: "App memory", systemImage: "memorychip", value: store.processes.map { Formatting.bytes($0.applications.reduce(UInt64(0)) { $0 &+ $1.memoryBytes }) } ?? "Unavailable")
-                ], color: .blue)
-            }.padding()
+                ], headlineWidth: 96)
+            }
             HStack(spacing: 10) {
                 TextField("Search by name, bundle identifier or PID", text: $model.query)
                     .textFieldStyle(.roundedBorder)

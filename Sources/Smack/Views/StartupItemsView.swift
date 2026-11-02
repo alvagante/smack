@@ -28,14 +28,9 @@ struct StartupItemsView: View {
     var body: some View {
         let items = visibleItems
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                ResourceTitle(title: "Startup", systemImage: "sunrise", color: .yellow)
-                DetailStatsGrid(stats: [
-                    ResourceStat(title: "Enabled", systemImage: "checkmark.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter(\.isEnabled).count)),
-                    ResourceStat(title: "Disabled", systemImage: "pause.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { !$0.isEnabled }.count)),
-                    ResourceStat(title: "Running", systemImage: "play.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { $0.pid != nil }.count))
-                ], color: .yellow)
-                Spacer()
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Startup", systemImage: "sunrise", color: .yellow, subtitle: "Login items, launch agents and daemons")
+            } actions: {
                 if let timestamp = model.inventory?.timestamp {
                     Text(timestamp, style: .time)
                         .font(.caption)
@@ -46,9 +41,12 @@ struct StartupItemsView: View {
                     ? "Refresh: repeats the full scan; macOS asks for an administrator password again."
                     : "Refresh: rescans items visible without a password.") { model.load() }
                 .disabled(model.isLoading)
-
+            } overview: {
+                ResourceStatsRow(headline: model.inventory == nil ? "–" : String(items.filter(\.isEnabled).count), unit: "enabled", stats: [
+                    ResourceStat(title: "Disabled", systemImage: "pause.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { !$0.isEnabled }.count)),
+                    ResourceStat(title: "Running", systemImage: "play.circle", value: model.inventory == nil ? "Unavailable" : String(items.filter { $0.pid != nil }.count))
+                ], headlineWidth: 150)
             }
-            .padding()
 
             if model.inventory?.includesBackgroundTasks == false {
                 HStack(alignment: .top, spacing: 12) {

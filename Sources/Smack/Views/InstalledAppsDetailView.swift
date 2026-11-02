@@ -47,11 +47,11 @@ struct InstalledAppsDetailView: View {
     private var appsLabel: String { selected.count == 1 ? "1 App" : "\(selected.count) Apps" }
 
     private var overview: some View {
-        DetailStatsGrid(stats: [
-            ResourceStat(title: "Applications", systemImage: "square.grid.3x3", value: model.snapshot.map { String($0.apps.count) } ?? "Unavailable"),
+        ResourceStatsRow(headline: model.snapshot.map { String($0.apps.count) } ?? "–", unit: "apps", stats: [
             ResourceStat(title: "App storage", systemImage: "internaldrive", value: model.snapshot.flatMap { $0.measured || $0.apps.contains { $0.sizeBytes != nil } ? Formatting.bytes($0.totalBytes) : nil } ?? "Not measured", detail: model.snapshot?.measured == true ? "All apps measured" : "Measured so far"),
-            ResourceStat(title: "Volume used", systemImage: "chart.pie", value: model.snapshot?.volumeUsedFraction.map { Formatting.percent($0 * 100) } ?? "Unavailable")
-        ], color: .teal)
+            ResourceStat(title: "Volume used", systemImage: "chart.pie", value: model.snapshot?.volumeUsedFraction.map { Formatting.percent($0 * 100) } ?? "Unavailable",
+                         help: "Space used on the volume holding /Applications")
+        ], headlineWidth: 120)
     }
 
     var body: some View {
@@ -103,41 +103,29 @@ struct InstalledAppsDetailView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                ResourceTitle(title: "Installed apps", systemImage: "square.grid.3x3", color: .teal)
-                if let snapshot = model.snapshot {
-                    Text("\(snapshot.apps.count) apps · \(Formatting.bytes(snapshot.totalBytes))\(snapshot.measured ? "" : " measured so far")")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened)) · /Applications and ~/Applications")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Installed apps", systemImage: "square.grid.3x3", color: .teal, subtitle: model.snapshot.map {
+                    "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened)) · /Applications and ~/Applications"
+                })
+            } actions: {
+                if model.loading || model.measuring || model.busy { ProgressView().controlSize(.small) }
+                ToolbarIconButton(title: "Measure sizes", systemImage: "internaldrive", color: .teal) { sizing = true; request += 1 }.disabled(model.loading || model.measuring || model.busy)
+                RefreshButton { sizing = false; request += 1 }.disabled(model.loading || model.measuring || model.busy)
+            } overview: {
+                overview
             }
-            overview
-            Spacer()
-            VStack(alignment: .trailing, spacing: 8) {
-                HStack {
-                    if model.loading || model.measuring || model.busy { ProgressView().controlSize(.small) }
-                    if let fraction = model.snapshot?.volumeUsedFraction {
-                        Text("\(Formatting.percent(fraction * 100)) used")
-                            .font(.callout.weight(.medium)).foregroundStyle(.secondary)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .background(.quaternary, in: Capsule())
-                            .help("Space used on the volume holding /Applications")
-                    }
-                    ToolbarIconButton(title: "Measure sizes", systemImage: "internaldrive", color: .teal) { sizing = true; request += 1 }.disabled(model.loading || model.measuring || model.busy)
-                    RefreshButton { sizing = false; request += 1 }.disabled(model.loading || model.measuring || model.busy)
+            HStack {
+                TextField("Search apps", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
+                Spacer(minLength: 0)
+                Picker("Layout", selection: $listLayout) {
+                    Image(systemName: "square.grid.2x2").tag(false).accessibilityLabel("Grid")
+                    Image(systemName: "list.bullet").tag(true).accessibilityLabel("List")
                 }
-                HStack {
-                    TextField("Search apps", text: $query).textFieldStyle(.roundedBorder).frame(width: 220)
-                    Picker("Layout", selection: $listLayout) {
-                        Image(systemName: "square.grid.2x2").tag(false).accessibilityLabel("Grid")
-                        Image(systemName: "list.bullet").tag(true).accessibilityLabel("List")
-                    }
-                    .pickerStyle(.segmented).labelsHidden().frame(width: 80)
-                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 80)
             }
-        }.padding()
+            .padding([.horizontal, .bottom], MonitorStyle.spacing)
+        }
     }
 
     private func toggle(_ app: InstalledApp) {

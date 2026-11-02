@@ -90,10 +90,9 @@ struct SecurityView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                ResourceTitle(title: "Security", systemImage: "shield", color: .green)
-                DetailStatsGrid(stats: stats, color: .green)
-                Spacer(minLength: 0)
+            DetailPageHeader(padding: MonitorStyle.spacing) {
+                ResourceTitle(title: "Security", systemImage: "shield", color: .green, subtitle: "macOS security and privacy settings")
+            } actions: {
                 if let timestamp = store.posture?.timestamp {
                     Text(Calendar.current.isDateInToday(timestamp)
                          ? timestamp.formatted(date: .omitted, time: .shortened)
@@ -103,8 +102,10 @@ struct SecurityView: View {
                         .foregroundStyle(.secondary)
                         .help("Last checked \(timestamp.formatted())")
                 }
+            } overview: {
+                ResourceStatsRow(headline: store.posture.map { String($0.checks.filter { $0.status == .pass }.count) } ?? "–",
+                                 unit: store.posture.map { "of \($0.checks.count) passed" }, stats: stats, headlineWidth: 150)
             }
-            .padding()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let snapshot = store.posture {
@@ -140,7 +141,6 @@ struct SecurityView: View {
             store.posture.map { String($0.checks.filter { $0.status == status }.count) } ?? "–"
         }
         return [
-            ResourceStat(title: "Passed", systemImage: PostureStatus.pass.systemImage, value: count(.pass), color: .green),
             ResourceStat(title: "Warnings", systemImage: PostureStatus.warn.systemImage, value: count(.warn), color: .orange),
             ResourceStat(title: "Failed", systemImage: PostureStatus.fail.systemImage, value: count(.fail), color: .red),
             ResourceStat(title: "Unknown", systemImage: PostureStatus.unknown.systemImage, value: count(.unknown),

@@ -37,11 +37,11 @@ struct HomebrewDetailView: View {
     }
 
     private var overview: some View {
-        DetailStatsGrid(stats: [
-            ResourceStat(title: "Installed", systemImage: "mug", value: model.snapshot?.packages.map { String($0.count) } ?? "Unavailable"),
+        ResourceStatsRow(headline: model.snapshot?.packages.map { String($0.count) } ?? "–", unit: "installed", stats: [
             ResourceStat(title: "Updates", systemImage: "arrow.down.circle", value: model.snapshot?.updateCount.map(String.init) ?? "Unavailable"),
-            ResourceStat(title: "Tool storage", systemImage: "internaldrive", value: model.snapshot?.managedBytes.map(Formatting.bytes) ?? "Unavailable", detail: "Cellar only")
-        ], color: .orange)
+            ResourceStat(title: "Tool storage", systemImage: "internaldrive", value: model.snapshot?.managedBytes.map(Formatting.bytes) ?? "Unavailable", detail: "Cellar only",
+                         help: "Formula files only. Cask application bundles and caches are excluded.")
+        ], headlineWidth: 150)
     }
 
     var body: some View {
@@ -58,18 +58,14 @@ struct HomebrewDetailView: View {
                                 if item == .installed, let count = model.snapshot?.packages?.count { Text("\(count)") }
                                 if item == .updates, let count = model.snapshot?.updateCount { Text("\(count)") }
                             }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(section == item ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(DetailNavigationStyle(selected: section == item))
                     }
                     Spacer()
                 }
-                .padding(10).frame(width: 175)
+                .padding(12).frame(width: 184)
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                         if let snapshot = model.snapshot {
                             ForEach(snapshot.warnings, id: \.self) { warning in
                                 Label(warning, systemImage: "exclamationmark.triangle")
@@ -79,11 +75,12 @@ struct HomebrewDetailView: View {
                         if model.busy || !model.output.isEmpty { commandResult }
                         content
                     }
-                    .padding()
+                    .padding(MonitorStyle.inset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .background(MonitorStyle.page)
         .task(id: section) {
             model.section = section
             await model.showDetails()
@@ -110,29 +107,22 @@ struct HomebrewDetailView: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                ResourceTitle(title: "Homebrew", systemImage: "mug", color: .orange)
-                if let snapshot = model.snapshot, let packages = snapshot.packages {
-                    Text("\(packages.filter { $0.kind == .formula }.count) tools · \(packages.filter { $0.kind == .cask }.count) apps")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let bytes = snapshot.managedBytes {
-                        Text("\(Formatting.bytes(bytes)) tool storage (Cellar)")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .help("Formula files only. Cask application bundles and caches are excluded.")
-                    }
-                    Text("Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened)) against local metadata")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            overview
-            Spacer()
+        DetailPageHeader {
+            ResourceTitle(title: "Homebrew", systemImage: "mug", color: .orange, subtitle: model.snapshot.map { snapshot in
+                let counts = snapshot.packages.map { packages in
+                    "\(packages.filter { $0.kind == .formula }.count) tools · \(packages.filter { $0.kind == .cask }.count) apps · "
+                } ?? ""
+                return counts + "Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))"
+            })
+        } actions: {
             if blocked { ProgressView().controlSize(.small) }
             RefreshButton { Task { await model.refresh() } }.disabled(blocked)
             ToolbarIconButton(title: "Check for updates", systemImage: "arrow.down.circle", color: .orange) {
                 pending = BrewOperation(title: "Refresh Homebrew repositories?", arguments: ["update"])
             }.disabled(blocked)
-        }.padding()
+        } overview: {
+                overview
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -238,6 +228,7 @@ struct HomebrewDetailView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack {
                     Button("Details", systemImage: "info.circle") { inspectionRead = .info; inspectedPackage = package }
+                        .fixedSize()
                         .disabled(blocked)
                     if installed {
                         Button("Uninstall…", role: .destructive) {
@@ -266,7 +257,8 @@ struct HomebrewDetailView: View {
                 }
             }
             .buttonStyle(.bordered)
-            .fixedSize()
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
 
         }
         .textSelection(.enabled)

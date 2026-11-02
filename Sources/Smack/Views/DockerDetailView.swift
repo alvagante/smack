@@ -46,44 +46,45 @@ struct DockerDetailView: View {
 
     private var overview: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) { overviewCards }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
+            HStack(spacing: 20) { overviewCards }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 12) {
                 overviewCards
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private var overviewCards: some View {
         containerFilterCard(.running, count: model.snapshot?.runningCount, image: "play.fill")
-            .frame(minWidth: 120)
+            .frame(minWidth: 104, alignment: .leading)
         containerFilterCard(.stopped, count: model.snapshot?.stoppedCount, image: "stop.fill")
-            .frame(minWidth: 120)
+            .frame(minWidth: 104, alignment: .leading)
         metric("Open ports", value: model.snapshot?.openPortCount.map(String.init) ?? "Unavailable", image: "network")
-            .frame(minWidth: 120)
+            .frame(minWidth: 104, alignment: .leading)
         metric("Container memory", value: model.snapshot?.containerMemoryBytes.map(Formatting.bytes) ?? (model.liveStats ? "Unavailable" : "Off"), image: "memorychip")
-            .frame(minWidth: 120)
+            .frame(minWidth: 104, alignment: .leading)
             .help(model.liveStats ? "" : "Live container statistics are off in Settings › Docker.")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            DetailPageHeader {
                 ResourceTitle(title: "Docker", systemImage: "shippingbox", color: .blue,
                               subtitle: model.snapshot.map { "Checked " + $0.timestamp.formatted(date: .omitted, time: .shortened) })
-                overview
-                RefreshButton { Task { await model.refresh() } }
-                .disabled(model.loading || model.busy)
+            } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
+                RefreshButton { Task { await model.refresh() } }
+                    .disabled(model.loading || model.busy)
+            } overview: {
+                overview
             }
-            .padding()
             Divider()
             HStack(alignment: .top, spacing: 0) {
                 sidebar
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                         if model.operation != nil { operationResult }
                         if let snapshot = model.snapshot {
                             ForEach(snapshot.warnings, id: \.self) { warning in
@@ -100,11 +101,12 @@ struct DockerDetailView: View {
                             ContentUnavailableView("Docker", systemImage: "shippingbox", description: Text("Collecting Docker information…"))
                         }
                     }
-                    .padding()
+                    .padding(MonitorStyle.inset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .background(MonitorStyle.page)
         .task(id: section) {
             model.section = section
             model.detailsWanted = true
@@ -141,17 +143,12 @@ struct DockerDetailView: View {
                         Spacer()
                         if let count = count(item) { Text("\(count)").monospacedDigit() }
                     }
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(section == item ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(section == item ? .isSelected : [])
+                .buttonStyle(DetailNavigationStyle(selected: section == item))
             }
             Spacer()
         }
-        .padding(10).frame(width: 175)
+        .padding(12).frame(width: 184)
     }
 
     private func count(_ section: DockerSection) -> Int? {
@@ -314,10 +311,7 @@ struct DockerDetailView: View {
     private func containerFilterCard(_ filter: DockerContainerFilter, count: Int?, image: String) -> some View {
         Button { section = .containers; containerFilter = filter } label: {
             metric(filter == .stopped ? "Stopped" : filter.rawValue, value: count.map(String.init) ?? "Unavailable", image: image)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(containerFilter == filter ? Color.accentColor : .clear, lineWidth: 2)
-                }
+                .background(containerFilter == filter ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -354,10 +348,14 @@ struct DockerDetailView: View {
         }
     }
 
+    /// Same look as a `ResourceStatsRow` item, so the Docker header matches the other pages.
     private func metric(_ title: String, value: String, image: String) -> some View {
-        MetricCard(title: title, systemImage: image, color: .blue) {
-            Text(value).font(.title2.weight(.semibold)).monospacedDigit()
-        }.frame(height: 85)
+        VStack(alignment: .leading, spacing: 2) {
+            Label(title, systemImage: image).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 8).padding(.vertical, 4)
     }
 
     @ViewBuilder private func diskUsage(_ snapshot: DockerSnapshot) -> some View {

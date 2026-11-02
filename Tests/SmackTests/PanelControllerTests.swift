@@ -212,12 +212,54 @@ private func makeTestTempDir() throws -> URL {
             return panel.frame.height
         }
 
+        #expect(!panel.hidesOnDeactivate)
+        for (appearance, expectedName) in [(PanelAppearance.light, NSAppearance.Name.aqua), (.dark, .darkAqua)] {
+            settingsStore.update { $0.appearance = appearance }
+            #expect(panel.appearance?.name == expectedName)
+        }
+        settingsStore.update { $0.appearance = .system }
+        #expect(panel.appearance == nil)
         #expect(try await waitForExpectedHeight() == expected)
         for route in [AppRoute.history, .resource(.thermal), .security, .systemDetails, .summary] {
             store.route = route
             // A route-driven resize would start on the next run-loop turn and animate; give it time to show.
             try await Task.sleep(for: .milliseconds(400))
             #expect(panel.frame.height == expected, "panel resized to \(panel.frame.height) on \(route)")
+        }
+
+        if let snapshotDirectory = ProcessInfo.processInfo.environment["SMACK_UI_SNAPSHOTS"] {
+            try FileManager.default.createDirectory(atPath: snapshotDirectory, withIntermediateDirectories: true)
+            store.settingsViewModel.pane = .appearance
+            let total = ProcessInfo.processInfo.physicalMemory
+            let now = Date()
+            for index in 0..<60 {
+                let used = total / 2 + UInt64(index) * total / 300
+                store.receive(SystemSample(
+                    timestamp: now.addingTimeInterval(Double(index - 59)),
+                    cpu: CPUSample(totalUsage: 20, coreUsage: [20]),
+                    memory: MemorySample(totalBytes: total, usedBytes: used, appBytes: used - total / 5,
+                                         wiredBytes: total / 10, compressedBytes: total / 10,
+                                         swapUsedBytes: UInt64(index) * total / 600),
+                    interfaces: [], disks: [], volumes: [], battery: nil,
+                    thermalCondition: .nominal, gpuName: "", temperatures: nil, fans: nil))
+            }
+            for appearance in [PanelAppearance.light, .dark] {
+                settingsStore.update { $0.appearance = appearance }
+                for width in [CGFloat(720), 1200] {
+                    panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.minY, width: width, height: 700), display: true)
+                    for route in [AppRoute.settings, .resource(.memory)] {
+                        store.route = route
+                        try await Task.sleep(for: .milliseconds(250))
+                        let frameView = try #require(panel.contentView?.superview)
+                        frameView.layoutSubtreeIfNeeded()
+                        let bitmap = try #require(frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds))
+                        frameView.cacheDisplay(in: frameView.bounds, to: bitmap)
+                        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                        let name = "\(appearance.rawValue)-\(Int(width))-\(route.title).png"
+                        try png.write(to: URL(fileURLWithPath: snapshotDirectory).appendingPathComponent(name))
+                    }
+                }
+            }
         }
     }
 }

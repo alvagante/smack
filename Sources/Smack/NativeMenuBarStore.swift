@@ -188,6 +188,50 @@ enum NativeMenuBarDiscovery {
         return stride(from: 3, to: width * height * 4, by: 4).contains { pixels[$0] > 16 }
     }
 
+    /// Captures inherit the source menu bar's backdrop and foreground appearance. Extract contrast
+    /// into alpha so AppKit can tint the same glyph for the destination window's appearance.
+    static func normalizedIcon(_ image: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        let edgeAlpha = (0..<width).flatMap { x in
+            [pixels[x * 4 + 3], pixels[((height - 1) * width + x) * 4 + 3]]
+        }.sorted()
+        let transparent = edgeAlpha[edgeAlpha.count / 2] < 16
+        var coverage = [Double](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let fraction = Double(y) / Double(max(1, height - 1))
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                if transparent {
+                    coverage[y * width + x] = Double(pixels[offset + 3]) / 255
+                } else {
+                    // Sampling each column removes both a flat backdrop and its vertical shading.
+                    var contrast = 0.0
+                    for channel in 0..<3 {
+                        let top = Double(pixels[x * 4 + channel])
+                        let bottom = Double(pixels[((height - 1) * width + x) * 4 + channel])
+                        let background = top + (bottom - top) * fraction
+                        contrast = max(contrast, abs(Double(pixels[offset + channel]) - background) / 255)
+                    }
+                    coverage[y * width + x] = max(0, contrast - 0.03)
+                }
+            }
+        }
+        guard let peak = coverage.max(), peak > 0 else { return nil }
+        for index in coverage.indices {
+            let alpha = UInt8((min(1, coverage[index] / (transparent ? 1 : peak)) * 255).rounded())
+            for channel in 0..<4 { pixels[index * 4 + channel] = alpha }
+        }
+        return context.makeImage()
+    }
+
     /// A layout is trusted when it matches the snapshot or repeats the previous observation, so a menu bar
     /// caught mid-animation, with only some items at rest, never replaces a complete snapshot.
     static func acceptsLayout<ID: Equatable>(_ ids: [ID], current: [ID], pending: [ID]?) -> Bool {
@@ -357,7 +401,7 @@ final class NativeMenuBarStore: ObservableObject {
                 }
                 if let raw = windowImages[window.id], let fresh = croppedImage(raw, for: source, scale: scale),
                    NativeMenuBarDiscovery.hasVisiblePixels(fresh) {
-                    image = fresh
+                    image = NativeMenuBarDiscovery.normalizedIcon(fresh) ?? image
                 }
                 captured.append(NativeMenuBarItem(source: source, image: image, scale: scale))
             }

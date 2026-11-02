@@ -16,11 +16,16 @@ struct ResourceTitle: View {
     var status: ResourceStatus? = nil
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 16) {
             ResourceIcon(systemImage: systemImage, color: color)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(MonitorStyle.title)
-                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                // Bounded, so a long program name or path truncates instead of pushing the key figures under the title.
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 280, alignment: .leading)
+                        .help(subtitle)
+                }
             }
             if let status {
                 Text(status.title)
@@ -46,31 +51,81 @@ struct ResourceStat: Identifiable {
     var color: Color? = nil
 }
 
-/// The headline value beside a grid of stats that wraps to more rows when the panel is narrow.
+/// Key figures of a page header: an optional headline value, then labelled stats without card backgrounds.
+/// Stats sit on one line while they fit and wrap into a grid on a narrow panel; the headline never wraps.
 struct ResourceStatsRow: View {
-    let headline: String
-    let unit: String?
+    var headline: String? = nil
+    var unit: String? = nil
     let stats: [ResourceStat]
+    /// Reserved headline width, so live values of varying length do not shift the stats beside it.
+    var headlineWidth: CGFloat? = nil
+    var headlineHelp: String = ""
+
+    private static let statWidth: CGFloat = 104
+
+    /// Splits a formatted figure such as "5 KB/s" or "62 °C" into the headline number and its unit.
+    static func parts(_ formatted: String) -> (value: String, unit: String?) {
+        let parts = formatted.split(separator: " ", maxSplits: 1).map(String.init)
+        return (parts.first ?? formatted, parts.count > 1 ? parts[1] : nil)
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(headline).font(.system(size: 40, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
-                if let unit { Text(unit).font(.title3).foregroundStyle(.secondary) }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 20) {
+                headlineView
+                ForEach(stats) { item($0).fixedSize().frame(minWidth: Self.statWidth, alignment: .leading) }
             }
-            .frame(minWidth: 100, alignment: .leading)
-            Divider().frame(height: 44).padding(.horizontal, 16)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 12, alignment: .leading)], alignment: .leading, spacing: 8) {
-                ForEach(stats) { stat in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(stat.title, systemImage: stat.systemImage).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Text(stat.value).font(.title3.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.75)
-                        Text(stat.detail ?? " ").font(.caption2).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
-                    }
-                    .help(stat.help)
+            HStack(alignment: .center, spacing: 20) {
+                headlineView
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.statWidth), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 12) {
+                    ForEach(stats) { item($0) }
                 }
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var headlineView: some View {
+        if let headline {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(headline == "Unavailable" ? "–" : headline).font(.system(size: 40, weight: .semibold)).monospacedDigit()
+                if let unit { Text(unit).font(.title3).foregroundStyle(.secondary) }
+            }
+            .lineLimit(1)
+            .fixedSize()
+            .frame(minWidth: headlineWidth, alignment: .leading)
+            .help(headlineHelp)
+            if !stats.isEmpty { Divider().frame(height: 44) }
+        }
+    }
+
+    private func item(_ stat: ResourceStat) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(stat.title)
+            } icon: {
+                Image(systemName: stat.systemImage).foregroundStyle(stat.color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            Text(stat.value).font(.title3.weight(.semibold)).monospacedDigit()
+            Text(stat.detail ?? " ").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .lineLimit(1)
+        .help(stat.help)
+    }
+}
+
+/// Thin row above a chart: legend chips with live values, then the range picker, aligned right.
+struct ChartToolbar<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            content
+        }
+        .font(.caption)
+        .frame(minHeight: 24)
     }
 }
 

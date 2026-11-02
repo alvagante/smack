@@ -103,7 +103,14 @@ private struct InsightSeries: Identifiable {
         case .cpu:
             return [InsightSeries(title: "CPU", color: .blue, metric: .cpu, live: \.cpuUsage, history: { $0 }, format: Formatting.percent)]
         case .memory:
-            return [InsightSeries(title: "Memory", color: .purple, metric: .memoryUsedBytes, live: \.memoryUsage, history: { $0 / physicalMemory * 100 }, format: Formatting.percent)]
+            return [
+                InsightSeries(title: "Memory", color: .purple, metric: .memoryUsedBytes, live: \.memoryUsage,
+                              history: { $0 / physicalMemory * 100 }, format: Formatting.percent),
+                InsightSeries(title: "Swap", color: .orange, metric: .swapUsedBytes,
+                              live: { $0.swapUsedBytes / physicalMemory * 100 },
+                              history: { $0 / physicalMemory * 100 },
+                              format: { Formatting.bytes(UInt64(max(0, $0 / 100 * physicalMemory))) }),
+            ]
         case .network:
             return [
                 InsightSeries(title: "In", color: .cyan, metric: .networkReceiveRate, live: \.receiveRate, history: { $0 }, format: Formatting.rate),
@@ -192,51 +199,116 @@ struct ResourceInsightView: View {
     private var usesLiveProcessRows: Bool { resource == .network || resource == .gpu || model.range == .live }
 
     var body: some View {
-        // One scroll for the whole page, so the process list is not squeezed below the chart.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                switch resource {
-                case .cpu: cpuOverview
-                case .memory: memoryOverview
-                case .network: networkOverview
-                case .gpu: gpuOverview
-                default: diskOverview
-                }
-                Divider()
-                if hasProcessList {
-                    processSection
-                } else {
-                    networkSection
-                }
+        VStack(spacing: 0) {
+            DetailPageHeader {
+                header
+            } actions: {
+                EmptyView()
+            } overview: {
+                stats
             }
-            .padding()
+            // One scroll for the rest of the page, so the process list is not squeezed below the chart.
+            ScrollView {
+                VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+                    switch resource {
+                    case .cpu: cpuOverview
+                    case .memory: memoryOverview
+                    case .network: networkOverview
+                    case .gpu: gpuOverview
+                    default: diskOverview
+                    }
+                    Divider()
+                    if hasProcessList {
+                        processSection
+                    } else {
+                        networkSection
+                    }
+                }
+                .padding([.horizontal, .bottom], MonitorStyle.inset)
+            }
         }
         .task(id: "\(resource.id)-\(model.range.rawValue)") { await reload() }
         .onChange(of: resource) {
             model.showAll = false
             model.sort = .resource
+            requestSensors(for: resource)
         }
-        .onAppear { model.showAll = false }
+        .onAppear {
+            model.showAll = false
+            requestSensors(for: resource)
+        }
+        .onDisappear {
+            // Clear only this page's request: Thermal and the application detail make their own on appear.
+            if resource == .cpu { store.setTemperaturesWanted(false) }
+            if resource == .gpu { store.setGPUProcessesWanted(false) }
+        }
+    }
+
+    /// Temperatures and fans are read only while the CPU page is open, the driver's GPU clients only on the GPU
+    /// page. Set once here: inside the header's `ViewThatFits`, appear and disappear can fire in either order.
+    private func requestSensors(for resource: ResourceKind) {
+        store.setTemperaturesWanted(resource == .cpu)
+        store.setGPUProcessesWanted(resource == .gpu)
+    }
+
+    // MARK: Header
+
+    @ViewBuilder private var header: some View {
+        let system = store.system
+        switch resource {
+        case .cpu:
+            CPUTitle(cpu: system?.cpu, thermal: system?.thermalCondition, topology: .current)
+        case .memory:
+            ResourceTitle(title: "Memory", systemImage: "memorychip", color: .purple,
+                          subtitle: system.map { "\(Formatting.bytes($0.memory.totalBytes)) of memory" }, status: MemoryReadings.status(system?.memory.pressure))
+        case .network:
+            ResourceTitle(title: "Network", systemImage: "network", color: .cyan, subtitle: system.map { interfaceSummary($0.interfaces) })
+        case .gpu:
+            ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: .indigo,
+                          subtitle: GPUReadings.subtitle(name: system?.gpuName, cores: system?.gpuCoreCount), status: GPUReadings.status(system?.gpu))
+        default:
+            ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: .orange,
+                          subtitle: system.map { "\(DiskReadings.devices($0.disks).count) disks · \($0.volumes.count) volumes" })
+        }
+    }
+
+    @ViewBuilder private var stats: some View {
+        let system = store.system
+        switch resource {
+        case .cpu: CPUStatsRow(store: store)
+        case .memory: MemoryStatsRow(memory: system?.memory, gpu: system?.gpu)
+        case .network: NetworkStatsRow(system: system, recent: store.recentMetrics.points)
+        case .gpu: GPUStatsRow(store: store)
+        default: DiskStatsRow(system: system, recent: store.recentMetrics.points)
+        }
+    }
+
+    /// Legend chips for every charted line with its current value (and the range peak on history ranges),
+    /// then the range picker.
+    private var chartToolbar: some View {
+        ChartToolbar {
+            ForEach(lines) { legendChip($0) }
+            rangePicker
+        }
     }
 
     // MARK: CPU
 
     private var cpuOverview: some View {
         let cpu = store.system?.cpu
-        return VStack(alignment: .leading, spacing: 12) {
-            titleRow { CPUTitle(cpu: cpu, thermal: store.system?.thermalCondition, topology: .current) }
-            CPUStatsRow(store: store)
+        return VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            chartToolbar
             chart.frame(height: 170)
             let cores = cpu?.coreUsage.count ?? ProcessInfo.processInfo.activeProcessorCount
             if isNarrowPage {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: MonitorStyle.spacing) {
                     CPUBreakdownCard(cpu: cpu)
                     CPULoadCard(cpu: cpu, coreCount: cores).frame(width: 190)
                 }
                 .frame(height: 118)
                 CPUCoresCard(cpu: cpu, topology: .current).frame(height: 118)
             } else {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: MonitorStyle.spacing) {
                     CPUBreakdownCard(cpu: cpu).frame(maxWidth: 300)
                     CPUCoresCard(cpu: cpu, topology: .current)
                     CPULoadCard(cpu: cpu, coreCount: cores).frame(width: 190)
@@ -250,30 +322,29 @@ struct ResourceInsightView: View {
 
     private var memoryOverview: some View {
         let memory = store.system?.memory
-        return VStack(alignment: .leading, spacing: 12) {
-            titleRow {
-                ResourceTitle(title: "Memory", systemImage: "memorychip", color: .purple,
-                              subtitle: memory.map { "\(Formatting.bytes($0.totalBytes)) of memory" }, status: MemoryReadings.status(memory?.pressure))
-            }
-            MemoryStatsRow(memory: memory, gpu: store.system?.gpu)
+        return VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            chartToolbar
             chart.frame(height: 150)
-            swapStrip
-            HStack(alignment: .top, spacing: 12) {
-                MemoryCompositionCard(memory: memory)
-                MemoryPressureCard(memory: memory, recent: store.recentMetrics.points).frame(maxWidth: 340)
+            Text("Both lines use a percentage of physical memory; swap readouts show bytes.")
+                .font(.caption).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: MonitorStyle.spacing) {
+                    MemoryCompositionCard(memory: memory).frame(minWidth: 380)
+                    MemoryPressureCard(memory: memory, recent: store.recentMetrics.points).frame(minWidth: 220, maxWidth: 340)
+                }
+                VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+                    MemoryCompositionCard(memory: memory)
+                    MemoryPressureCard(memory: memory, recent: store.recentMetrics.points)
+                }
             }
-            .frame(height: 112)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var networkOverview: some View {
         let system = store.system
-        return VStack(alignment: .leading, spacing: 12) {
-            titleRow {
-                ResourceTitle(title: "Network", systemImage: "network", color: .cyan,
-                              subtitle: system.map { interfaceSummary($0.interfaces) }, status: nil)
-            }
-            NetworkStatsRow(system: system, recent: store.recentMetrics.points)
+        return VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            chartToolbar
             chart.frame(height: 170)
             NetworkInterfacesCard(interfaces: system?.interfaces ?? [])
         }
@@ -281,14 +352,10 @@ struct ResourceInsightView: View {
 
     private var diskOverview: some View {
         let system = store.system
-        return VStack(alignment: .leading, spacing: 12) {
-            titleRow {
-                ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: .orange,
-                              subtitle: system.map { "\(DiskReadings.devices($0.disks).count) disks · \($0.volumes.count) volumes" }, status: nil)
-            }
-            DiskStatsRow(system: system, recent: store.recentMetrics.points)
+        return VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            chartToolbar
             chart.frame(height: 170)
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: MonitorStyle.spacing) {
                 DiskDevicesCard(disks: DiskReadings.devices(system?.disks ?? []))
                 VolumesCard(volumes: system?.volumes ?? []).frame(maxWidth: 340)
             }
@@ -298,17 +365,10 @@ struct ResourceInsightView: View {
 
     private var gpuOverview: some View {
         let system = store.system
-        return VStack(alignment: .leading, spacing: 12) {
-            titleRow {
-                ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: .indigo,
-                              subtitle: GPUReadings.subtitle(name: system?.gpuName, cores: system?.gpuCoreCount), status: GPUReadings.status(system?.gpu))
-            }
-            GPUStatsRow(store: store)
-            if model.range == .live {
-                HStack { ForEach(lines) { line in legendChip(line) } }
-            }
+        return VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            chartToolbar
             chart.frame(height: 170)
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: MonitorStyle.spacing) {
                 GPUWorkCard(gpu: system?.gpu)
                 GPUMemoryCard(gpu: system?.gpu).frame(maxWidth: 340)
             }
@@ -322,29 +382,6 @@ struct ResourceInsightView: View {
         return active.prefix(2).map { "\($0.name) \(NetworkReadings.preferredAddresses($0).first ?? "")" }.joined(separator: " · ")
     }
 
-    /// Title, legend chips and range picker. Chips name the lines when there are several, and add the range peak
-    /// on history ranges.
-    private func titleRow<Title: View>(@ViewBuilder title: () -> Title) -> some View {
-        HStack(spacing: 8) {
-            title()
-            Spacer(minLength: 8)
-            if model.range != .live || (series.count > 1 && resource != .gpu) { ForEach(lines) { line in legendChip(line) } }
-            rangePicker
-        }
-    }
-
-    /// Swap used on the same time axis as the memory chart; separate because swap can exceed physical memory.
-    private var swapStrip: some View {
-        let points: [HistoricalPoint] = model.range == .live
-            ? store.recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.swapUsedBytes, peak: $0.swapUsedBytes) }
-            : model.points[.swapUsedBytes] ?? []
-        return HStack(spacing: 8) {
-            Label("Swap", systemImage: "arrow.left.arrow.right").font(.caption).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
-            TimeSeriesStrip(series: [TimeSeries(id: "Swap", color: .purple.opacity(0.7), points: points)], domain: chartDomain,
-                            format: { Formatting.bytes(UInt64(max(0, $0))) }, height: 34)
-        }
-    }
-
     /// Memory pressure over the charted range: live samples, or the stored history (peak per bucket).
     private var pressureBands: [PressureBand] {
         guard resource == .memory else { return [] }
@@ -356,7 +393,7 @@ struct ResourceInsightView: View {
 
     /// Extra stored metrics a page draws besides its chart lines.
     private var extraHistoryMetrics: [SystemMetric] {
-        resource == .memory ? [.swapUsedBytes, .memoryPressure] : []
+        resource == .memory ? [.memoryPressure] : []
     }
 
     private var rangePicker: some View {
@@ -480,7 +517,10 @@ struct ResourceInsightView: View {
     }
 
     private func yUpperBound(_ lines: [InsightLine], percentScale: Bool) -> Double {
-        if percentScale { return 100 }
+        if percentScale {
+            let maximum = lines.flatMap(\.samples).map(\.value).max() ?? 0
+            return resource == .memory ? max(100, maximum * 1.1) : 100
+        }
         let maximum = lines.flatMap(\.samples).map(\.value).max() ?? 0
         return maximum > 0 ? maximum * 1.1 : 1
     }

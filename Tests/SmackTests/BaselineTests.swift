@@ -377,3 +377,25 @@ private struct DuplicateBaselineCollector: BaselineSectionCollector {
                                           kinds: [.driftDetected], search: "", limit: 10)
     #expect(events.isEmpty)
 }
+
+@Test(arguments: [false, true]) func baselineWorkerExitsWithParent(groupLeader: Bool) async throws {
+    let fifo = "/tmp/smack-worker-" + UUID().uuidString
+    defer { unlink(fifo) }
+    // The held FIFO keeps the worker blocked on its request; the shell then exits as the parent.
+    let script = """
+        mkfifo "$1" || exit 1; [ "$2" = 1 ] && set -m
+        sleep 10 >"$1" 2>/dev/null & s=$!
+        "$0" --baseline-section <"$1" >/dev/null 2>&1 & echo $! $s; sleep 1
+        """
+    let result = await Subprocess.run("/bin/sh", ["-c", script, obsProduct("Smack").path, fifo, groupLeader ? "1" : "0"],
+                                      timeout: 5)
+    let pids = result.output.split(separator: " ").compactMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    try #require(pids.count == 2)
+    defer { kill(pids[1], SIGKILL) }
+    var alive = true
+    for _ in 0..<40 where alive {
+        alive = kill(pids[0], 0) == 0
+        if alive { try await Task.sleep(for: .milliseconds(50)) }
+    }
+    #expect(!alive)
+}

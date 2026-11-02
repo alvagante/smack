@@ -3,6 +3,7 @@ import SwiftUI
 /// Semantic macOS colors follow system appearance, contrast and the user's accent color.
 enum MonitorStyle {
     static let page = Color(nsColor: .windowBackgroundColor)
+    static let sidebar = Color(nsColor: .windowBackgroundColor).mix(with: .black, by: 0.06)
     static let surface = Color(nsColor: .controlBackgroundColor)
     static let separator = Color(nsColor: .separatorColor)
     static let inset: CGFloat = 24

@@ -13,10 +13,14 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 - Redesign the panel around a shared, resizable sidebar and compact navigation bar. Pages are grouped by Performance, Health, Activity and Environment; hidden environment pages are omitted from navigation.
 - Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
 - Consolidate page surfaces, headings, icons and action buttons across light and dark appearances. Settings uses a pane picker alongside the shared sidebar.
+- Give every page the same header: icon, title and one-line description, a large key figure that never wraps, secondary figures without card backgrounds, then page actions on the right. Chart pages put the legend with live values and the range picker in one right-aligned row above the chart.
 
 ### Fixed
 
+- Draw the selected sidebar page in the accent color at launch (it was white text on the inactive gray highlight until the panel became key), clip sidebar rows at the titlebar and start the titlebar page name past the sidebar edge.
 - Keep one streaming `nettop` process while the panel is visible instead of launching it for each network-rate sample.
+- Stop the streaming `nettop` process when Smack exits abruptly (crash, force quit, SIGKILL); previously it was orphaned and kept running.
+- Stop baseline section workers and their commands when Smack exits abruptly, since their deadline is enforced by the app.
 
 - Prevent overlapping agent updates from restoring stale sessions; refresh project context and retain newer network annotations.
 - Target Dev Server Stop actions at listener owners, independently of project grouping.
@@ -27,6 +31,7 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Added
 
+- Show a sponsor link, hostname, primary IPv4 address with prefix and a configurable clock in the panel title bar, with optional uptime, load average, battery and thermal warning. Each item is toggled in Settings > Appearance; items drop out in groups when the panel is narrow. The sponsor link is not shown in the App Store build.
 - Add project-grouped Dev Servers with git context, Compose mapping, directory actions, confirmed stop and cached CLI v2 queries.
 - Add versioned portable machine baselines, deterministic JSON, field-level drift reports, import/export, retention and pinning, CLI create/list/diff/export with 0/1/2 diff exits, and daily golden-baseline Security events.
 

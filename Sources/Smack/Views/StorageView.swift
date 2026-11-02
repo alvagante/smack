@@ -17,14 +17,17 @@ struct StorageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 16) {
+                DetailPageHeader(padding: 0) {
                     ResourceTitle(title: "Storage", systemImage: "externaldrive", color: .indigo,
                                   subtitle: "Find what takes up space")
-                    DetailStatsGrid(stats: [
+                } actions: {
+                    EmptyView()
+                } overview: {
+                    let available = ResourceStatsRow.parts(store.system.map { Formatting.bytes($0.volumes.reduce(UInt64(0)) { $0 &+ $1.availableBytes }) } ?? "–")
+                    ResourceStatsRow(headline: available.value, unit: available.unit.map { "\($0) free" } ?? "free", stats: [
                         ResourceStat(title: "Used", systemImage: "internaldrive.fill", value: store.system.map { Formatting.bytes($0.volumes.reduce(UInt64(0)) { $0 &+ $1.usedBytes }) } ?? "Unavailable"),
-                        ResourceStat(title: "Available", systemImage: "internaldrive", value: store.system.map { Formatting.bytes($0.volumes.reduce(UInt64(0)) { $0 &+ $1.availableBytes }) } ?? "Unavailable"),
                         ResourceStat(title: "Volumes", systemImage: "externaldrive", value: store.system.map { String($0.volumes.count) } ?? "Unavailable")
-                    ], color: .indigo)
+                    ], headlineWidth: 150)
                 }
                 volumes
                 scanControls

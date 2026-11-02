@@ -41,10 +41,13 @@ public enum Subprocess {
     }
 
     /// Streaming callbacks replace stdout retention; stderr remains capped by outputLimit.
+    /// `holdInput` keeps stdin open until the child exits or is stopped, so the child sees EOF
+    /// when this process dies for any reason, including SIGKILL.
     public static func run(_ executable: String, _ arguments: [String], input: String? = nil,
                            timeout: TimeInterval? = nil, outputLimit: Int = .max,
                            cancellable: Bool = true, processGroup: ProcessGroup = .new,
                            terminalOutput: Bool = false, outputTimeout: TimeInterval? = nil,
+                           holdInput: Bool = false,
                            onOutput: (@Sendable (OutputEvent) -> Void)? = nil) async -> Result {
         let cancellation = Cancellation()
         return await withTaskCancellationHandler {
@@ -53,7 +56,7 @@ public enum Subprocess {
                     continuation.resume(returning: runBlocking(executable, arguments, input: input,
                         timeout: timeout, outputLimit: outputLimit, cancellation: cancellation,
                         processGroup: processGroup, terminalOutput: terminalOutput,
-                        outputTimeout: outputTimeout, onOutput: onOutput))
+                        outputTimeout: outputTimeout, holdInput: holdInput, onOutput: onOutput))
                 }
             }
         } onCancel: {
@@ -105,7 +108,8 @@ public enum Subprocess {
     private static func runBlocking(_ executable: String, _ arguments: [String], input: String?,
                                     timeout: TimeInterval?, outputLimit: Int, cancellation: Cancellation,
                                     processGroup: ProcessGroup, terminalOutput: Bool,
-                                    outputTimeout: TimeInterval?, onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
+                                    outputTimeout: TimeInterval?, holdInput: Bool,
+                                    onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
         let newProcessGroup = processGroup != .inherited
         if cancellation.requested.withLock({ $0 }) {
             return Result(status: -1, output: "", error: "Cancelled.", cancelled: true)
@@ -145,14 +149,15 @@ public enum Subprocess {
             return communicate(pid: pid, output: &output, errors: &errors, stdin: &stdin,
                                input: input, timeout: timeout, limit: max(0, outputLimit), cancellation: cancellation,
                                signalTarget: newProcessGroup ? -pid : pid, terminateDescendants: processGroup == .supervised,
-                               outputTimeout: outputTimeout, onOutput: onOutput)
+                               outputTimeout: outputTimeout, holdInput: holdInput, onOutput: onOutput)
         } catch { return .unavailable(error.localizedDescription) }
     }
 
     private static func communicate(pid: pid_t, output: inout [Int32], errors: inout [Int32], stdin: inout [Int32],
                                     input: String?, timeout: TimeInterval?, limit: Int,
                                     cancellation: Cancellation, signalTarget: pid_t, terminateDescendants: Bool,
-                                    outputTimeout: TimeInterval?, onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
+                                    outputTimeout: TimeInterval?, holdInput: Bool,
+                                    onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
         let outFD = output[0], errFD = errors[0], inFD = stdin[1]
         close(output[1]); output[1] = -1
         close(errors[1]); errors[1] = -1
@@ -201,14 +206,15 @@ public enum Subprocess {
                 }
             } else if exited && !openOutput && !openError { break }
 
-            if openInput && (inputOffset == bytes.count || exited || stopAt != nil) {
+            if openInput && ((!holdInput && inputOffset == bytes.count) || exited || stopAt != nil) {
                 close(stdin[1]); stdin[1] = -1
                 openInput = false
             }
             var descriptors = [
                 pollfd(fd: openOutput ? outFD : -1, events: Int16(POLLIN), revents: 0),
                 pollfd(fd: openError ? errFD : -1, events: Int16(POLLIN), revents: 0),
-                pollfd(fd: openInput ? inFD : -1, events: Int16(POLLOUT), revents: 0)
+                // A held, fully written stdin is always writable; polling it would spin.
+                pollfd(fd: openInput && inputOffset < bytes.count ? inFD : -1, events: Int16(POLLOUT), revents: 0)
             ]
             _ = poll(&descriptors, nfds_t(descriptors.count), onOutput == nil ? 20 : 100)
             for index in 0..<2 where descriptors[index].revents != 0 {
