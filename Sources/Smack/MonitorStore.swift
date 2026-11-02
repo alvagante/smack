@@ -168,6 +168,7 @@ final class MonitorStore: ObservableObject {
     let timelineViewModel = TimelineViewModel()
     let resourceInsightViewModel = ResourceInsightViewModel()
     let applicationListViewModel = ApplicationListViewModel()
+    let applicationListEnrichment = ApplicationListEnrichment()
     let processDetailViewModel = ProcessDetailViewModel()
     let networkPortsViewModel = NetworkPortsViewModel()
     let settingsViewModel = SettingsViewModel()
@@ -648,7 +649,7 @@ final class MonitorStore: ObservableObject {
     }
 
     /// One dictionary per startup inventory, never per process.
-    private func launchdIndex() -> [String: LaunchdMatch] {
+    func launchdIndex() -> [String: LaunchdMatch] {
         guard let inventory = startupItemsModel.inventory else { return [:] }
         if let launchdCache, launchdCache.timestamp == inventory.timestamp { return launchdCache.index }
         let index = ProcessProvenanceResolver.launchdIndex(from: inventory)

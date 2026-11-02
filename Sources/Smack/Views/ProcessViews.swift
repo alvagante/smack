@@ -5,8 +5,12 @@ enum ProcessSort: String, CaseIterable, Identifiable {
     case cpu = "CPU"
     case memory = "Memory"
     case disk = "Disk Activity"
+    case network = "Network"
     case energy = "Energy Impact"
     case wakeups = "Wakeups"
+    case threads = "Threads"
+    case ports = "Listening Ports"
+    case uptime = "Running Time"
     case name = "Application"
     var id: String { rawValue }
 }
@@ -17,8 +21,13 @@ final class ApplicationListViewModel: ObservableObject {
     @Published var sort = ProcessSort.cpu
     @Published var ascending = false
     @Published var mode = ProcessListMode.flat
+    /// Nil until the user picks one; until then the "Show background processes" setting decides.
+    @Published var scope: ProcessScope?
     /// Collapsed tree nodes; everything starts expanded.
     @Published var collapsed: Set<String> = []
+    /// Non-nil while a kill confirmation is open.
+    @Published var killRequest: KillRequest?
+    @Published var killMessage: String?
 
     func toggleSort(_ newSort: ProcessSort) {
         if sort == newSort {
@@ -27,6 +36,15 @@ final class ApplicationListViewModel: ObservableObject {
             sort = newSort
             ascending = newSort == .name
         }
+    }
+
+    func effectiveScope(showBackgroundProcesses: Bool) -> ProcessScope {
+        scope ?? (showBackgroundProcesses ? .all : .apps)
+    }
+
+    func requestKill(_ entry: ApplicationListEntry) {
+        killMessage = nil
+        killRequest = KillRequest(entryID: entry.id, kind: entry.kind, name: entry.name, targets: entry.identities)
     }
 }
 
@@ -38,16 +56,30 @@ final class ProcessDetailViewModel: ObservableObject {
 struct ApplicationListView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ApplicationListViewModel
-    private let metricWidth: CGFloat = 130
-    private let diskWidth: CGFloat = 160
-    private let wakeupsWidth: CGFloat = 100
+    @ObservedObject var enrichment: ApplicationListEnrichment
+    @ObservedObject var startup: StartupItemsModel
+    @State private var listWidth: CGFloat = 0
+    /// Listening ports are re-read this often while the page is open; the port scan walks every process's sockets.
+    static let portsRefresh: Duration = .seconds(30)
 
     init(store: MonitorStore) {
         self.store = store
         model = store.applicationListViewModel
+        enrichment = store.applicationListEnrichment
+        startup = store.startupItemsModel
     }
 
+    private var scope: ProcessScope {
+        model.effectiveScope(showBackgroundProcesses: store.settingsStore.settings.showBackgroundProcesses)
+    }
+
+    private var layout: ApplicationListLayout { ApplicationListLayout(width: listWidth) }
+
     var body: some View {
+        // NSWorkspace is asked once per render, not once per row.
+        let userApplications = UserApplications.processIdentifiers()
+        let context = ApplicationListContext(snapshot: store.processes, ports: store.networkPorts, signatures: enrichment.signatures,
+                                             startup: startup.inventory, launchdIndex: store.launchdIndex())
         VStack(spacing: 0) {
             HStack(spacing: 16) {
                 ResourceTitle(title: "Applications", systemImage: "app", color: .blue)
@@ -58,8 +90,20 @@ struct ApplicationListView: View {
                 ], color: .blue)
             }.padding()
             HStack(spacing: 10) {
-                TextField("Search applications and processes", text: $model.query)
+                TextField("Search by name, bundle identifier or PID", text: $model.query)
                     .textFieldStyle(.roundedBorder)
+                if model.mode == .flat, let snapshot = store.processes {
+                    Text(ApplicationListReadings.scopeCounts(snapshot, userApplications: userApplications))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                }
+                Picker("Show", selection: Binding(get: { scope }, set: { model.scope = $0 })) {
+                    ForEach(ProcessScope.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(model.mode == .tree)
+                .help(model.mode == .tree
+                      ? "The tree always shows every process."
+                      : "Apps lists applications with their own icon; All adds system agents, helpers and background processes.")
                 Picker("View", selection: $model.mode) {
                     ForEach(ProcessListMode.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -73,78 +117,163 @@ struct ApplicationListView: View {
                     .foregroundStyle(.orange)
                     .padding(.horizontal)
             }
+            KillBanner(name: model.killRequest?.name, processCount: model.killRequest?.targets.count ?? 0, message: model.killMessage,
+                       terminate: { kill(force: false) }, forceKill: { kill(force: true) },
+                       cancel: { model.killRequest = nil }, dismiss: { model.killMessage = nil })
+                .padding([.horizontal, .top])
 
-            HStack(spacing: 12) {
-                sortHeader(.name)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                sortHeader(.cpu).frame(width: metricWidth, alignment: .trailing)
-                sortHeader(.memory).frame(width: metricWidth, alignment: .trailing)
-                sortHeader(.disk).frame(width: diskWidth, alignment: .trailing)
-                sortHeader(.energy).frame(width: metricWidth, alignment: .trailing)
-                sortHeader(.wakeups).frame(width: wakeupsWidth, alignment: .trailing)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
+            columnHeader
+                .padding(.horizontal)
+                .padding(.vertical, 10)
             Divider()
 
             if model.mode == .tree {
-                ProcessTreeList(store: store, model: model, metricWidth: metricWidth, diskWidth: diskWidth, wakeupsWidth: wakeupsWidth)
+                ProcessTreeList(store: store, model: model, layout: layout, context: context)
             } else {
-            List {
-                Section("Applications") {
-                    ForEach(filtered(store.processes?.applications ?? [])) { application in
-                        Button { store.route = .application(application.id) } label: {
-                            HStack(spacing: 12) {
-                                HStack(spacing: 10) {
-                                    ApplicationIcon(application: application, size: 30)
-                                    VStack(alignment: .leading) {
-                                        Text(application.name).lineLimit(1)
-                                        Text("\(application.processes.count) process\(application.processes.count == 1 ? "" : "es")")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                metric(Formatting.percent(application.cpuUsage), width: metricWidth)
-                                metric(memory(application.memoryBytes), width: metricWidth)
-                                metric(disk(application.diskReadRate + application.diskWriteRate), width: diskWidth)
-                                metric(energy(application.energyImpact), width: metricWidth)
-                                metric(Self.wakeups(application.wakeupsPerSecond), width: wakeupsWidth)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                let entries = ApplicationListReadings.entries(store.processes, scope: scope, userApplications: userApplications,
+                                                              currentUser: NSUserName(), context: context)
+                let shown = rows(entries.applications)
+                List {
+                    Section(scope == .apps ? "Apps" : "Applications") {
+                        ForEach(shown) { row($0) }
+                        if scope == .apps, shown.isEmpty, !model.query.isEmpty { switchToAllHint(userApplications) }
                     }
-                }
-                if store.settingsStore.settings.showBackgroundProcesses {
-                    Section("Background Processes") {
-                        ForEach(filtered(store.processes?.backgroundProcesses ?? [])) { process in
-                            Button { store.route = .process(process.id) } label: {
-                                HStack(spacing: 12) {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "terminal")
-                                            .frame(width: 30, height: 30)
-                                            .foregroundStyle(.secondary)
-                                        Text(process.name).lineLimit(1)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    metric(Formatting.percent(process.cpuUsage), width: metricWidth)
-                                    metric(memory(process.memoryBytes), width: metricWidth)
-                                    metric(disk(process.diskReadRate + process.diskWriteRate), width: diskWidth)
-                                    metric(energy(process.energyImpact), width: metricWidth)
-                                    metric(Self.wakeups(process.wakeupsPerSecond), width: wakeupsWidth)
-                                }
-                            }
-                            .buttonStyle(.plain)
+                    if scope == .all {
+                        Section("Background Processes") {
+                            ForEach(rows(entries.background)) { row($0) }
                         }
                     }
                 }
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
+        .onAppear {
+            // Launch sources come from the startup scan; without the password-gated background task list.
+            if startup.inventory == nil { startup.load(includeBackgroundTasks: false) }
+        }
+        .task {
+            guard Capabilities.supportsNetworkPortInspection else { return }
+            while !Task.isCancelled {
+                store.loadNetworkPorts()
+                try? await Task.sleep(for: Self.portsRefresh)
             }
         }
     }
 
+    /// Apps hides helpers and background processes, so a search for one of them finds nothing there.
+    private func switchToAllHint(_ userApplications: Set<Int32>) -> some View {
+        let all = ApplicationListReadings.entries(store.processes, scope: .all, userApplications: userApplications, currentUser: NSUserName())
+        let matches = (all.applications + all.background).filter { ApplicationListReadings.matches($0, query: model.query) }.count
+        return HStack {
+            Text(matches == 0 ? "No match." : "No app matches; \(matches) other process\(matches == 1 ? "" : "es") do\(matches == 1 ? "es" : "").")
+                .foregroundStyle(.secondary)
+            if matches > 0 { Button("Show All") { model.scope = .all }.buttonStyle(.link) }
+        }
+        .font(.callout)
+    }
+
     /// Sandbox builds cannot read other processes' counters, so zero reads as unavailable.
     static func wakeups(_ value: Double) -> String { Formatting.processWakeups(value) }
+
+    private func rows(_ entries: [ApplicationListEntry]) -> [ApplicationListEntry] {
+        ApplicationListReadings.sorted(entries.filter { ApplicationListReadings.matches($0, query: model.query) },
+                                       by: model.sort, ascending: model.ascending)
+    }
+
+    private var columnHeader: some View {
+        HStack(spacing: ApplicationListLayout.spacing) {
+            sortHeader(.name)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(layout.columns) { column in
+                sortHeader(column).frame(width: column.columnWidth, alignment: .trailing)
+                if column == .cpu, layout.showsTrend {
+                    Text("Trend").foregroundStyle(.secondary).frame(width: ApplicationListLayout.trendWidth)
+                        .help("CPU over the live window")
+                }
+            }
+            Color.clear.frame(width: ApplicationListLayout.actionsWidth, height: 1)
+        }
+    }
+
+    private func row(_ entry: ApplicationListEntry) -> some View {
+        HStack(spacing: ApplicationListLayout.spacing) {
+            Button { store.route = entry.route } label: {
+                HStack(spacing: ApplicationListLayout.spacing) {
+                    name(entry).frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(layout.columns) { column in
+                        ApplicationListCell(entry: entry, column: column)
+                        if column == .cpu, layout.showsTrend { trend(entry) }
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            ApplicationListActions(entry: entry) { model.requestKill(entry) }
+        }
+        .contextMenu {
+            ApplicationListContextMenu(entry: entry, open: { store.route = entry.route }, kill: { model.requestKill(entry) })
+        }
+        .task(id: entry.executablePath) {
+            if let path = entry.executablePath { enrichment.requestSignature(path: path) }
+        }
+    }
+
+    private func name(_ entry: ApplicationListEntry) -> some View {
+        HStack(spacing: 10) {
+            if entry.kind == .application {
+                ApplicationIcon(bundleIdentifier: entry.bundleIdentifier, executablePath: entry.executablePath, size: 30)
+            } else {
+                Image(systemName: "terminal").frame(width: 30, height: 30).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading) {
+                HStack(spacing: 4) {
+                    Text(entry.name).lineLimit(1)
+                    if let badge = ApplicationListReadings.signer(entry.signature) {
+                        Image(systemName: badge.systemImage).font(.caption2).foregroundStyle(color(badge.tone))
+                            .hoverHint("\(badge.title): \(badge.detail)")
+                            .accessibilityLabel(badge.title)
+                    }
+                    if let owner = entry.owner {
+                        Text(owner).font(.caption2).foregroundStyle(.secondary)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                            .help("Runs as \(owner), not as you.")
+                    }
+                }
+                caption(entry)
+            }
+        }
+    }
+
+    /// "3 processes · Launch Services · Google LLC": count, what started it, who signed it.
+    private func caption(_ entry: ApplicationListEntry) -> some View {
+        let count = entry.kind == .application
+            ? "\(entry.processCount) process\(entry.processCount == 1 ? "" : "es")"
+            : "PID \(entry.identities.first.map { String($0.pid) } ?? "–")"
+        let signer = ApplicationListReadings.signer(entry.signature)
+        let parts = [count, entry.launchSource?.title, signer?.title].compactMap { $0 }
+        let hint = [entry.launchSource?.detail, signer?.detail].compactMap { $0 }.joined(separator: "\n")
+        return Text(parts.joined(separator: " · "))
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            .hoverHint(hint.isEmpty ? parts.joined(separator: " · ") : hint)
+    }
+
+    private func color(_ tone: SignerBadge.Tone) -> Color {
+        switch tone {
+        case .apple: .secondary
+        case .trusted: .green
+        case .caution: .orange
+        case .danger: .red
+        }
+    }
+
+    /// CPU over the live window, from the points the CPU page already keeps; nothing extra is sampled.
+    private func trend(_ entry: ApplicationListEntry) -> some View {
+        let values = (store.recentProcessPoints[entry.id] ?? []).map(\.cpuUsage)
+        return Sparkline(series: [SparklineSeries(values: values, color: .blue)], minHeight: 22, maxHeight: 22)
+            .frame(width: ApplicationListLayout.trendWidth)
+    }
 
     private func sortHeader(_ sort: ProcessSort) -> some View {
         Button { model.toggleSort(sort) } label: {
@@ -153,65 +282,23 @@ struct ApplicationListView: View {
                     Image(systemName: model.ascending ? "chevron.up" : "chevron.down")
                         .font(.caption2)
                 }
-                Text(sort.rawValue).lineLimit(1).minimumScaleFactor(0.8)
+                Text(sort == .name ? sort.rawValue : sort.columnTitle).lineLimit(1).minimumScaleFactor(0.8)
             }
             .foregroundStyle(model.sort == sort ? Color.accentColor : .secondary)
         }
         .buttonStyle(.plain)
-        .help("Sort by \(sort.rawValue)")
+        .help("\(sort.columnHelp) Click to sort by \(sort.rawValue.lowercased()).")
     }
 
-    private func metric(_ value: String, width: CGFloat) -> some View {
-        Text(value)
-            .font(.callout)
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(width: width, alignment: .trailing)
-    }
-
-    private func energy(_ value: Double?) -> String { Formatting.energy(value) }
-
-    private func memory(_ value: UInt64) -> String {
-        if Capabilities.isSandboxed, value == 0 { return "—" }
-        return Formatting.bytes(value)
-    }
-
-    private func disk(_ value: Double) -> String {
-        if Capabilities.isSandboxed, value == 0 { return "—" }
-        return Formatting.rate(value)
-    }
-
-    private func filtered(_ applications: [ApplicationMetrics]) -> [ApplicationMetrics] {
-        let result = model.query.isEmpty ? applications : applications.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .wakeups: ordered(lhs.wakeupsPerSecond, rhs.wakeupsPerSecond)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
+    private func kill(force: Bool) {
+        guard let request = model.killRequest else { return }
+        // The snapshot may have moved on since the confirmation opened; only processes that are still the same ones are signaled.
+        let current: [ProcessIdentity] = switch request.kind {
+        case .application: store.application(id: request.entryID)?.processes.map(\.identity) ?? []
+        case .process: store.process(id: request.entryID).map { [$0.identity] } ?? []
         }
-    }
-
-    private func filtered(_ processes: [ProcessMetrics]) -> [ProcessMetrics] {
-        let result = model.query.isEmpty ? processes : processes.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .wakeups: ordered(lhs.wakeupsPerSecond, rhs.wakeupsPerSecond)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
-        }
-    }
-
-    private func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool {
-        model.ascending ? lhs < rhs : lhs > rhs
+        model.killMessage = "\(request.name): " + ProcessTerminator.terminate(targets: request.targets, current: current, force: force).summary
+        model.killRequest = nil
     }
 }
 

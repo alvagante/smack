@@ -6,12 +6,10 @@ struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
     @ObservedObject var settingsStore: SettingsStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var exitControlsState = ExitControlsState()
     var onClose: () -> Void
-    /// Closure invoked when the user chooses Quit from the top navigation controls.
+    /// Closure invoked when the user chooses Quit from the title bar controls.
     var onQuit: () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }
-    /// Indicates whether the header navigation bar includes the expandable Quit control.
+    /// Indicates whether the title bar includes the expandable Quit control.
     var hasQuitButton: Bool { true }
 
     /// Initializes the root monitor view.
@@ -43,20 +41,10 @@ struct MonitorRootView: View {
                 } else {
                     Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
                 }
+                Spacer(minLength: 12)
                 if Capabilities.supportsNativeMenuBarIcons {
                     NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: store.settingsStore)
                 }
-                Spacer()
-                if let date = store.system?.timestamp {
-                    Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                }
-                Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
-                    .hoverHint("System details")
-                    .accessibilityLabel("System details")
-                Button { store.route = .settings } label: { Image(systemName: "gear") }
-                    .hoverHint("Settings")
-                    .accessibilityLabel("Settings")
-                exitControls
             }.padding(.horizontal).padding(.vertical, 10)
             Divider()
             if let warning = store.historyHealth.warning {
@@ -104,16 +92,47 @@ struct MonitorRootView: View {
             .clipped()
         }
         .frame(minWidth: 400, minHeight: 340)
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
-            exitControlsState.isExpanded = false
-        }
-        .onChange(of: store.route) { exitControlsState.isExpanded = false }
         // Lists draw opaque backgrounds that would hide the glass.
         .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
         .background { if settingsStore.settings.glassMode { GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea() } }
         .alert("Smack", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
+    }
+
+    var titleBarControls: some View {
+        MonitorTitleBarControls(store: store, onClose: onClose, onQuit: onQuit)
+    }
+}
+
+private struct MonitorTitleBarControls: View {
+    @ObservedObject var store: MonitorStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var exitControlsState = ExitControlsState()
+    let onClose: () -> Void
+    let onQuit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            if let date = store.system?.timestamp {
+                Text(date, style: .time).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+            Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
+                .hoverHint("System details")
+                .accessibilityLabel("System details")
+            Button { store.route = .settings } label: { Image(systemName: "gear") }
+                .hoverHint("Settings")
+                .accessibilityLabel("Settings")
+            exitControls
+        }
+        .controlSize(.small)
+        .padding(.trailing, 12)
+        .frame(width: 400, height: 28)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            exitControlsState.isExpanded = false
+        }
+        .onChange(of: store.route) { exitControlsState.isExpanded = false }
     }
 
     private var exitControls: some View {

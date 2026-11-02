@@ -4,9 +4,8 @@ import SwiftUI
 struct ProcessTreeList: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ApplicationListViewModel
-    let metricWidth: CGFloat
-    let diskWidth: CGFloat
-    let wakeupsWidth: CGFloat
+    let layout: ApplicationListLayout
+    let context: ApplicationListContext
 
     var body: some View {
         let roots = ProcessTreeBuilder.build(
@@ -14,8 +13,9 @@ struct ProcessTreeList: View {
             background: store.processes?.backgroundProcesses ?? []
         )
         let rows = ProcessTreeBuilder.flatten(roots, collapsed: model.collapsed, query: model.query, areInIncreasingOrder: ordered)
+        let currentUser = NSUserName()
         List(rows) { row in
-            HStack(spacing: 12) {
+            HStack(spacing: ApplicationListLayout.spacing) {
                 HStack(spacing: 6) {
                     Color.clear.frame(width: CGFloat(min(row.depth, 12)) * 14, height: 1)
                     disclosure(row)
@@ -29,19 +29,28 @@ struct ProcessTreeList: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let process = row.node.process {
-                    metric(Formatting.percent(process.cpuUsage), metricWidth)
-                    metric(Capabilities.isSandboxed && process.memoryBytes == 0 ? "—" : Formatting.bytes(process.memoryBytes), metricWidth)
-                    metric(Capabilities.isSandboxed && process.diskReadRate + process.diskWriteRate == 0 ? "—" : Formatting.rate(process.diskReadRate + process.diskWriteRate), diskWidth)
-                    metric(Formatting.energy(process.energyImpact), metricWidth)
-                    metric(ApplicationListView.wakeups(process.wakeupsPerSecond), wakeupsWidth)
+                    let entry = ApplicationListEntry(process: process, currentUser: currentUser, context: context)
+                    ForEach(layout.columns) { column in
+                        ApplicationListCell(entry: entry, column: column)
+                        // Live points are kept per application and background process, not per member process.
+                        if column == .cpu, layout.showsTrend { Color.clear.frame(width: ApplicationListLayout.trendWidth, height: 1) }
+                    }
+                    ApplicationListActions(entry: entry) { model.requestKill(entry) }
                 } else {
-                    Spacer().frame(width: metricWidth * 3 + diskWidth + wakeupsWidth - metricWidth)
+                    Color.clear.frame(width: placeholderWidth, height: 1)
                 }
             }
             .contentShape(Rectangle())
             .onTapGesture { if let process = row.node.process { store.route = .process(process.id) } }
         }
         .listStyle(.plain)
+    }
+
+    /// Width of the value columns and actions, kept by exited parents so their children stay aligned.
+    private var placeholderWidth: CGFloat {
+        let values = layout.columns.reduce(0) { $0 + $1.columnWidth } + (layout.showsTrend ? ApplicationListLayout.trendWidth : 0)
+        let cells = layout.columns.count + (layout.showsTrend ? 1 : 0) + 1
+        return values + ApplicationListLayout.actionsWidth + CGFloat(cells - 1) * ApplicationListLayout.spacing
     }
 
     @ViewBuilder
@@ -59,19 +68,18 @@ struct ProcessTreeList: View {
         }
     }
 
-    private func metric(_ value: String, _ width: CGFloat) -> some View {
-        Text(value).font(.callout).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
-            .frame(width: width, alignment: .trailing)
-    }
-
     private func value(_ node: ProcessTreeNode) -> Double {
         guard let process = node.process else { return 0 }
         return switch model.sort {
         case .cpu: process.cpuUsage
         case .memory: Double(process.memoryBytes)
         case .disk: process.diskReadRate + process.diskWriteRate
+        case .network: process.networkThroughput?.total ?? 0
         case .energy: process.energyImpact ?? 0
         case .wakeups: process.wakeupsPerSecond
+        case .threads: Double(process.threadCount)
+        case .ports: Double(context.portsByPID?[process.identity.pid]?.count ?? 0)
+        case .uptime: -process.identity.startTime.timeIntervalSince1970
         case .name: 0
         }
     }

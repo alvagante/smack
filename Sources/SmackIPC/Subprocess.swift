@@ -4,6 +4,11 @@ import Synchronization
 
 /// Shared by app commands and helper traces; the helper never exposes this API over XPC.
 public enum Subprocess {
+    public enum OutputEvent: Sendable {
+        case data(Data)
+        /// Emitted once after stdout has been quiet for 100 ms, or at EOF.
+        case idle
+    }
     public enum ProcessGroup: Sendable {
         case new, inherited, supervised
     }
@@ -35,16 +40,20 @@ public enum Subprocess {
         let requested = Mutex(false)
     }
 
+    /// Streaming callbacks replace stdout retention; stderr remains capped by outputLimit.
     public static func run(_ executable: String, _ arguments: [String], input: String? = nil,
                            timeout: TimeInterval? = nil, outputLimit: Int = .max,
-                           cancellable: Bool = true, processGroup: ProcessGroup = .new) async -> Result {
+                           cancellable: Bool = true, processGroup: ProcessGroup = .new,
+                           terminalOutput: Bool = false, outputTimeout: TimeInterval? = nil,
+                           onOutput: (@Sendable (OutputEvent) -> Void)? = nil) async -> Result {
         let cancellation = Cancellation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     continuation.resume(returning: runBlocking(executable, arguments, input: input,
                         timeout: timeout, outputLimit: outputLimit, cancellation: cancellation,
-                        processGroup: processGroup))
+                        processGroup: processGroup, terminalOutput: terminalOutput,
+                        outputTimeout: outputTimeout, onOutput: onOutput))
                 }
             }
         } onCancel: {
@@ -73,15 +82,36 @@ public enum Subprocess {
         return descriptors
     }
 
+    private static func terminalDescriptors() throws -> [Int32] {
+        var master: Int32 = -1, slave: Int32 = -1
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var descriptors = [master, slave]
+        do {
+            for index in descriptors.indices {
+                let duplicate = fcntl(descriptors[index], F_DUPFD_CLOEXEC, STDERR_FILENO + 1)
+                guard duplicate >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                close(descriptors[index])
+                descriptors[index] = duplicate
+            }
+        } catch {
+            descriptors.forEach { _ = close($0) }
+            throw error
+        }
+        return descriptors
+    }
+
     private static func runBlocking(_ executable: String, _ arguments: [String], input: String?,
                                     timeout: TimeInterval?, outputLimit: Int, cancellation: Cancellation,
-                                    processGroup: ProcessGroup) -> Result {
+                                    processGroup: ProcessGroup, terminalOutput: Bool,
+                                    outputTimeout: TimeInterval?, onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
         let newProcessGroup = processGroup != .inherited
         if cancellation.requested.withLock({ $0 }) {
             return Result(status: -1, output: "", error: "Cancelled.", cancelled: true)
         }
         do {
-            var output = try pipeDescriptors()
+            var output = try terminalOutput ? terminalDescriptors() : pipeDescriptors()
             defer { output.forEach { if $0 >= 0 { _ = close($0) } } }
             var errors = try pipeDescriptors()
             defer { errors.forEach { if $0 >= 0 { _ = close($0) } } }
@@ -114,13 +144,15 @@ public enum Subprocess {
             // retaining threads forever when descendants keep inherited descriptors open.
             return communicate(pid: pid, output: &output, errors: &errors, stdin: &stdin,
                                input: input, timeout: timeout, limit: max(0, outputLimit), cancellation: cancellation,
-                               signalTarget: newProcessGroup ? -pid : pid, terminateDescendants: processGroup == .supervised)
+                               signalTarget: newProcessGroup ? -pid : pid, terminateDescendants: processGroup == .supervised,
+                               outputTimeout: outputTimeout, onOutput: onOutput)
         } catch { return .unavailable(error.localizedDescription) }
     }
 
     private static func communicate(pid: pid_t, output: inout [Int32], errors: inout [Int32], stdin: inout [Int32],
                                     input: String?, timeout: TimeInterval?, limit: Int,
-                                    cancellation: Cancellation, signalTarget: pid_t, terminateDescendants: Bool) -> Result {
+                                    cancellation: Cancellation, signalTarget: pid_t, terminateDescendants: Bool,
+                                    outputTimeout: TimeInterval?, onOutput: (@Sendable (OutputEvent) -> Void)?) -> Result {
         let outFD = output[0], errFD = errors[0], inFD = stdin[1]
         close(output[1]); output[1] = -1
         close(errors[1]); errors[1] = -1
@@ -133,6 +165,8 @@ public enum Subprocess {
         var truncated = false
         var openOutput = true, openError = true, openInput = true
         let started = ProcessInfo.processInfo.systemUptime
+        var lastOutput = started
+        var outputPending = false
         var stopAt: TimeInterval?
         var exitedAt: TimeInterval?
         var timedOut = false, cancelled = false
@@ -141,6 +175,10 @@ public enum Subprocess {
 
         while true {
             let now = ProcessInfo.processInfo.systemUptime
+            if outputPending && now - lastOutput >= 0.1 {
+                onOutput?(.idle)
+                outputPending = false
+            }
             // WNOWAIT keeps the group leader's PID reserved until all group signals are sent.
             var info = siginfo_t()
             if waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0, info.si_pid == pid {
@@ -150,6 +188,7 @@ public enum Subprocess {
             if stopAt == nil {
                 cancelled = cancellation.requested.withLock { $0 }
                 timedOut = timeout.map { now - started >= $0 } ?? false
+                if let outputTimeout, now - lastOutput >= outputTimeout { timedOut = true }
                 // A successful parent can still leave pipes open in a background descendant.
                 if let exitedAt, now - exitedAt >= 0.25, openOutput || openError { timedOut = true }
                 if cancelled || timedOut { stopAt = now; _ = kill(signalTarget, SIGTERM) }
@@ -171,10 +210,16 @@ public enum Subprocess {
                 pollfd(fd: openError ? errFD : -1, events: Int16(POLLIN), revents: 0),
                 pollfd(fd: openInput ? inFD : -1, events: Int16(POLLOUT), revents: 0)
             ]
-            _ = poll(&descriptors, nfds_t(descriptors.count), 20)
+            _ = poll(&descriptors, nfds_t(descriptors.count), onOutput == nil ? 20 : 100)
             for index in 0..<2 where descriptors[index].revents != 0 {
                 let count = read(descriptors[index].fd, &buffer, buffer.count)
                 if count > 0 {
+                    if index == 0 { lastOutput = ProcessInfo.processInfo.systemUptime }
+                    if index == 0, let onOutput {
+                        outputPending = true
+                        onOutput(.data(Data(buffer.prefix(count))))
+                        continue
+                    }
                     let room = limit - (index == 0 ? outputData.count : errorData.count)
                     if count > room { truncated = true }
                     if room > 0 {
@@ -182,6 +227,7 @@ public enum Subprocess {
                         else { errorData.append(contentsOf: buffer.prefix(min(count, room))) }
                     }
                 } else if count == 0 || (errno != EAGAIN && errno != EINTR) {
+                    if index == 0 && outputPending { onOutput?(.idle); outputPending = false }
                     if index == 0 { openOutput = false } else { openError = false }
                 }
             }

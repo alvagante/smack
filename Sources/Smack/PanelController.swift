@@ -61,11 +61,18 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.minSize = NSSize(width: 720, height: 340)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.contentViewController = NSHostingController(rootView: MonitorRootView(
+        let rootView = MonitorRootView(
             store: store,
             nativeMenuBarStore: nativeMenuBarStore,
             onClose: { [weak self] in self?.close() }
-        ))
+        )
+        panel.contentViewController = NSHostingController(rootView: rootView)
+        let titleBarControls = NSTitlebarAccessoryViewController()
+        titleBarControls.layoutAttribute = .right
+        let titleBarView = NSHostingView(rootView: rootView.titleBarControls)
+        titleBarView.setFrameSize(titleBarView.fittingSize)
+        titleBarControls.view = titleBarView
+        panel.addTitlebarAccessoryViewController(titleBarControls)
         glassModeSubscription = store.settingsStore.$settings
             .map(\.glassMode)
             .removeDuplicates()

@@ -558,9 +558,17 @@ struct SettingsView: View {
     @ViewBuilder private var otherPagesPane: some View {
         Section {
             summaryToggle(.installedApps)
-            summaryToggle(.userHome)
+        } header: {
+            Text("Installed Apps")
         } footer: {
-            SettingsFooter("Installed Apps lists application bundles in /Applications and ~/Applications. User Home browses dotfiles, configuration, preferences, launch agents and containers.")
+            SettingsFooter("Lists application bundles in /Applications and ~/Applications.")
+        }
+        Section {
+            summaryToggle(.userHome)
+        } header: {
+            Text("User Home")
+        } footer: {
+            SettingsFooter("Browses dotfiles, configuration, preferences, launch agents and containers. Configure Dev servers, Development Environments and Homebrew in Development. Docker and AI Agents have their own settings panes.")
         }
     }
 
