@@ -8,6 +8,12 @@ Release target: 1.0.0, combining specs 004 and 005 (dev servers, agent sessions,
 baseline drift and file export). Prometheus metrics export is excluded and will not be implemented.
 Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
+### Changed
+
+- Redesign the panel around a shared, resizable sidebar and compact navigation bar. Pages are grouped by Performance, Health, Activity and Environment; hidden environment pages are omitted from navigation.
+- Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
+- Consolidate page surfaces, headings, icons and action buttons across light and dark appearances. Settings uses a pane picker alongside the shared sidebar.
+
 ### Fixed
 
 - Keep one streaming `nettop` process while the panel is visible instead of launching it for each network-rate sample.

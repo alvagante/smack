@@ -19,7 +19,7 @@ struct ResourceTitle: View {
         HStack(spacing: 10) {
             ResourceIcon(systemImage: systemImage, color: color)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.title2.bold())
+                Text(title).font(MonitorStyle.title)
                 if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
             if let status {
@@ -127,7 +127,7 @@ struct ResourceIcon: View {
             .font(.system(size: size * 0.53, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(color.gradient, in: RoundedRectangle(cornerRadius: size / 4))
+            .background(color, in: RoundedRectangle(cornerRadius: size / 4))
             .accessibilityHidden(true)
     }
 }

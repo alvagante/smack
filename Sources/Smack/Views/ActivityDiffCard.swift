@@ -7,7 +7,13 @@ struct ActivityDiffCard: View {
 
     var body: some View {
         Button(action: open) {
-            MetricCard(title: "What changed", systemImage: "list.bullet.rectangle", color: .mint, isSummary: true) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("What changed", systemImage: "list.bullet.rectangle")
+                        .font(.body.weight(.medium))
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     if store.activityDiffUnavailable {
                         Label("Change summary unavailable", systemImage: "exclamationmark.triangle")
@@ -21,7 +27,10 @@ struct ActivityDiffCard: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .monitorSurface()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("What changed. View timeline")

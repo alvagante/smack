@@ -5,26 +5,23 @@ struct MetricCard<Content: View>: View {
     let title: String
     let systemImage: String
     var color: Color = .accentColor
-    var isSummary = false
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 7) {
-                ResourceIcon(systemImage: systemImage, color: color, size: 24)
-                Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(color)
+                    .frame(width: 18)
+                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
             }
             VStack(alignment: .leading, spacing: 6) { content }
-                .frame(maxWidth: .infinity, maxHeight: isSummary ? .infinity : nil, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
-        .frame(height: isSummary ? 138 : nil)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
-        }
+        .monitorSurface()
     }
 }
 
@@ -71,7 +68,7 @@ struct Sparkline: View {
         }
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(.black.opacity(0.12))
+                .fill(.primary.opacity(0.025))
         }
         .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: maxHeight)
         .clipped()
@@ -232,7 +229,7 @@ struct ToolbarIconButton: View {
         Button(action: action) {
             ZStack {
                 if isLoading {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: systemImage)
                         .font(.system(size: 14, weight: .semibold))
@@ -240,26 +237,10 @@ struct ToolbarIconButton: View {
             }
             .frame(width: 32, height: 32)
         }
-        .buttonStyle(ToolbarIconButtonStyle(color: color))
+        .buttonStyle(.bordered)
+        .tint(color)
         .accessibilityLabel(title)
         .hoverHint(hint ?? title)
-    }
-}
-
-private struct ToolbarIconButtonStyle: ButtonStyle {
-    let color: Color
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white)
-            .background(color.gradient, in: RoundedRectangle(cornerRadius: 9))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.2), lineWidth: 1)
-            }
-            .shadow(color: color.opacity(isEnabled ? 0.2 : 0), radius: 3, y: 2)
-            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
     }
 }
 

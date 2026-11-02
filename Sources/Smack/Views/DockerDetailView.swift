@@ -7,19 +7,9 @@ struct DockerSummaryTile: View {
 
     var body: some View {
         if model.installed {
-            Button(action: open) {
-                MetricCard(title: "Docker", systemImage: "shippingbox", color: .blue, isSummary: true) {
-                    Text(model.snapshot?.runningCount.map { "\($0) running" } ?? (model.snapshot == nil && model.loading ? "Collecting…" : "Unavailable"))
-                        .font(.title3.weight(.semibold))
-                    Text(model.snapshot?.openPortCount.map { "\($0) open ports" } ?? (model.snapshot == nil && model.loading ? "Checking engine" : "Engine unreachable"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .help("Published host ports, with IPv4 and IPv6 bindings counted once per port and protocol")
+            SummaryNavigationRow(route: .docker,
+                value: model.snapshot?.runningCount.map { "\($0) running" } ?? (model.loading ? "Collecting…" : "Unavailable"),
+                detail: model.snapshot?.openPortCount.map { "\($0) open ports" } ?? "Engine unreachable", open: open)
         }
     }
 }

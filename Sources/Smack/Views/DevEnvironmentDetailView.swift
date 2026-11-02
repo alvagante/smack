@@ -7,17 +7,9 @@ struct DevEnvironmentSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            Button(action: open) {
-                MetricCard(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal, isSummary: true) {
-                    Text(model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"))
-                        .font(.title3.weight(.semibold))
-                    Text(model.snapshot.map { "\(Set($0.environments.map(\.language)).count) languages detected" } ?? "Languages, packages and paths")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SummaryNavigationRow(route: .devEnvironments,
+                value: model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"),
+                detail: model.snapshot.map { "\(Set($0.environments.map(\.language)).count) languages detected" } ?? "Languages, packages and paths", open: open)
         }
     }
 }

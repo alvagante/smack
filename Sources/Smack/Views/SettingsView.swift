@@ -95,7 +95,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var compactError: String?
 }
 
-/// Settings in the System Settings layout: a sidebar of panes and a grouped form per pane.
+/// Grouped preferences with a pane picker alongside the shared application sidebar.
 ///
 /// Adding a setting: store it in `CollectionSettings` (default, clamp in `validate()`, decode with a default),
 /// then add one row to the pane of the feature it serves (see "Where a Setting goes" in CONTEXT.md) using the building
@@ -125,8 +125,12 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar.frame(width: 210)
+        VStack(spacing: 0) {
+            HStack {
+                panePicker
+                Spacer()
+            }
+            .padding(16)
             Divider()
             Form { pane(model.pane) }
                 .formStyle(.grouped)
@@ -144,8 +148,8 @@ struct SettingsView: View {
         }
     }
 
-    private var sidebar: some View {
-        List(selection: Binding(get: { model.pane }, set: { if let pane = $0 { model.pane = pane } })) {
+    private var panePicker: some View {
+        Picker("Settings pane", selection: $model.pane) {
             ForEach(Array(SettingsPane.groups.enumerated()), id: \.offset) { _, group in
                 Section {
                     ForEach(group) { pane in
@@ -155,7 +159,9 @@ struct SettingsView: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: 240)
     }
 
     @ViewBuilder private func pane(_ pane: SettingsPane) -> some View {
@@ -705,10 +711,10 @@ struct SettingsView: View {
         }
     }
 
-    /// The master switch of an environment page: off drops its Summary tile and stops its discovery and refresh.
+    /// The master switch of an environment page: off hides its navigation and stops its discovery and refresh.
     private func summaryToggle(_ page: SummaryPage) -> some View {
         Toggle(isOn: pageBinding(page)) {
-            SettingsLabel("Show on Summary", help: "Off removes the \(page.rawValue) tile from Summary and skips its discovery and background refresh, saving the commands and file scans it would run.")
+            SettingsLabel("Show page", help: "Off hides \(page.rawValue) from the sidebar and Summary, and skips its discovery and background refresh, saving the commands and file scans it would run.")
         }
     }
 
@@ -965,7 +971,7 @@ private struct SettingsIcon: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 20, height: 20)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .background(tint, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 

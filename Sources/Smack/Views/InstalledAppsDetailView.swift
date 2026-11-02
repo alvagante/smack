@@ -7,21 +7,13 @@ struct InstalledAppsSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            Button(action: open) {
-                MetricCard(title: "Installed apps", systemImage: "square.grid.3x3", color: .teal, isSummary: true) {
-                    Text(model.snapshot.map { "\($0.apps.count) apps" } ?? (model.loading ? "Discovering…" : "Browse installed apps"))
-                        .font(.title3.weight(.semibold))
-                    Text(model.snapshot.map { value in
-                        value.apps.contains { $0.sizeBytes != nil } || value.measured
-                            ? "\(Formatting.bytes(value.totalBytes))\(value.measured ? "" : " measured")" : "Sizes not measured"
-                    } ?? "Sizes and uninstall")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task { if model.snapshot == nil { await model.refresh() } }
+            SummaryNavigationRow(route: .installedApps,
+                value: model.snapshot.map { "\($0.apps.count) apps" } ?? (model.loading ? "Discovering…" : "Browse apps"),
+                detail: model.snapshot.map { value in
+                    value.apps.contains { $0.sizeBytes != nil } || value.measured
+                        ? "\(Formatting.bytes(value.totalBytes))\(value.measured ? "" : " measured")" : "Sizes not measured"
+                } ?? "Sizes and uninstall", open: open)
+                .task { if model.snapshot == nil { await model.refresh() } }
         }
     }
 }
@@ -235,8 +227,7 @@ struct InstalledAppsDetailView: View {
                 .disabled(model.busy || model.loading)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.08), lineWidth: 1) }
+        .monitorSurface()
         .padding(.horizontal, 16).padding(.bottom, 12)
     }
 
