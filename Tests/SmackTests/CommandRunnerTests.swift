@@ -1,4 +1,6 @@
 import Foundation
+import SmackIPC
+import Synchronization
 import Testing
 @testable import Smack
 
@@ -81,6 +83,37 @@ struct CommandRunnerTests {
         #expect(result.cancelled)
         #expect(result.output.isEmpty)
         #expect(result.status == -1)
+    }
+
+    @Test func streamingOutputArrivesBeforeExitAndDoesNotAccumulate() async {
+        let events = Mutex((data: Data(), idle: 0))
+        let (ready, signal) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            await Subprocess.run("/bin/sh", ["-c", "printf 'hello'; sleep 30"], outputLimit: 2,
+                                 terminalOutput: true, onOutput: { event in
+                events.withLock { value in
+                    switch event {
+                    case .data(let data): value.data.append(data)
+                    case .idle: value.idle += 1; signal.yield(())
+                    }
+                }
+            })
+        }
+        for await _ in ready { break }
+        task.cancel()
+        let result = await task.value
+        signal.finish()
+        #expect(events.withLock { String(decoding: $0.data, as: UTF8.self) } == "hello")
+        #expect(events.withLock { $0.idle } >= 1)
+        #expect(result.output.isEmpty)
+        #expect(!result.truncated)
+        #expect(result.cancelled)
+    }
+
+    @Test func streamingOutputTimeoutStopsSilentChild() async {
+        let result = await Subprocess.run("/bin/sh", ["-c", "sleep 30"],
+                                          terminalOutput: true, outputTimeout: 0.1, onOutput: { _ in })
+        #expect(result.timedOut)
     }
 
 }

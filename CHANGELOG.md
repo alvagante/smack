@@ -10,6 +10,8 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Fixed
 
+- Keep one streaming `nettop` process while the panel is visible instead of launching it for each network-rate sample.
+
 - Prevent overlapping agent updates from restoring stale sessions; refresh project context and retain newer network annotations.
 - Target Dev Server Stop actions at listener owners, independently of project grouping.
 - Reject blocking project metadata files and escape terminal control characters in baseline CLI output.

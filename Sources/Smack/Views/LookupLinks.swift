@@ -33,12 +33,14 @@ struct FileLookupLinks: View {
     static let width: CGFloat = 64
     let path: String
     var checksFileOnDisk = true
+    /// What Finder selects when it differs from the hashed file, such as an application's bundle.
+    var revealPath: String? = nil
 
     var body: some View {
         HStack(spacing: 8) {
             if path.hasPrefix("/"), !checksFileOnDisk || FileLookup.isRegularFile(path) {
                 Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: revealPath ?? path)])
                 } label: {
                     Image(systemName: "folder")
                 }
@@ -63,8 +65,10 @@ struct FileLookupLinks: View {
         .frame(width: Self.width, alignment: .leading)
     }
 
-    private func lookUpHash() {
-        let path = path
+    private func lookUpHash() { Self.lookUpHash(of: path) }
+
+    /// Hashes off the main thread, then opens the VirusTotal report; nothing happens for a file that cannot be read.
+    static func lookUpHash(of path: String) {
         Task {
             let digest = await Task.detached(priority: .userInitiated) { FileLookup.sha256(ofFileAt: path) }.value
             if let digest, let url = FileLookup.virusTotalURL(sha256: digest) {

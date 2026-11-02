@@ -147,6 +147,18 @@ struct ApplicationDetailView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 }
             }
+            if let executable = app.executablePath ?? ApplicationReadings.mainProcess(app)?.executablePath {
+                if let url = FileLookup.googleURL(for: executable) {
+                    ToolbarIconButton(title: "Search Google", systemImage: "magnifyingglass", color: .gray,
+                                      hint: "Google: search for \"\(FileLookup.searchTerm(for: executable))\" macOS") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                ToolbarIconButton(title: "VirusTotal", systemImage: "shield.lefthalf.filled", color: .green,
+                                  hint: "VirusTotal: security vendor verdicts for the executable's SHA-256 (the file is not uploaded)") {
+                    FileLookupLinks.lookUpHash(of: executable)
+                }
+            }
             if Capabilities.supportsProcessTermination {
                 ToolbarIconButton(title: "Kill", systemImage: "xmark.octagon", color: .red, hint: "Kill \(app.name)…") {
                     model.killMessage = nil
@@ -184,34 +196,10 @@ struct ApplicationDetailView: View {
         Capabilities.isSandboxed && hidden ? "Unavailable in App Sandbox" : value
     }
 
-    /// Confirmation and outcome of a kill, shown inside the window instead of a modal alert.
-    @ViewBuilder
     private func killConfirmation(_ app: ApplicationMetrics) -> some View {
-        if let targets = model.killTargets {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Kill \(app.name)?", systemImage: "exclamationmark.triangle.fill").font(.headline).foregroundStyle(.red)
-                Text("This affects \(targets.count) process\(targets.count == 1 ? "" : "es"). Terminate asks the application to quit as the Dock does, so it can offer to save (processes without an application get SIGTERM). Force Kill ends them all immediately (SIGKILL) and unsaved work is lost.")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Button("Terminate") { kill(force: false) }
-                    Button("Force Kill", role: .destructive) { kill(force: true) }
-                    Button("Cancel") { model.killTargets = nil }.keyboardShortcut(.cancelAction)
-                }
-                .controlSize(.small)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.4)))
-        } else if let message = model.killMessage {
-            HStack {
-                Text(message).font(.callout).textSelection(.enabled)
-                Spacer()
-                Button("Dismiss") { model.killMessage = nil }.buttonStyle(.link).font(.caption)
-            }
-            .padding(8)
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-        }
+        KillBanner(name: model.killTargets == nil ? nil : app.name, processCount: model.killTargets?.count ?? 0, message: model.killMessage,
+                   terminate: { kill(force: false) }, forceKill: { kill(force: true) },
+                   cancel: { model.killTargets = nil }, dismiss: { model.killMessage = nil })
     }
 
     private func kill(force: Bool) {
