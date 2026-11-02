@@ -7,19 +7,10 @@ struct AgentsSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            Button(action: open) {
-                MetricCard(title: "Agents", systemImage: "sparkles", color: .purple, isSummary: true) {
-                    Text(model.snapshot.map { "\($0.agents.count) agents detected" } ?? (model.loading ? "Discovering…" : "Explore AI agents"))
-                        .font(.title3.weight(.semibold))
-                    Text(model.snapshot.map { $0.agents.isEmpty ? "No local agent installations found" : $0.agents.map(\.name).joined(separator: ", ") }
-                         ?? "Configuration, logs, memory and skills")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task { if model.snapshot == nil { await model.refresh() } }
+            SummaryNavigationRow(route: .agents,
+                value: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
+                detail: "Configuration, logs, memory and skills", open: open)
+                .task { if model.snapshot == nil { await model.refresh() } }
         }
     }
 }

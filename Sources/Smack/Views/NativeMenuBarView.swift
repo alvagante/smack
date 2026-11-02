@@ -26,12 +26,9 @@ struct NativeMenuBarView: View {
                     .toggleStyle(.switch)
                     .help("Hide native menu-bar icons")
             } else {
-                Toggle("Show menu-bar icons", isOn: isEnabled)
+                Toggle("Menu-bar icons", isOn: isEnabled)
                     .toggleStyle(.switch)
-                Text("Uses Screen Recording and Accessibility to show and activate icons.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .help("Show and activate native menu-bar icons. Requires Screen Recording and Accessibility.")
             }
         }
         .onAppear { menuBarStore.setFeatureEnabled(settingsStore.settings.showMenuBarItems) }

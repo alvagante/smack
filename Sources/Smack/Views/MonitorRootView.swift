@@ -6,6 +6,7 @@ struct MonitorRootView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var nativeMenuBarStore: NativeMenuBarStore
     @ObservedObject var settingsStore: SettingsStore
+    @State private var showsSidebar = true
     var onClose: () -> Void
     /// Closure invoked when the user chooses Quit from the title bar controls.
     var onQuit: () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }
@@ -28,25 +29,58 @@ struct MonitorRootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                if store.route != .summary {
-                    if let previous = store.previousRoute, previous != .summary {
-                        Button("Summary") { store.route = .summary }
-                        Button { store.goBack() } label: { Image(systemName: "chevron.left") }
-                            .hoverHint("Previous page")
-                            .accessibilityLabel("Previous page")
-                    } else {
-                        Button { store.route = .summary } label: { Label("Summary", systemImage: "chevron.left") }
-                    }
-                } else {
-                    Label("Smack", systemImage: "waveform.path.ecg").font(.headline)
-                }
-                Spacer(minLength: 12)
-                if Capabilities.supportsNativeMenuBarIcons {
-                    NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: store.settingsStore)
-                }
-            }.padding(.horizontal).padding(.vertical, 10)
+            navigationBar
             Divider()
+            HSplitView {
+                if showsSidebar {
+                    MonitorSidebar(store: store, settingsStore: settingsStore)
+                        .frame(minWidth: 190, idealWidth: 216, maxWidth: 240)
+                }
+                pageContent
+                    .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
+                    .background { if !settingsStore.settings.glassMode { MonitorStyle.page } }
+            }
+        }
+        .frame(minWidth: 720, minHeight: 340)
+        .background {
+            if settingsStore.settings.glassMode {
+                GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea()
+            } else {
+                MonitorStyle.page.ignoresSafeArea()
+            }
+        }
+        .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
+        .alert("Smack", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
+            Button("OK") { store.errorMessage = nil }
+        } message: { Text(store.errorMessage ?? "") }
+    }
+
+    private var navigationBar: some View {
+        HStack(spacing: 12) {
+            Button { showsSidebar.toggle() } label: {
+                Image(systemName: "sidebar.left")
+            }
+            .help(showsSidebar ? "Hide sidebar" : "Show sidebar")
+            .accessibilityLabel(showsSidebar ? "Hide sidebar" : "Show sidebar")
+            Button { store.goBack() } label: { Image(systemName: "chevron.left") }
+                .disabled(store.previousRoute == nil)
+                .hoverHint("Previous page")
+                .accessibilityLabel("Previous page")
+            Text(store.route.title).font(.headline).lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 16)
+            if Capabilities.supportsNativeMenuBarIcons {
+                NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: settingsStore)
+            }
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private var pageContent: some View {
+        VStack(spacing: 0) {
             if let warning = store.historyHealth.warning {
                 Label(warning, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -91,13 +125,6 @@ struct MonitorRootView: View {
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
             .clipped()
         }
-        .frame(minWidth: 400, minHeight: 340)
-        // Lists draw opaque backgrounds that would hide the glass.
-        .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
-        .background { if settingsStore.settings.glassMode { GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea() } }
-        .alert("Smack", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-            Button("OK") { store.errorMessage = nil }
-        } message: { Text(store.errorMessage ?? "") }
     }
 
     var titleBarControls: some View {

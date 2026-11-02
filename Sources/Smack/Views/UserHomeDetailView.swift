@@ -6,16 +6,7 @@ struct UserHomeSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            Button(action: open) {
-                MetricCard(title: "User home", systemImage: "house", color: .pink, isSummary: true) {
-                    Text("Settings and dotfiles").font(.title3.weight(.semibold))
-                    Text("Browse configurations and contents")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SummaryNavigationRow(route: .userHome, value: "Browse", detail: "Settings, dotfiles and configurations", open: open)
         }
     }
 }

@@ -6,29 +6,10 @@ struct StartupSummaryCard: View {
     var open: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            MetricCard(title: "Startup", systemImage: "sunrise", color: .yellow, isSummary: true) {
-                if let items = model.inventory?.items.filter({ $0.category != .apple }) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("\(items.filter(\.isEnabled).count) enabled")
-                            .font(.title3.weight(.semibold))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Label("\(items.count) items", systemImage: "list.bullet")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .center)
-                } else {
-                    Text("Review and turn off login items, agents, daemons, and cron jobs")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .buttonStyle(.plain)
+        SummaryNavigationRow(route: .startupItems,
+            value: model.inventory.map { inventory in
+                "\(inventory.items.filter { $0.category != .apple && $0.isEnabled }.count) enabled"
+            } ?? "Review items", detail: "Login items, agents, daemons and cron jobs", open: open)
     }
 }
 

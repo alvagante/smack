@@ -303,7 +303,6 @@ private struct BaselineCard<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.08), lineWidth: 1) }
+        .monitorSurface()
     }
 }

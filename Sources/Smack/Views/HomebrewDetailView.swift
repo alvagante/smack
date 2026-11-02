@@ -7,17 +7,9 @@ struct HomebrewSummaryTile: View {
 
     var body: some View {
         if model.installed {
-            Button(action: open) {
-                MetricCard(title: "Homebrew", systemImage: "mug", color: .orange, isSummary: true) {
-                    Text(model.snapshot?.packages.map { "\($0.count) installed" } ?? (model.loading ? "Collecting…" : "Installed count unavailable"))
-                        .font(.title3.weight(.semibold))
-                    Text(model.snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SummaryNavigationRow(route: .homebrew,
+                value: model.snapshot?.packages.map { "\($0.count) installed" } ?? (model.loading ? "Collecting…" : "Unavailable"),
+                detail: model.snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable", open: open)
         }
     }
 }
