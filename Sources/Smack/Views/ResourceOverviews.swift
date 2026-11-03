@@ -80,12 +80,6 @@ struct MemoryStatsRow: View {
                          help: "App memory plus wired plus compressed memory."),
             ResourceStat(title: "Available", systemImage: "square.dashed", value: Formatting.bytes(free), detail: "free and cached files",
                          help: "Memory not in use by apps, the kernel or the compressor. File cache in here is given back on demand."),
-            ResourceStat(title: "App", systemImage: "app", value: Formatting.bytes(memory.appBytes),
-                         help: "Anonymous memory owned by processes, excluding purgeable memory."),
-            ResourceStat(title: "Wired", systemImage: "pin", value: Formatting.bytes(memory.wiredBytes),
-                         help: "Memory the kernel keeps resident; it can never be compressed or swapped."),
-            ResourceStat(title: "Compressed", systemImage: "arrow.down.right.and.arrow.up.left", value: Formatting.bytes(memory.compressedBytes),
-                         help: "Memory held by the compressor. Growth here is the first sign of pressure."),
             ResourceStat(title: "Swap", systemImage: "arrow.left.arrow.right", value: Formatting.bytes(memory.swapUsedBytes),
                          detail: memory.swapTotalBytes > 0 ? "of \(Formatting.bytes(memory.swapTotalBytes))" : nil,
                          help: "Memory written out to disk. macOS grows the swap file on demand."),
@@ -251,7 +245,7 @@ struct DiskStatsRow: View {
         let read = system.disks.reduce(UInt64(0)) { $0 &+ $1.bytesRead }
         let written = system.disks.reduce(UInt64(0)) { $0 &+ $1.bytesWritten }
         let boot = SystemInformation.bootTime.map { "since \($0.formatted(date: .abbreviated, time: .omitted))" }
-        var stats = [
+        return [
             ResourceStat(title: "Read", systemImage: "arrow.down.doc", value: Formatting.rate(system.diskReadRate),
                          detail: recent.map(\.diskReadRate).max().map { "peak \(Formatting.rate($0))" }, help: "Read across all disks; peak over the live window."),
             ResourceStat(title: "Write", systemImage: "arrow.up.doc", value: Formatting.rate(system.diskWriteRate),
@@ -261,11 +255,6 @@ struct DiskStatsRow: View {
             ResourceStat(title: "Total written", systemImage: "tray.and.arrow.up", value: Formatting.bytes(written), detail: boot,
                          help: "Bytes written since the Mac started, from the disk drivers' counters. SSD wear follows this figure."),
         ]
-        if let volume = system.volumes.first(where: { $0.mountPath == "/" }) ?? system.volumes.first {
-            stats.append(ResourceStat(title: "Free space", systemImage: "internaldrive", value: Formatting.bytes(volume.availableBytes),
-                                      detail: "of \(Formatting.bytes(volume.totalBytes)) on \(volume.name)", help: "Available space on the startup volume."))
-        }
-        return stats
     }
 }
 
@@ -346,7 +335,7 @@ enum GPUReadings {
     }
 }
 
-/// GPU utilization beside renderer, tiler, memory and recoveries. The page requests the per-process
+/// GPU utilization beside tiler, allocated memory and recoveries. The page requests the per-process
 /// GPU figures (`ResourceInsightView.requestSensors`).
 struct GPUStatsRow: View {
     @ObservedObject var store: MonitorStore
@@ -360,12 +349,8 @@ struct GPUStatsRow: View {
         guard let gpu else { return [] }
         func percent(_ value: Double?) -> String { value.map(Formatting.percent) ?? "–" }
         var stats = [
-            ResourceStat(title: "Renderer", systemImage: "paintbrush", value: percent(gpu.rendererUtilizationPercent),
-                         help: "Share of time the GPU spent shading pixels (fragment work)."),
             ResourceStat(title: "Tiler", systemImage: "square.grid.3x3.square", value: percent(gpu.tilerUtilizationPercent),
                          help: "Share of time the GPU spent processing geometry and sorting it into tiles (vertex work)."),
-            ResourceStat(title: "Memory in use", systemImage: "memorychip", value: gpu.inUseMemoryBytes.map(Formatting.bytes) ?? "–",
-                         detail: "unified memory", help: "Unified memory the GPU has in use."),
             ResourceStat(title: "Allocated", systemImage: "square.stack", value: gpu.allocatedMemoryBytes.map(Formatting.bytes) ?? "–",
                          help: "Unified memory the GPU driver has allocated, including memory not in use right now."),
         ]

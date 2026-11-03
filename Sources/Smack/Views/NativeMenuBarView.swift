@@ -68,14 +68,15 @@ struct NativeMenuBarView: View {
                     ProgressView().controlSize(.small)
                 }
             } else {
-                WrappingLayout(horizontalSpacing: 2, verticalSpacing: 2) {
+                // About 16 pt between glyphs, as in the macOS menu bar: 5 pt padding per side plus the gap.
+                WrappingLayout(horizontalSpacing: 6, verticalSpacing: 4) {
                     ForEach(visibleItems) { item in
                         NativeMenuBarItemButton(
                             item: item,
                             onClick: { menuBarStore.click(item, button: .left) },
                             onRightClick: { menuBarStore.click(item, button: .right) }
                         )
-                        .frame(width: max(24, item.pointSize.width + 6), height: 28)
+                        .frame(width: max(28, item.pointSize.width + 10), height: 28)
                     }
                 }
             }

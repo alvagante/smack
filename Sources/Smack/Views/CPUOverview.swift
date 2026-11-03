@@ -1,23 +1,14 @@
 import SwiftUI
 
-/// Title row of the CPU page: icon, processor and core layout, load status.
+/// Title row of the CPU page: icon, processor name, load status. The core layout is shown by the per-core card.
 struct CPUTitle: View {
     let cpu: CPUSample?
     let thermal: ThermalCondition?
     let topology: CPUTopology
 
     var body: some View {
-        ResourceTitle(title: "CPU", systemImage: "cpu", color: .blue, subtitle: subtitle,
+        ResourceTitle(title: "CPU", systemImage: "cpu", color: .blue, subtitle: topology.processorName,
                       status: CPUStatus(cpu: cpu, thermal: thermal).resourceStatus)
-    }
-
-    private var subtitle: String? {
-        let groups = topology.groups(forCoreCount: cpu?.coreUsage.count ?? 0)
-        let cores = groups.count > 1
-            ? groups.map { "\($0.cores.count) \($0.name)" }.joined(separator: " + ") + " cores"
-            : groups.first.map { "\($0.cores.count) cores" }
-        let parts = [topology.processorName, cores].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
@@ -50,7 +41,7 @@ struct CPUStatus: Equatable {
     var resourceStatus: ResourceStatus { ResourceStatus(title: title, color: color, help: help) }
 }
 
-/// Current usage beside load, temperature, fans, GPU, process count and uptime. The page requests the sensors
+/// Current usage beside load, temperature, fans and process count. The page requests the sensors
 /// (`ResourceInsightView.requestSensors`).
 struct CPUStatsRow: View {
     @ObservedObject var store: MonitorStore
@@ -71,14 +62,8 @@ struct CPUStatsRow: View {
             stats.append(ResourceStat(title: "Fans", systemImage: "fan", value: fanValue, detail: fanDetail,
                                       help: "Fan speed read from the System Management Controller."))
         }
-        if let gpu = store.system?.gpu, let usage = gpu.utilizationPercent {
-            stats.append(ResourceStat(title: "GPU", systemImage: "cpu.fill", value: Formatting.percent(usage), detail: gpuDetail(gpu),
-                                      help: "GPU utilization from the system accelerator, with renderer and tiler shares and GPU memory in use."))
-        }
         stats.append(ResourceStat(title: "Processes", systemImage: "square.stack.3d.up", value: processCount, detail: threadDetail,
                                   help: "Processes and threads Smack sampled."))
-        stats.append(ResourceStat(title: "Uptime", systemImage: "clock", value: uptime, detail: bootDetail,
-                                  help: "Time since the Mac started, including sleep."))
         return stats
     }
 
@@ -126,14 +111,6 @@ struct CPUStatsRow: View {
         return fans.map { $0.rpm.formatted(.number.precision(.fractionLength(0))) }.joined(separator: " · ")
     }
 
-    private func gpuDetail(_ gpu: GPUSample) -> String? {
-        var parts: [String] = []
-        if let renderer = gpu.rendererUtilizationPercent { parts.append("R \(Int(renderer.rounded()))%") }
-        if let tiler = gpu.tilerUtilizationPercent { parts.append("T \(Int(tiler.rounded()))%") }
-        if let memory = gpu.inUseMemoryBytes { parts.append(Formatting.bytes(memory)) }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
     private var processCount: String {
         guard let snapshot = store.processes else { return "–" }
         return CPUReadings.processes(snapshot).count.formatted()
@@ -142,14 +119,6 @@ struct CPUStatsRow: View {
     private var threadDetail: String? {
         guard let snapshot = store.processes else { return nil }
         return "\(CPUReadings.processes(snapshot).reduce(0) { $0 + $1.threadCount }.formatted()) threads"
-    }
-
-    private var uptime: String {
-        SystemInformation.bootTime.map { CPUReadings.uptime(Date().timeIntervalSince($0)) } ?? "–"
-    }
-
-    private var bootDetail: String? {
-        SystemInformation.bootTime.map { "since \($0.formatted(.dateTime.day().month(.abbreviated).hour().minute()))" }
     }
 }
 

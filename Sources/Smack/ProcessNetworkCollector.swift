@@ -31,10 +31,11 @@ enum ProcessNetworkCollector {
                 defer { continuation.finish() }
                 // nettop ignores write errors and macOS has no parent-death signal, so an abrupt Smack exit would
                 // orphan it forever. The watcher gets EOF on held stdin when Smack dies and kills nettop, which
-                // exec keeps as the spawned PID for signals and exit status.
+                // exec keeps as the spawned PID for signals and exit status. nettop keeps the held stdin too: on an
+                // EOF stdin such as /dev/null it busy-polls a full core.
                 let nettop = "/usr/bin/nettop -P -L 0 -d -s \(Int(interval.rounded(.up))) -n -x -J bytes_in,bytes_out"
                 let result = await Subprocess.run(
-                    "/bin/sh", ["-c", "(cat >/dev/null; kill $$) <&0 >/dev/null 2>&1 & exec \(nettop) </dev/null"],
+                    "/bin/sh", ["-c", "(cat >/dev/null; kill $$) <&0 >/dev/null 2>&1 & exec \(nettop)"],
                     outputLimit: 16 * 1_024,
                     processGroup: BaselineWorker.isRunning ? .inherited : .new,
                     terminalOutput: true, outputTimeout: max(10, interval * 3), holdInput: true,
@@ -101,9 +102,12 @@ struct ProcessNetworkStreamParser: Sendable {
                         guard extra >= 0 else { valid = false; continue }
                         let label = columns.prefix(extra + 1).joined(separator: ",").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                         guard let suffix = label.split(separator: ".").last,
-                              let pid = Int32(suffix), pid > 0,
-                              let received = UInt64(columns[receiveIndex + extra]),
-                              let sent = UInt64(columns[sendIndex + extra]) else { valid = false; continue }
+                              let pid = Int32(suffix),
+                              let received = Int64(columns[receiveIndex + extra]),
+                              let sent = Int64(columns[sendIndex + extra]) else { valid = false; continue }
+                        // kernel_task (PID 0) and flows closed mid-interval (negative deltas) are real rows, not a
+                        // format change, so they must not discard every other process in the block.
+                        guard pid > 0, received >= 0, sent >= 0 else { continue }
                         rates[pid] = ProcessNetworkThroughput(receiveRate: Double(received) / duration,
                                                               sendRate: Double(sent) / duration)
                     }

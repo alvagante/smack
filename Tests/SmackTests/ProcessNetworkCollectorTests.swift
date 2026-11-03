@@ -28,8 +28,17 @@ private func networkData(_ text: String) -> Subprocess.OutputEvent { .data(Data(
     #expect(next.rates[42]?.receiveRate == 10)
 }
 
+@Test func networkStreamSkipsUnusableRowsWithoutDiscardingTheBlock() throws {
+    var parser = ProcessNetworkStreamParser()
+    _ = parser.consume(networkData(networkHeader), uptime: 1)
+    _ = parser.consume(networkData(networkHeader + "kernel_task.0,10,10,\nclosed.7,-128,0,\napp.8,4,2,\n"), uptime: 2)
+    let sample = try #require(parser.consume(.idle).compactMap { $0 }.first)
+    #expect(sample.rates.keys.sorted() == [8])
+    #expect(sample.rates[8]?.total == 6)
+}
+
 @Test func networkStreamRejectsMalformedCountersAndHeaders() {
-    for row in ["process.1,-1,0,\n", "process.1,1 KiB,0,\n", "process.1,123,\n"] {
+    for row in ["process.1,1.5,0,\n", "process.1,1 KiB,0,\n", "process.1,123,\n"] {
         var parser = ProcessNetworkStreamParser()
         _ = parser.consume(networkData(networkHeader), uptime: 1)
         _ = parser.consume(networkData(networkHeader + row), uptime: 2)
