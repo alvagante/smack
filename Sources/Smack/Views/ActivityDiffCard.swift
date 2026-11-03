@@ -14,9 +14,9 @@ struct ActivityDiffCard: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("Timeline", systemImage: "list.bullet.rectangle")
-                        .font(.body.weight(.medium))
+                HStack(spacing: 12) {
+                    ResourceIcon(systemImage: AppRoute.timeline.systemImage, color: AppRoute.timeline.tint, size: 28)
+                    Text("Timeline").font(.body.weight(.medium))
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
@@ -33,7 +33,7 @@ struct ActivityDiffCard: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: .infinity, alignment: .topLeading)
             .padding(16)
             .monitorSurface()
             .contentShape(Rectangle())
@@ -57,7 +57,7 @@ struct ActivityDiffCard: View {
         } else {
             ForEach(diff.changes) { change in
                 Label(change.text, systemImage: change.kind.systemImage)
-                    .font(.caption).lineLimit(1)
+                    .font(.caption).lineLimit(1...3)
             }
             if diff.overflowCount > 0 {
                 Text("+\(diff.overflowCount) more").font(.caption2).foregroundStyle(.secondary)
@@ -69,7 +69,7 @@ struct ActivityDiffCard: View {
     private func peaks(_ diff: ActivityDiff) -> some View {
         let text = peakText(diff)
         if !text.isEmpty {
-            Text(text).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(text).font(.caption2).foregroundStyle(.secondary).lineLimit(1...3)
         }
     }
 

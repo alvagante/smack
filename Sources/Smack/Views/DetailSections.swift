@@ -61,13 +61,15 @@ struct DetailSectionSidebar<ID: Hashable>: View {
     }
 }
 
-/// Header + section sidebar + scrolling content: the frame shared by the Application and Process pages.
+/// Header + section sidebar + content: the frame shared by the Application and Process pages.
 struct DetailSectionLayout<ID: Hashable, Header: View, Content: View>: View {
     /// Below this page width the section sidebar collapses to icons.
     static var compactBelow: CGFloat { 760 }
 
     let groups: [DetailSectionGroup<ID>]
     @Binding var selection: ID
+    /// Historical charts fill the page so a drag zooms instead of scrolling.
+    var scrolls = true
     @ViewBuilder var header: Header
     @ViewBuilder var content: Content
     @State private var width: CGFloat = 1_000
@@ -79,15 +81,26 @@ struct DetailSectionLayout<ID: Hashable, Header: View, Content: View>: View {
             HStack(alignment: .top, spacing: 0) {
                 DetailSectionSidebar(groups: groups, selection: $selection, compact: width < Self.compactBelow)
                 Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: MonitorStyle.spacing) { content }
-                        .padding(MonitorStyle.inset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .id(selection)
+                page
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    @ViewBuilder private var page: some View {
+        if scrolls {
+            ScrollView {
+                VStack(alignment: .leading, spacing: MonitorStyle.spacing) { content }
+                    .padding(MonitorStyle.inset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .id(selection)
+        } else {
+            VStack(alignment: .leading, spacing: MonitorStyle.spacing) { content }
+                .padding(MonitorStyle.inset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
     }
 }
 

@@ -24,39 +24,50 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
-    var systemImage: String {
+    /// The main sidebar page this pane configures. Its name, icon and color are used so the two sidebars match.
+    var route: AppRoute? {
         switch self {
-        case .general: "gearshape.fill"
-        case .appearance: "circle.lefthalf.filled"
-        case .performance: "gauge.with.dots.needle.67percent"
-        case .system: "cpu"
-        case .processes: "square.stack.3d.up.fill"
-        case .network: "network"
-        case .security: "shield.fill"
-        case .development: "hammer.fill"
-        case .docker: "shippingbox.fill"
-        case .agents: "sparkles"
-        case .otherPages: "square.grid.2x2.fill"
-        case .alerts: "bell.badge.fill"
-        case .activity: "list.bullet.rectangle.fill"
-        case .history: "clock.arrow.circlepath"
-        case .automation: "terminal.fill"
-        case .helper: "lock.shield.fill"
-        case .about: "info.circle.fill"
+        case .processes: .applications
+        case .network: .resource(.network)
+        case .security: .security
+        case .docker: .docker
+        case .agents: .agents
+        case .activity: .timeline
+        case .history: .history
+        default: nil
+        }
+    }
+
+    var title: String { route?.title ?? rawValue }
+
+    var systemImage: String {
+        if let route { return route.systemImage }
+        switch self {
+        case .general: return "gearshape.fill"
+        case .appearance: return "circle.lefthalf.filled"
+        case .performance: return "gauge.with.dots.needle.67percent"
+        case .system: return "cpu"
+        case .development: return "hammer.fill"
+        case .otherPages: return "square.grid.2x2.fill"
+        case .alerts: return "bell.badge.fill"
+        case .automation: return "terminal.fill"
+        case .helper: return "lock.shield.fill"
+        case .about: return "info.circle.fill"
+        default: return "circle"
         }
     }
 
     var tint: Color {
+        if let route { return route.tint }
         switch self {
-        case .general, .about, .otherPages: .gray
-        case .appearance: Color(white: 0.2)
-        case .performance: .orange
-        case .system, .network: .blue
-        case .processes: .green
-        case .security, .automation, .helper: .indigo
-        case .development, .docker: .brown
-        case .agents, .activity, .alerts: .purple
-        case .history: .teal
+        case .general, .about, .otherPages: return .gray
+        case .appearance: return Color(white: 0.2)
+        case .performance: return .orange
+        case .system: return .blue
+        case .development: return .brown
+        case .alerts: return .purple
+        case .automation, .helper: return .indigo
+        default: return .blue
         }
     }
 
@@ -129,7 +140,7 @@ struct SettingsView: View {
             paneSidebar
             Divider()
             VStack(spacing: 0) {
-                ResourceTitle(title: model.pane.rawValue, systemImage: model.pane.systemImage, color: model.pane.tint)
+                ResourceTitle(title: model.pane.title, systemImage: model.pane.systemImage, color: model.pane.tint)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(MonitorStyle.inset)
                 Divider()
@@ -161,7 +172,7 @@ struct SettingsView: View {
                                 HStack(spacing: SidebarStyle.iconSpacing) {
                                     SettingsIcon(systemImage: pane.systemImage, tint: pane.tint)
                                         .accessibilityHidden(true)
-                                    Text(pane.rawValue)
+                                    Text(pane.title)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer(minLength: 0)
                                 }
@@ -431,7 +442,7 @@ struct SettingsView: View {
             }
         }
         Section {
-            IntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.sampling.backgroundProcessInterval), minimum: 1)
+            IntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Also the process history resolution while the panel is open: faster refreshes are averaged into one stored sample per interval. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.sampling.backgroundProcessInterval), minimum: 1)
             if !Capabilities.isSandboxed {
                 IntervalRow(title: "Process inventories", help: "Collects open files, ports and memory maps for every process on a schedule, so the process detail views are already populated. Expensive; unrelated to history graphs and the timeline. Kept in memory only, never stored on disk.", estimate: { _ in "no storage" }, seconds: optionalBinding(\.sampling.backgroundInventoryInterval), minimum: 10)
             }
@@ -452,7 +463,7 @@ struct SettingsView: View {
             if settings.settings.history.recordProcessHistory {
                 StepperRow(
                     title: "Busiest processes only",
-                    help: "Store only the N busiest processes (by CPU or memory) in each snapshot. 0 stores every process. Lower values shrink process history substantially.",
+                    help: "Store only the N busiest processes (by CPU or memory) in each snapshot. 0 stores every process. Lower values shrink process history and its disk writes substantially; a process that drops out of the top N looks like it exited until it returns.",
                     text: settings.settings.history.processHistoryTopCount == 0 ? "All" : "\(settings.settings.history.processHistoryTopCount)",
                     value: binding(\.history.processHistoryTopCount), range: CollectionSettings.processTopCountRange, step: 10
                 )
@@ -710,9 +721,9 @@ struct SettingsView: View {
         Section {
             StepperRow(title: "Retention", text: "\(settings.settings.history.retentionDays) days", value: binding(\.history.retentionDays), range: 1...365)
             StepperRow(title: "Full resolution", help: "Older samples are kept as one-minute averages and peaks.", text: "\(settings.settings.history.fullResolutionHours) hours", value: binding(\.history.fullResolutionHours), range: 1...168)
-            StepperRow(title: "Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.", text: "\(settings.settings.history.historyStorageLimitMB) MB", value: binding(\.history.historyStorageLimitMB), range: 25...10_000, step: 25)
+            StepperRow(title: "Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort. Freed space is reused by new history; the file itself is shrunk only once it grows a quarter past the limit.", text: "\(settings.settings.history.historyStorageLimitMB) MB", value: binding(\.history.historyStorageLimitMB), range: 25...10_000, step: 25)
         } footer: {
-            SettingsFooter("Process history, usually the largest part, is set in Processes.")
+            SettingsFooter("Process history, usually the largest part, is set in Processes. History is written to disk in batches every 30 seconds and before sleep or quit; a crash loses at most the last batch.")
         }
         Section {
             Toggle(isOn: binding(\.history.showInsightsDigest)) {
@@ -803,7 +814,7 @@ struct SettingsView: View {
         } else {
             Section {
                 LabeledContent("Record activity is off") {
-                    Button("Activity Timeline") { model.pane = .activity }
+                    Button(SettingsPane.activity.title) { model.pane = .activity }
                 }
             } header: {
                 Text("Record on the Activity Timeline")

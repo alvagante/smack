@@ -53,7 +53,7 @@ import Testing
     #expect(try await repository.metadata("k") == "v2")
 }
 
-@Test func freshDatabaseIsVersionFourWithEventsTable() async throws {
+@Test func freshDatabaseIsVersionFiveWithEventsTable() async throws {
     let directory = try obsTemporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appendingPathComponent("h.sqlite")
@@ -64,7 +64,7 @@ import Testing
     var statement: OpaquePointer?
     #expect(sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
-    #expect(sqlite3_column_int(statement, 0) == 4)
+    #expect(sqlite3_column_int(statement, 0) == 5)
     sqlite3_finalize(statement)
     #expect(sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('events', 'metadata')", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)

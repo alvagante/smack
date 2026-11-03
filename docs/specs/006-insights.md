@@ -68,7 +68,7 @@ F2 to F4 share a new **Insights** page (`smack://insights`). F5 opens it, and F1
   a share of the attributed total and bars on a shared scale. The caption gives the per-day average.
 - Shows the device-level system total for the same range alongside. The two are not subtracted: process
   counters are logical writes and include caches; the system figure is physical device I/O.
-- Clicking a row opens its program history.
+- Clicking a row opens the running application, or the running process when the name is not an application. A program that is not running is not a link.
 
 ### REQ-003 Process churn
 

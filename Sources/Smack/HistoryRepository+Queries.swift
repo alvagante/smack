@@ -63,10 +63,10 @@ extension HistoryRepository {
         let columns = metric.columns
         return try readPoints(sql: """
             SELECT timestamp, \(columns.raw), \(columns.raw)
-            FROM process_samples WHERE process_id = ? AND timestamp >= ?
+            FROM process_samples WHERE process_key = (SELECT key FROM processes WHERE id = ?) AND timestamp >= ?
             UNION ALL
             SELECT timestamp, \(columns.total) / sample_count, \(columns.peak)
-            FROM process_minutes WHERE process_id = ? AND timestamp >= ?
+            FROM process_minutes WHERE process_key = (SELECT key FROM processes WHERE id = ?) AND timestamp >= ?
             ORDER BY timestamp
             """, bind: { statement in
                 bind(processID, at: 1, to: statement)
@@ -79,26 +79,26 @@ extension HistoryRepository {
     /// Programs (process names) with history between `start` and `end`, with interval-independent totals for ranking.
     func programs(from start: Date, to end: Date = .distantFuture) throws -> [HistoricalProgram] {
         try withStatement("""
-            SELECT p.name, COUNT(DISTINCT u.process_id), MAX(p.last_seen),
+            SELECT p.name, COUNT(DISTINCT u.process_key), MAX(p.last_seen),
                 SUM(u.cpu), MAX(u.cpu_peak), SUM(u.memory), MAX(u.memory_peak), SUM(u.disk) * 60, MAX(u.disk_peak),
                 SUM(u.wakeups), MAX(u.wakeups_peak)
             FROM (
-                SELECT process_id,
+                SELECT process_key,
                     SUM(cpu * weight) / SUM(weight) AS cpu, MAX(cpu) AS cpu_peak,
                     SUM(memory * weight) / SUM(weight) AS memory, MAX(memory) AS memory_peak,
                     SUM((disk_read + disk_write) * weight) / SUM(weight) AS disk, MAX(disk_read + disk_write) AS disk_peak,
                     SUM(wakeups * weight) / SUM(weight) AS wakeups, MAX(wakeups) AS wakeups_peak
                 FROM process_samples WHERE timestamp >= ? AND timestamp <= ?
-                GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
+                GROUP BY process_key, CAST(timestamp / 60 AS INTEGER)
                 UNION ALL
-                SELECT process_id,
+                SELECT process_key,
                     cpu_total / sample_count, cpu_peak,
                     memory_total / sample_count, memory_peak,
                     (disk_read_total + disk_write_total) / sample_count, disk_read_peak + disk_write_peak,
                     wakeups_total / sample_count, wakeups_peak
                 FROM process_minutes WHERE timestamp >= ? AND timestamp <= ?
             ) u
-            JOIN processes p ON p.id = u.process_id
+            JOIN processes p ON p.key = u.process_key
             GROUP BY p.name
             """) { statement in
             for index: Int32 in [1, 3] { bind(start.timeIntervalSince1970, at: index, to: statement) }
@@ -125,13 +125,14 @@ extension HistoryRepository {
         }
     }
 
-    /// Instances of a program with history since `start`, most recent first.
+    /// Instances of a program with history since `start`, most recent first. process_samples has no per-process
+    /// index, so the keys in range are collected once instead of probed per instance.
     func instances(named name: String, from start: Date) throws -> [HistoricalProcess] {
         try withStatement("""
             SELECT id, name, last_seen FROM processes
             WHERE name = ? AND (
-                EXISTS (SELECT 1 FROM process_samples WHERE process_id = processes.id AND timestamp >= ?)
-                OR EXISTS (SELECT 1 FROM process_minutes WHERE process_id = processes.id AND timestamp >= ?)
+                key IN (SELECT process_key FROM process_samples WHERE timestamp >= ?)
+                OR key IN (SELECT process_key FROM process_minutes WHERE timestamp >= ?)
             )
             ORDER BY last_seen DESC
             """) { statement in
@@ -154,13 +155,15 @@ extension HistoryRepository {
 
     /// Every metric for one instance, or summed over all instances of a program, downsampled to `limit` points.
     func processHistory(program name: String, processID: String?, from start: Date, to end: Date = .distantFuture, limit: Int) throws -> [ProcessMetric: [HistoricalPoint]] {
-        let filter = processID == nil ? "process_id IN (SELECT id FROM processes WHERE name = ?)" : "process_id = ?"
+        let filter = processID == nil
+            ? "process_key IN (SELECT key FROM processes WHERE name = ?)"
+            : "process_key = (SELECT key FROM processes WHERE id = ?)"
         let key = processID ?? name
         let rows = try withStatement("""
-            SELECT process_id, timestamp, cpu, memory, disk_read, disk_write, wakeups, cpu, memory, disk_read, disk_write, wakeups
+            SELECT process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, cpu, memory, disk_read, disk_write, wakeups
             FROM process_samples WHERE \(filter) AND timestamp >= ? AND timestamp <= ?
             UNION ALL
-            SELECT process_id, timestamp,
+            SELECT process_key, timestamp,
                 cpu_total / sample_count, memory_total / sample_count, disk_read_total / sample_count, disk_write_total / sample_count,
                 wakeups_total / sample_count,
                 cpu_peak, memory_peak, disk_read_peak, disk_write_peak, wakeups_peak
@@ -180,7 +183,7 @@ extension HistoryRepository {
                 guard code == SQLITE_ROW else { throw sqliteError(code: code) }
                 func column(_ index: Int32) -> Double { sqlite3_column_double(statement, index) }
                 rows.append(ProcessHistoryRow(
-                    processID: stringColumn(statement, index: 0),
+                    processKey: sqlite3_column_int64(statement, 0),
                     timestamp: column(1),
                     averages: SIMD8(column(2), column(3), column(4), column(5), column(6), 0, 0, 0),
                     peaks: SIMD8(column(7), column(8), column(9), column(10), column(11), 0, 0, 0)

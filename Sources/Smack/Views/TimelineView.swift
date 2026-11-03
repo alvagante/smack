@@ -162,6 +162,7 @@ struct TimelineView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: TimelineViewModel
     @ObservedObject private var activity: ActivityFeedModel
+    @ObservedObject private var settingsStore: SettingsStore
     @AppStorage("timeline.graphLayout") private var graphLayout = false
     @State private var hover: TimelineHover?
 
@@ -169,6 +170,7 @@ struct TimelineView: View {
         self.store = store
         activity = store.activityFeed
         model = store.timelineViewModel
+        settingsStore = store.settingsStore
     }
 
     var body: some View {
@@ -178,7 +180,7 @@ struct TimelineView: View {
             content
         }
         // New events from this session refresh the list; the short sleep coalesces bursts into one query.
-        .task(id: "\(model.requestID)|\(activity.recentEvents.first?.id ?? "")") {
+        .task(id: "\(model.requestID)|\(settingsStore.settings.activity.timelineReadLimit)|\(activity.recentEvents.first?.id ?? "")") {
             if !model.loaded.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
             await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit) { start, end, limit in
@@ -195,13 +197,13 @@ struct TimelineView: View {
                 ResourceTitle(title: "Timeline", systemImage: "list.bullet.rectangle", color: .mint,
                               subtitle: "Changes " + model.windowPhrase)
             } actions: {
-                EmptyView()
+                readLimitControl
             } overview: {
                 ResourceStatsRow(headline: model.loading ? "…" : model.loadFailed ? "–" : String(model.loaded.count), unit: "events", stats: [
                     ResourceStat(title: "Matching", systemImage: "line.3.horizontal.decrease.circle", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.filtered.count)),
                     ResourceStat(title: "Kinds", systemImage: "square.stack", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(Set(model.loaded.map(\.kind)).count))
                 ], headlineWidth: 150,
-                   headlineHelp: model.loaded.count >= model.fetchLimit ? "Read limit reached (\(model.fetchLimit.formatted()) events, set in Settings › Activity Timeline)" : "Events in the selected window")
+                   headlineHelp: model.loaded.count >= model.fetchLimit ? "Read limit reached (\(model.fetchLimit.formatted()) events). Raise Timeline read limit to load more." : "Events in the selected window")
             }
             HStack(spacing: 8) {
                 Picker("Layout", selection: $graphLayout) {
@@ -244,6 +246,23 @@ struct TimelineView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+
+    /// Same limit as Settings › Timeline › Timeline read limit: how many newest events this page loads.
+    private var readLimitControl: some View {
+        HStack(spacing: 6) {
+            Text("Timeline read limit").foregroundStyle(.secondary)
+            Text(settingsStore.settings.activity.timelineReadLimit.formatted()).monospacedDigit()
+            Stepper("Timeline read limit", value: readLimit, in: CollectionSettings.timelineReadLimitRange, step: 500)
+                .labelsHidden()
+        }
+        .help("Newest events the Timeline loads for the selected window. Filters and search work on these; older events in the window are shaded as not loaded. Higher values use more memory and slow the page.")
+    }
+
+    private var readLimit: Binding<Int> {
+        Binding(get: { settingsStore.settings.activity.timelineReadLimit }, set: { value in
+            settingsStore.update { $0.activity.timelineReadLimit = value }
+        })
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -301,9 +320,12 @@ struct TimelineView: View {
             if let target { store.route = .process(target.id) }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: event.kind.systemImage)
-                    .foregroundStyle(color(event.severity))
-                    .frame(width: 20)
+                HStack(spacing: 6) {
+                    Image(systemName: event.kind.systemImage)
+                        .foregroundStyle(color(event.severity))
+                        .frame(width: 20)
+                    rowIcon(event, live: target)
+                }
                 Text(event.timestamp, format: .dateTime.hour().minute().second())
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                     .frame(width: 62, alignment: .leading)
@@ -325,6 +347,68 @@ struct TimelineView: View {
         .disabled(target == nil)
         .help(target == nil ? event.detailSummary : "Open \(event.processName ?? event.subject)")
         .accessibilityElement(children: .combine)
+    }
+
+    /// Application icon when the event belongs to one, otherwise the executable's icon. A named process with no
+    /// path on disk keeps the same terminal mark as the process list. System events leave the slot empty so the
+    /// time column stays aligned.
+    @ViewBuilder
+    private func rowIcon(_ event: ActivityEvent, live: ProcessMetrics?) -> some View {
+        let size: CGFloat = 20
+        switch rowIconKind(event, live: live) {
+        case .application(let app):
+            ApplicationIcon(application: app, size: size)
+        case .bundle(let path, let bundleIdentifier):
+            ApplicationIcon(bundleIdentifier: bundleIdentifier, executablePath: path, size: size)
+        case .file(let path):
+            ApplicationIcon(bundlePath: path, size: size)
+        case .process:
+            Image(systemName: "terminal")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        case nil:
+            Color.clear.frame(width: size, height: size)
+        }
+    }
+
+    private enum RowIconKind {
+        case application(ApplicationMetrics)
+        case bundle(String, String?)
+        case file(String)
+        case process
+    }
+
+    private func rowIconKind(_ event: ActivityEvent, live: ProcessMetrics?) -> RowIconKind? {
+        if let live { return rowIconKind(for: live) }
+        if event.kind == .processStarted, let path = event.details["path"], !path.isEmpty {
+            return rowIconKind(path: path, bundleIdentifier: nil)
+        }
+        if let name = event.processName {
+            if let app = store.processes?.applications.first(where: { $0.name == name || $0.processes.contains { $0.name == name } }) {
+                return .application(app)
+            }
+            if let process = store.processes?.backgroundProcesses.first(where: { $0.name == name }) {
+                return rowIconKind(for: process)
+            }
+            return .process
+        }
+        if event.processID != nil || event.kind.group == .processes { return .process }
+        return nil
+    }
+
+    private func rowIconKind(for process: ProcessMetrics) -> RowIconKind {
+        if let app = store.application(containingProcess: process.id) { return .application(app) }
+        if let path = process.executablePath { return rowIconKind(path: path, bundleIdentifier: process.bundleIdentifier) }
+        return .process
+    }
+
+    private func rowIconKind(path: String, bundleIdentifier: String?) -> RowIconKind {
+        if bundleIdentifier != nil || ApplicationReadings.bundleURL(executablePath: path) != nil {
+            return .bundle(path, bundleIdentifier)
+        }
+        return .file(path)
     }
 
     // MARK: Graph

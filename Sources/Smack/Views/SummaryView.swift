@@ -26,12 +26,7 @@ struct SummaryView: View {
                     health
                 }
                 SummarySection("Activity") {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                        ActivityDiffCard(store: store)
-                        if settingsStore.settings.history.showInsightsDigest {
-                            InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settingsStore.settings)) { store.route = .insights }
-                        }
-                    }
+                    activityCards
                     activity
                 }
                 SummarySection("Environment") {
@@ -58,7 +53,7 @@ struct SummaryView: View {
                         Text((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).map { "v\($0)" } ?? "dev")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("All you can know").font(.callout).foregroundStyle(.secondary)
+                    Text("Your Mac: All you can know").font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 16)
                 VStack(alignment: .trailing, spacing: 4) {
@@ -167,6 +162,21 @@ struct SummaryView: View {
         let value = store.posture == nil ? "Awaiting checks" : (problems == 0 ? (unknown == checks.count ? "Unverified" : "No findings") : "\(problems) findings")
         return SummaryNavigationRow(route: .security, value: value,
                                     detail: store.posture == nil ? "System security checks" : "\(checks.count) checks · \(unknown) unverified") { store.route = .security }
+    }
+
+    /// Timeline and the last-24-hours digest, side by side, each half the width of the rows below.
+    /// One card (digest hidden) takes the full width. They follow the window the same way the grouped rows do.
+    private var activityCards: some View {
+        let showsDigest = settingsStore.settings.history.showInsightsDigest
+        let columns = showsDigest
+            ? [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), alignment: .top)]
+            : [GridItem(.flexible(), alignment: .top)]
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ActivityDiffCard(store: store)
+            if showsDigest {
+                InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settingsStore.settings)) { store.route = .insights }
+            }
+        }
     }
 
     private var activity: some View {

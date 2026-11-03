@@ -390,7 +390,8 @@ struct HistoricalProgram: Identifiable, Sendable {
 
 /// One stored process row with every metric, in `ProcessMetric.allCases` order.
 struct ProcessHistoryRow: Sendable {
-    var processID: String
+    /// The integer key that identifies one process instance; rows of the same instance share it.
+    var processKey: Int64
     var timestamp: Double
     /// Index mapping is fixed: 0 cpu, 1 memory, 2 disk read, 3 disk write, 4 wakeups. Indices 5 to 7 stay zero.
     var averages: SIMD8<Double>
@@ -402,13 +403,13 @@ struct ProcessHistoryRow: Sendable {
     static func summed(_ rows: [ProcessHistoryRow], gap: TimeInterval) -> [ProcessMetric: [HistoricalPoint]] {
         let rows = rows.sorted { $0.timestamp < $1.timestamp }
         var endsRun = [Bool](repeating: true, count: rows.count)
-        var previousIndex: [String: Int] = [:]
+        var previousIndex: [Int64: Int] = [:]
         for (index, row) in rows.enumerated() {
-            if let previous = previousIndex[row.processID], row.timestamp - rows[previous].timestamp <= gap { endsRun[previous] = false }
-            previousIndex[row.processID] = index
+            if let previous = previousIndex[row.processKey], row.timestamp - rows[previous].timestamp <= gap { endsRun[previous] = false }
+            previousIndex[row.processKey] = index
         }
 
-        var current: [String: (averages: SIMD8<Double>, peaks: SIMD8<Double>)] = [:]
+        var current: [Int64: (averages: SIMD8<Double>, peaks: SIMD8<Double>)] = [:]
         var total = SIMD8<Double>(), totalPeak = SIMD8<Double>()
         var series = [[HistoricalPoint]](repeating: [], count: ProcessMetric.allCases.count)
         var start = 0
@@ -417,13 +418,13 @@ struct ProcessHistoryRow: Sendable {
             var end = start
             while end < rows.count, rows[end].timestamp == timestamp {
                 let row = rows[end]
-                if let previous = current[row.processID] {
+                if let previous = current[row.processKey] {
                     total -= previous.averages
                     totalPeak -= previous.peaks
                 }
                 total += row.averages
                 totalPeak += row.peaks
-                current[row.processID] = (row.averages, row.peaks)
+                current[row.processKey] = (row.averages, row.peaks)
                 end += 1
             }
             let date = Date(timeIntervalSince1970: timestamp)
@@ -432,7 +433,7 @@ struct ProcessHistoryRow: Sendable {
                 series[metric].append(HistoricalPoint(timestamp: date, average: average, peak: max(average, totalPeak[metric])))
             }
             for index in start..<end where endsRun[index] {
-                if let previous = current.removeValue(forKey: rows[index].processID) {
+                if let previous = current.removeValue(forKey: rows[index].processKey) {
                     total -= previous.averages
                     totalPeak -= previous.peaks
                 }

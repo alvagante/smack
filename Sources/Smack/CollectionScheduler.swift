@@ -11,6 +11,65 @@ enum PowerConstraint {
     }
 }
 
+/// Averages process snapshots taken faster than history needs into one per interval, so a stored row stands for
+/// the same span whether the panel is open or not, and a spike between two writes still reaches history. A process
+/// that exits inside a window is not stored for that window.
+struct ProcessHistoryAccumulator {
+    private struct Totals {
+        var count = 0
+        var cpu = 0.0, memory = 0.0, diskRead = 0.0, diskWrite = 0.0, wakeups = 0.0
+
+        mutating func add(_ process: ProcessMetrics) {
+            count += 1
+            cpu += process.cpuUsage
+            memory += Double(process.memoryBytes)
+            diskRead += process.diskReadRate
+            diskWrite += process.diskWriteRate
+            wakeups += process.wakeupsPerSecond
+        }
+    }
+
+    private var lastStored: Date?
+    private var totals: [String: Totals] = [:]
+
+    /// The snapshot to store, averaged over the window it closes, or nil while the window is open. An interval of
+    /// zero stores every snapshot as it is.
+    mutating func add(_ snapshot: ProcessSnapshot, interval: TimeInterval) -> ProcessSnapshot? {
+        for process in snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses {
+            totals[process.id, default: Totals()].add(process)
+        }
+        if let lastStored {
+            let elapsed = snapshot.timestamp.timeIntervalSince(lastStored)
+            // A backwards clock step stores rather than stalling history until the clock catches up.
+            guard elapsed >= interval || elapsed < 0 else { return nil }
+        }
+        lastStored = snapshot.timestamp
+        defer { totals.removeAll(keepingCapacity: true) }
+        var averaged = snapshot
+        averaged.applications = snapshot.applications.map { application in
+            var application = application
+            application.processes = application.processes.map(average)
+            return application
+        }
+        averaged.backgroundProcesses = snapshot.backgroundProcesses.map(average)
+        return averaged
+    }
+
+    private func average(_ process: ProcessMetrics) -> ProcessMetrics {
+        guard let total = totals[process.id], total.count > 1 else { return process }
+        let count = Double(total.count)
+        var process = process
+        process.cpuUsage = total.cpu / count
+        process.memoryBytes = UInt64(total.memory / count)
+        process.diskReadRate = total.diskRead / count
+        process.diskWriteRate = total.diskWrite / count
+        // History stores only the sum of both wakeup kinds.
+        process.interruptWakeupsPerSecond = total.wakeups / count
+        process.packageIdleWakeupsPerSecond = 0
+        return process
+    }
+}
+
 actor CollectionScheduler {
     private let systemCollector: SystemMetricsCollecting
     private let processCollector: ProcessMetricsCollecting
@@ -34,6 +93,9 @@ actor CollectionScheduler {
     private let onWake: @Sendable (Date) async -> Void
     private var settings: CollectionSettings
     private var visible = false
+    private var processHistory = ProcessHistoryAccumulator()
+    /// Process history resolution while the panel is open when background process sampling is off.
+    static let fallbackProcessHistoryInterval: TimeInterval = 10
     /// Pages currently showing sensor readings; counted so overlapping appear/disappear calls never cancel out.
     private var sensorClients = 0
     /// GPU pages on screen; per-process GPU time is read only while one is.
@@ -131,6 +193,10 @@ actor CollectionScheduler {
         await networkPortCollector.collectNetworkPorts(
             includePrivileged: settings.sampling.privilegedSampling
         )
+    }
+
+    private var processHistoryInterval: TimeInterval {
+        settings.sampling.backgroundProcessInterval ?? Self.fallbackProcessHistoryInterval
     }
 
     private var networkRateInterval: TimeInterval? {
@@ -248,8 +314,11 @@ actor CollectionScheduler {
                 if settings.automation.alertsEnabled, let interval = sleepInterval(background: settings.sampling.backgroundProcessInterval) {
                     await deliverAlerts(await alertEngine.evaluate(processes: snapshot, expectedInterval: interval, networkAvailable: visible && settings.sampling.processNetworkRateEnabled))
                 }
-                if settings.history.recordProcessHistory {
-                    await history.save(processes: snapshot.trimmedForHistory(limit: settings.history.processHistoryTopCount))
+                // While the panel is open, history keeps the background resolution instead of the live refresh rate;
+                // in the background each snapshot already is one interval.
+                if settings.history.recordProcessHistory,
+                   let stored = processHistory.add(snapshot, interval: visible ? processHistoryInterval : 0) {
+                    await history.save(processes: stored.trimmedForHistory(limit: settings.history.processHistoryTopCount))
                 }
                 await deliver(await activity.record(processes: snapshot))
             }
@@ -330,6 +399,7 @@ actor CollectionScheduler {
     func recordSleep() async {
         await alertEngine.noteGap(at: Date())
         await deliver([await activity.recordSleep(at: Date())])
+        await history.flush()
     }
 
     func recordWake() async {

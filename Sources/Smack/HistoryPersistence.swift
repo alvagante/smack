@@ -6,6 +6,8 @@ protocol HistoryWriting: Sendable {
     func save(processes: ProcessSnapshot) async throws
     func save(events: [ActivityEvent]) async throws
     func maintain(settings: CollectionSettings) async throws
+    /// Commits writes a batching writer still holds in memory.
+    func flush() async throws
 }
 
 extension HistoryRepository: HistoryWriting {}
@@ -84,6 +86,12 @@ actor HistoryPersistence {
             try await writer.maintain(settings: settings)
             report(.maintenance, error: nil)
         } catch { report(.maintenance, error: error) }
+    }
+
+    /// Before sleep, so batched history survives a battery that runs out overnight. A failed commit loses system
+    /// rows along with the rest of the batch, so it is reported as system history.
+    func flush() async {
+        do { try await writer.flush() } catch { report(.system, error: error) }
     }
 
     func saveMetadata(_ key: String, value: String, to metadata: any ActivityMetadataStoring) async {

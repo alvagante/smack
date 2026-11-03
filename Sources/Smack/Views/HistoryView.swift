@@ -39,6 +39,14 @@ final class HistoryViewModel: ObservableObject {
     /// A program is every instance sharing a process name; `selectedInstance` narrows it to one process ID.
     @Published private(set) var selectedProgram: String? { didSet { updateAttribution() } }
     @Published var selectedInstance: String?
+    /// Process names added together into one chart. Used for an application whose processes do not share one name.
+    /// Takes precedence over `selectedProgram`.
+    @Published var summedPrograms: [String]?
+    /// When either set is non-empty, chart markers keep only events for these process names or ids.
+    @Published var markerNames: Set<String> = []
+    @Published var markerIDs: Set<String> = []
+
+    var plotsProcesses: Bool { summedPrograms != nil || selectedProgram != nil }
     @Published var selectedDate: Date?
     /// Event counts inside the zoom window, for attribution; nil when not zoomed.
     @Published var windowEventCounts: [ActivityEventKind: Int]? { didSet { updateAttribution() } }
@@ -58,7 +66,10 @@ final class HistoryViewModel: ObservableObject {
     /// Toggling metrics only filters what is drawn, so it is not part of the request.
     var requestID: String {
         let window = zoom.map { "\($0.lowerBound.timeIntervalSince1970)-\($0.upperBound.timeIntervalSince1970)" } ?? "full"
-        return "\(selectedProgram ?? "system")-\(selectedInstance ?? "all")-\(hours)-\(window)"
+        let subject = summedPrograms.map { "sum:\($0.joined(separator: "\u{1e}"))" }
+            ?? "\(selectedProgram ?? "system")-\(selectedInstance ?? "all")"
+        let markers = markerNames.sorted().joined(separator: "\u{1e}") + "|" + markerIDs.sorted().joined(separator: "\u{1e}")
+        return "\(subject)-\(hours)-\(window)-\(markers)"
     }
 
     /// Narrower drags are treated as clicks.
@@ -298,31 +309,37 @@ private struct HistorySeries: Identifiable {
 struct HistoryView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: HistoryViewModel
+    /// The Historical Data page lists every program. A detail page locks the subject and hides that list.
+    var showsProgramList = true
+    var showsHeader = true
 
-    init(store: MonitorStore) {
+    init(store: MonitorStore, model: HistoryViewModel? = nil, showsProgramList: Bool = true, showsHeader: Bool = true) {
         self.store = store
-        model = store.historyViewModel
+        self.model = model ?? store.historyViewModel
+        self.showsProgramList = showsProgramList
+        self.showsHeader = showsHeader
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            if showsHeader { header }
             VStack(alignment: .leading, spacing: 8) {
                 controls
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
                         chart.frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
-                        if let attribution = model.attribution {
+                        if showsProgramList, let attribution = model.attribution {
                             SpikeAttributionStrip(attribution: attribution, processHistory: store.settingsStore.settings.history.recordProcessHistory) { model.select(program: $0) }
                         }
                     }
-                    processList.frame(width: 300)
+                    if showsProgramList { processList.frame(width: 300) }
                 }
             }
-            .padding([.horizontal, .bottom])
+            .padding(showsHeader ? [.horizontal, .bottom] : [])
         }
+        .frame(maxWidth: .infinity, maxHeight: showsHeader ? nil : .infinity, alignment: .topLeading)
         .task(id: model.requestID) { await reload() }
-        .task(id: model.programsRequestID) { await loadPrograms() }
+        .task(id: showsProgramList ? model.programsRequestID : "programs-off") { if showsProgramList { await loadPrograms() } }
         .task(id: model.instancesRequestID) { await loadInstances() }
     }
 
@@ -351,29 +368,60 @@ struct HistoryView: View {
 
     // MARK: Controls
 
-    private var controls: some View {
-        HStack(spacing: 8) {
-            if let program = model.selectedProgram {
+    @ViewBuilder private var controls: some View {
+        if showsHeader {
+            HStack(spacing: 8) {
+                subjectControls
+                metricScroller
+                chartToggles
+                rangePicker
+            }
+        } else {
+            // The detail page is narrower than Historical Data, and the instance label is long.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    subjectControls.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    rangePicker
+                }
+                HStack(spacing: 8) {
+                    metricScroller
+                    chartToggles
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var subjectControls: some View {
+        if let program = model.selectedProgram, model.summedPrograms == nil {
+            if showsProgramList {
                 Button { model.select(program: nil) } label: { Label("All History", systemImage: "chevron.left") }
                 Text(program).font(.headline).lineLimit(1)
-                instancePicker
             }
-            // Nine system metrics do not fit next to the toggles at the minimum panel width, so the chips scroll.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    if model.selectedProgram != nil {
-                        ForEach(ProcessMetric.allCases, id: \.self) { metric in
-                            metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
-                        }
-                    } else {
-                        ForEach(SystemMetric.allCases) { metric in
-                            metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
-                        }
+            instancePicker
+        }
+    }
+
+    /// Nine system metrics do not fit next to the toggles at the minimum panel width, so the chips scroll.
+    private var metricScroller: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if model.plotsProcesses {
+                    ForEach(ProcessMetric.allCases, id: \.self) { metric in
+                        metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
+                    }
+                } else {
+                    ForEach(SystemMetric.allCases) { metric in
+                        metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
                     }
                 }
             }
-            .defaultScrollAnchor(.trailing, for: .alignment)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .defaultScrollAnchor(.trailing, for: .alignment)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var chartToggles: some View {
+        HStack(spacing: 8) {
             if model.loading { ProgressView().controlSize(.small) }
             Toggle("Peaks", isOn: $model.showPeaks).toggleStyle(.checkbox).controlSize(.small)
                 .help("Draw dashed peak lines; the hover readout always shows average and peak.")
@@ -381,18 +429,23 @@ struct HistoryView: View {
                 .help("Draw vertical markers for activity events such as listeners, startup changes and pressure warnings. At most \(HistoryViewModel.markerLimit) are shown, preferring warnings.")
             Image(systemName: "info.circle").foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .hoverHint("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound. Drag across the chart to zoom into a time window, or click to zoom to five minutes around a moment; double-click to zoom out. When zoomed, the program list ranks the zoomed window and the strip under the chart names the top programs and events in it.")
+                .hoverHint(chartHint)
             if model.zoom != nil {
                 Button { model.zoom = nil } label: { Label("Reset Zoom", systemImage: "arrow.up.left.and.arrow.down.right") }
                     .controlSize(.small)
                     .help("Show the whole range again; double-clicking the chart does the same.")
             }
-            Picker("Range", selection: $model.hours) {
-                Text("1h").tag(1.0)
-                Text("24h").tag(24.0)
-                Text("7d").tag(168.0)
-            }.pickerStyle(.segmented).labelsHidden().fixedSize()
         }
+        .fixedSize()
+    }
+
+    private var rangePicker: some View {
+        Picker("Range", selection: $model.hours) {
+            Text("1h").tag(1.0)
+            Text("24h").tag(24.0)
+            Text("7d").tag(168.0)
+        }
+        .pickerStyle(.segmented).labelsHidden().fixedSize()
     }
 
     private var eventsBinding: Binding<Bool> {
@@ -405,25 +458,49 @@ struct HistoryView: View {
         )
     }
 
+    /// Drag, click and double-click zoom, plus how samples are stored. The program list exists only on the Historical Data page.
+    private var chartHint: String {
+        var hint = "A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound. Drag across the chart to zoom into a time window, or click to zoom to five minutes around a moment; double-click to zoom out."
+        if showsProgramList {
+            hint += " When zoomed, the program list ranks the zoomed window and the strip under the chart names the top programs and events in it."
+        }
+        return hint
+    }
+
     private var instancePicker: some View {
         Picker("Instance", selection: $model.selectedInstance) {
             Text("All instances (\(model.instances.count))").tag(String?.none)
+            if let selected = model.selectedInstance,
+               !model.instances.prefix(HistoryViewModel.instancePickerLimit).contains(where: { $0.id == selected }) {
+                Text(instanceLabel(selected)).tag(Optional(selected))
+            }
             ForEach(model.instances.prefix(HistoryViewModel.instancePickerLimit)) { instance in
-                Text(instanceLabel(instance)).tag(Optional(instance.id))
+                Text(instanceLabel(instance.id)).tag(Optional(instance.id))
             }
         }
         .labelsHidden()
-        .fixedSize()
-        .help(model.instances.count > HistoryViewModel.instancePickerLimit
+        .fixedSize(horizontal: showsProgramList, vertical: true)
+        .help(instanceHelp)
+    }
+
+    private var instanceHelp: String {
+        let listing = model.instances.count > HistoryViewModel.instancePickerLimit
             ? "Lists the \(HistoryViewModel.instancePickerLimit) most recent of \(model.instances.count) instances."
-            : "Show all instances summed, or a single process.")
+            : "Show all instances summed, or a single process."
+        guard let id = model.selectedInstance else { return listing }
+        let parts = id.split(separator: "-", maxSplits: 1)
+        guard parts.count == 2, let start = Double(parts[1]) else { return listing }
+        let started = Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened)
+        return "PID \(parts[0]), started \(started). \(listing)"
     }
 
     /// Process IDs are "pid-startTime".
-    private func instanceLabel(_ instance: HistoricalProcess) -> String {
-        let parts = instance.id.split(separator: "-", maxSplits: 1)
-        guard parts.count == 2, let start = Double(parts[1]) else { return instance.id }
-        return "PID \(parts[0]), started \(Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened))"
+    private func instanceLabel(_ id: String) -> String {
+        let parts = id.split(separator: "-", maxSplits: 1)
+        guard parts.count == 2, let start = Double(parts[1]) else { return id }
+        let started = Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened)
+        // The detail page is short on width; the full start time stays in the picker's help.
+        return showsProgramList ? "PID \(parts[0]), started \(started)" : "PID \(parts[0])"
     }
 
     private func metricChip<M: HistoryChartMetric>(_ metric: M, enabled: Bool, points: [HistoricalPoint]?, toggle: @escaping () -> Void) -> some View {
@@ -448,11 +525,11 @@ struct HistoryView: View {
 
     /// True when several metrics share the chart and values are rescaled to 0...100.
     private var normalized: Bool {
-        model.selectedProgram == nil ? model.enabledMetrics.count > 1 : model.enabledProcessMetrics.count > 1
+        model.plotsProcesses ? model.enabledProcessMetrics.count > 1 : model.enabledMetrics.count > 1
     }
 
     private var series: [HistorySeries] {
-        if model.selectedProgram != nil {
+        if model.plotsProcesses {
             return series(enabled: model.enabledProcessMetrics, points: model.processPoints)
         }
         return series(enabled: model.enabledMetrics, points: model.systemPoints)
@@ -730,8 +807,13 @@ struct HistoryView: View {
         let window = model.zoom ?? now.addingTimeInterval(-model.hours * 3_600)...now
         // Markers load once per request, so toggling them never reloads history.
         let events = await store.activityFeed.events(from: window.lowerBound, to: window.upperBound, kinds: nil, search: "", limit: HistoryViewModel.eventLimit)
-        model.markers = HistoryViewModel.selectMarkers(events)
-        if let program = model.selectedProgram {
+        model.markers = HistoryViewModel.selectMarkers(scoped(events))
+        if let names = model.summedPrograms {
+            // Full resolution first: programs sampled in one snapshot share timestamps, so they add on the same points.
+            if let points = await summedHistory(names, from: window.lowerBound, to: window.upperBound) {
+                model.processPoints = points
+            }
+        } else if let program = model.selectedProgram {
             model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance,
                                                              from: window.lowerBound, to: window.upperBound, limit: limit)
         } else {
@@ -740,6 +822,29 @@ struct HistoryView: View {
                 result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, from: window.lowerBound, to: window.upperBound), limit: limit)
             }
             model.systemPoints = result
+        }
+    }
+
+    /// Empty marker sets mean the Historical Data page: every event in the window.
+    private func scoped(_ events: [ActivityEvent]) -> [ActivityEvent] {
+        guard !model.markerNames.isEmpty || !model.markerIDs.isEmpty else { return events }
+        return events.filter { event in
+            if let id = event.processID, model.markerIDs.contains(id) { return true }
+            if let name = event.processName, model.markerNames.contains(name) { return true }
+            return false
+        }
+    }
+
+    private func summedHistory(_ names: [String], from start: Date, to end: Date) async -> [ProcessMetric: [HistoricalPoint]]? {
+        var perMetric: [ProcessMetric: [[HistoricalPoint]]] = [:]
+        for name in names {
+            if Task.isCancelled { return nil }
+            let result = await store.processHistory(program: name, processID: nil, from: start, to: end, limit: .max)
+            if Task.isCancelled { return nil }
+            for (metric, points) in result { perMetric[metric, default: []].append(points) }
+        }
+        return perMetric.mapValues {
+            HistoricalPoint.downsampled(HistoricalPoint.summed($0), limit: HistoryViewModel.pointLimit, minimumGap: HistoryRepository.processMinimumGap)
         }
     }
 
@@ -819,5 +924,61 @@ private struct SpikeAttributionStrip: View {
             attribution.eventCounts[group].map { "\($0) \(group.rawValue.lowercased())" }
         }
         return parts.isEmpty ? "No events" : parts.joined(separator: " · ")
+    }
+}
+
+/// The Historical Data chart locked to one process, or to the sum of an application's process names.
+struct SubjectHistoryChart: View {
+    @ObservedObject var store: MonitorStore
+    @ObservedObject private var settings: SettingsStore
+    /// Distinct process names. One name keeps the instance picker; several are summed.
+    let programs: [String]
+    /// Instance to select when there is a single program. Nil charts every instance of that name.
+    var instanceID: String?
+    var processIDs: Set<String> = []
+    @StateObject private var model: HistoryViewModel
+
+    init(store: MonitorStore, programs: [String], instanceID: String? = nil, processIDs: Set<String> = []) {
+        self.store = store
+        settings = store.settingsStore
+        self.programs = programs
+        self.instanceID = instanceID
+        self.processIDs = processIDs
+        let model = HistoryViewModel()
+        Self.apply(model, programs: programs, instanceID: instanceID, processIDs: processIDs)
+        _model = StateObject(wrappedValue: model)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !settings.settings.history.recordProcessHistory {
+                Text("Process history is off (Settings > Processes), so this chart has no samples.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HistoryView(store: store, model: model, showsProgramList: false, showsHeader: false)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: scope) { Self.apply(model, programs: programs, instanceID: instanceID, processIDs: processIDs) }
+        .onChange(of: processIDs) { _, ids in model.markerIDs = ids }
+    }
+
+    private var scope: String {
+        programs.sorted().joined(separator: "\n") + "\n" + (instanceID ?? "")
+    }
+
+    /// Locks the chart to these process names. One name keeps the instance picker; several are summed.
+    private static func apply(_ model: HistoryViewModel, programs: [String], instanceID: String?, processIDs: Set<String>) {
+        let names = Array(Set(programs.filter { !$0.isEmpty })).sorted()
+        model.markerNames = Set(names)
+        model.markerIDs = processIDs
+        if names.count > 1 {
+            model.summedPrograms = names
+            if model.selectedProgram != nil { model.select(program: nil) }
+        } else {
+            if model.selectedProgram != names.first { model.select(program: names.first) }
+            model.selectedInstance = instanceID
+            model.summedPrograms = nil
+        }
     }
 }
