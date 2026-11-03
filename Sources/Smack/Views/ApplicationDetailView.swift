@@ -2,28 +2,74 @@ import SwiftUI
 import Charts
 
 enum ApplicationTab: String, CaseIterable, Identifiable {
+    case overview = "Overview"
+    case processes = "Processes"
+    case timeline = "Timeline"
     case files = "Open Files"
     case connections = "Connections"
     case threads = "Threads"
     case libraries = "Libraries"
     case provenance = "Provenance"
-    case timeline = "Timeline"
-    case processes = "Processes"
-    case diagnostics = "Diagnostics"
     case launchContext = "Launch Context"
     case logs = "Logs"
     case startup = "Startup"
     case security = "Security"
     case fileActivity = "File Activity"
+    case diagnostics = "Diagnostics"
 
     var id: Self { self }
+
+    var inspection: ProcessInspectionTab? {
+        switch self {
+        case .launchContext: .launchContext
+        case .logs: .logs
+        case .startup: .startup
+        case .security: .security
+        case .fileActivity: .fileActivity
+        default: nil
+        }
+    }
+
+    var systemImage: String {
+        if let inspection { return inspection.systemImage }
+        return switch self {
+        case .overview: "gauge.with.dots.needle.67percent"
+        case .processes: "square.stack.3d.up"
+        case .timeline: "list.bullet.rectangle"
+        case .files: DetailSectionStyle.files.systemImage
+        case .connections: DetailSectionStyle.connections.systemImage
+        case .threads: DetailSectionStyle.threads.systemImage
+        case .libraries: DetailSectionStyle.libraries.systemImage
+        case .provenance: DetailSectionStyle.provenance.systemImage
+        case .diagnostics: "stethoscope"
+        default: "questionmark"
+        }
+    }
+
+    var color: Color {
+        if let inspection { return inspection.color }
+        return switch self {
+        case .overview: .blue
+        case .processes: .green
+        case .timeline: .teal
+        case .files: DetailSectionStyle.files.color
+        case .connections: DetailSectionStyle.connections.color
+        case .threads: DetailSectionStyle.threads.color
+        case .libraries: DetailSectionStyle.libraries.color
+        case .provenance: DetailSectionStyle.provenance.color
+        case .diagnostics: .mint
+        default: .gray
+        }
+    }
 }
 
 @MainActor
 final class ApplicationDetailViewModel: ObservableObject {
     @Published var range = InsightRange.live
-    @Published var tab = ApplicationTab.files
+    @Published var tab = ApplicationTab.overview
     @Published var filter = ""
+    @Published var origin: PathOrigin?
+    @Published var connectionTone: ConnectionTone?
     @Published var refreshCount = 0
     @Published var history: [ProcessMetric: [HistoricalPoint]] = [:]
     @Published var historyLoading = false
@@ -60,20 +106,20 @@ struct ApplicationDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
+        Group {
             if let app = store.application(id: id) {
-                VStack(alignment: .leading, spacing: 14) {
+                DetailSectionLayout(groups: groups(app), selection: $model.tab) {
                     header(app)
-                    statTiles(app)
-                    graphs(app)
-                    cards(app)
-                    tabBar
+                } content: {
                     tabContent(app)
                 }
-                .padding()
             } else {
                 ContentUnavailableView("Application Exited", systemImage: "app.dashed", description: Text("Its metrics remain in Historical Data until retention expires."))
             }
+        }
+        .onChange(of: model.tab) {
+            model.origin = nil
+            model.connectionTone = nil
         }
         .task(id: "\(id)#\(model.refreshCount)") {
             guard let app = store.application(id: id) else { return }
@@ -91,6 +137,7 @@ struct ApplicationDetailView: View {
         }
         .onChange(of: id) {
             model.filter = ""
+            model.tab = .overview
             model.killTargets = nil
             model.killMessage = nil
             model.bundleInfo = nil
@@ -101,15 +148,15 @@ struct ApplicationDetailView: View {
     // MARK: Header
 
     private func header(_ app: ApplicationMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             headerRow(app)
-            killConfirmation(app)
+            killConfirmation(app).padding([.horizontal, .bottom], MonitorStyle.inset)
         }
     }
 
     /// Title, key figures and actions in the shared page header layout.
     private func headerRow(_ app: ApplicationMetrics) -> some View {
-        DetailPageHeader(padding: 0) {
+        DetailPageHeader {
             title(app)
         } actions: {
             actions(app)
@@ -365,60 +412,86 @@ struct ApplicationDetailView: View {
         case .threads: return inventory?.threadTotal
         case .libraries: return inventory?.libraries.count
         case .processes: return app.processes.count
-        case .provenance, .timeline, .diagnostics, .launchContext, .logs, .startup, .security, .fileActivity: return nil
+        default: return nil
         }
     }
 
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(ApplicationTab.allCases) { item in
-                    let app = store.application(id: id)
-                    Button { model.tab = item } label: {
-                        HStack(spacing: 4) {
-                            Text(item.rawValue)
-                            if let app, let value = count(item, app) { Text("\(value)").foregroundStyle(.secondary).monospacedDigit() }
-                        }
-                        .font(.callout)
-                        .padding(.horizontal, 10).padding(.vertical, 4)
-                        .background(model.tab == item ? Color.accentColor.opacity(0.2) : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(model.tab == item ? Color.accentColor.opacity(0.6) : .secondary.opacity(0.3)))
-                        .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+    private func groups(_ app: ApplicationMetrics) -> [DetailSectionGroup<ApplicationTab>] {
+        func section(_ tab: ApplicationTab) -> DetailSection<ApplicationTab> {
+            DetailSection(id: tab, title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, count: count(tab, app))
+        }
+        return [
+            DetailSectionGroup(title: "", sections: [.overview, .processes, .timeline].map(section)),
+            DetailSectionGroup(title: "Live inventory", sections: [.files, .connections, .threads, .libraries].map(section)),
+            DetailSectionGroup(title: "Inspection", sections: [.provenance, .launchContext, .logs, .startup, .security, .fileActivity, .diagnostics].map(section)),
+        ]
+    }
+
+    private static let captions: [ApplicationTab: String] = [
+        .processes: "Every process of the application, by memory. Bars compare processes with each other.",
+        .timeline: "Activity events of any running process, or one seen earlier under the same name.",
+        .files: "Files and sockets the application's processes hold open right now.",
+        .connections: "Network and UNIX socket connections of the application's processes.",
+        .threads: "Threads by name, per process. The main thread is highlighted.",
+        .libraries: "Dynamic libraries and frameworks loaded into the processes. Anything not from macOS is labelled.",
+        .diagnostics: "On-demand profiling with the macOS developer tools.",
+    ]
+
+    @ViewBuilder
+    private func tabContent(_ app: ApplicationMetrics) -> some View {
+        let tab = model.tab
+        if tab == .overview {
+            overview(app)
+        } else {
+            switch tab {
+            case .files, .connections, .threads, .libraries:
+                DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, caption: Self.captions[tab]) {
+                    if inspection.applicationInventoryLoading { ProgressView().controlSize(.small) }
+                    RefreshButton(hint: "Inspect the processes again") { model.refreshCount += 1 }
                 }
+            case .provenance:
+                DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color,
+                                   caption: ApplicationReadings.mainProcess(app).map { "Of the main process, \($0.name) (\($0.identity.pid))." })
+            default:
+                DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, caption: Self.captions[tab])
+            }
+            switch tab {
+            case .files: inventoryTab(app) { filesList }
+            case .connections: inventoryTab(app) { connectionsList }
+            case .threads: inventoryTab(app) { threadsList }
+            case .libraries: inventoryTab(app) { librariesList }
+            case .provenance: provenanceTab(app)
+            case .timeline: ApplicationTimelineTab(store: store, app: app)
+            case .processes: processesList(app)
+            case .diagnostics: ApplicationDiagnosticsTab(app: app, model: profile)
+            default:
+                if let inspected = tab.inspection { ApplicationInspectionTab(store: store, app: app, tab: inspected) }
             }
         }
     }
 
-    @ViewBuilder
-    private func tabContent(_ app: ApplicationMetrics) -> some View {
-        switch model.tab {
-        case .files: inventoryTab(app) { filesList }
-        case .connections: inventoryTab(app) { connectionsList }
-        case .threads: inventoryTab(app) { threadsList }
-        case .libraries: inventoryTab(app) { librariesList }
-        case .provenance: provenanceTab(app)
-        case .timeline: ApplicationTimelineTab(store: store, app: app)
-        case .processes: processesList(app)
-        case .diagnostics: ApplicationDiagnosticsTab(app: app, model: profile)
-        case .launchContext: ApplicationInspectionTab(store: store, app: app, tab: .launchContext)
-        case .logs: ApplicationInspectionTab(store: store, app: app, tab: .logs)
-        case .startup: ApplicationInspectionTab(store: store, app: app, tab: .startup)
-        case .security: ApplicationInspectionTab(store: store, app: app, tab: .security)
-        case .fileActivity: ApplicationInspectionTab(store: store, app: app, tab: .fileActivity)
+    private func overview(_ app: ApplicationMetrics) -> some View {
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            statTiles(app)
+            if let main = ApplicationReadings.mainProcess(app) {
+                HStack(spacing: 10) {
+                    Text("Main process").font(.caption).foregroundStyle(.secondary).fixedSize()
+                    ProvenanceHighlights(store: store, process: main) { model.tab = .provenance }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .monitorSurface()
+                .onAppear { store.loadProvenance(for: main) }
+            }
+            graphs(app)
+            cards(app)
         }
     }
 
     // MARK: Inventory tabs
 
     private func inventoryTab<Content: View>(_ app: ApplicationMetrics, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                TextField("Filter", text: $model.filter).textFieldStyle(.roundedBorder)
-                if inspection.applicationInventoryLoading { ProgressView().controlSize(.small) }
-                RefreshButton { model.refreshCount += 1 }.controlSize(.small)
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Filter", text: $model.filter).textFieldStyle(.roundedBorder)
             if let inventory = inspection.applicationInventory {
                 if inventory.isPartial {
                     Text("Inspected \(inventory.inspected) of \(inventory.total) processes (the largest by memory).")
@@ -448,18 +521,28 @@ struct ApplicationDetailView: View {
         model.filter.isEmpty || row.path.localizedCaseInsensitiveContains(model.filter)
     }
 
+    /// Origin chips above the list double as a filter, so third-party code is one click away.
     private func pathList(_ rows: [AggregatedPath], checksFileOnDisk: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.prefix(Self.rowLimit)) { row in
-                HStack(spacing: 8) {
-                    FileLookupLinks(path: row.path, checksFileOnDisk: checksFileOnDisk)
-                    Text(row.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    processBadge(row.processes)
+        let origins = Dictionary(grouping: rows) { PathOrigin(path: $0.path) }
+        let shown = model.origin.map { origin in rows.filter { PathOrigin(path: $0.path) == origin } } ?? rows
+        return VStack(alignment: .leading, spacing: 10) {
+            FlowLayout {
+                ForEach(PathOrigin.allCases.filter { origins[$0] != nil }) { origin in
+                    DetailFilterChip(title: origin.title, count: origins[origin]?.count ?? 0, color: origin.color, selected: model.origin == origin) {
+                        model.origin = model.origin == origin ? nil : origin
+                    }
                 }
-                .padding(.vertical, 3)
-                Divider()
             }
-            capNote(rows.count)
+            if !shown.isEmpty {
+                DetailRowGroup {
+                    ForEach(shown.prefix(Self.rowLimit)) { row in
+                        InventoryPathRow(path: row.path, kind: row.descriptorType, checksFileOnDisk: checksFileOnDisk) {
+                            processBadge(row.processes)
+                        }
+                    }
+                }
+            }
+            capNote(shown.count)
         }
     }
 
@@ -467,39 +550,55 @@ struct ApplicationDetailView: View {
         let rows = (inspection.applicationInventory?.connections ?? []).filter {
             model.filter.isEmpty || "\($0.localAddress) \($0.remoteAddress) \($0.protocolName) \($0.state) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.prefix(Self.rowLimit)) { row in
-                HStack(spacing: 8) {
-                    IPLookupLinks(host: NetworkPortCollector.endpoint(row.remoteAddress)?.host ?? "")
-                    VStack(alignment: .leading) {
-                        Text("\(row.protocolName) · \(row.state)").font(.caption).foregroundStyle(.secondary)
-                        Text("\(row.localAddress) → \(row.remoteAddress)").textSelection(.enabled)
+        let tones = Dictionary(grouping: rows) { ConnectionTone(state: $0.state) }
+        let shown = model.connectionTone.map { tone in rows.filter { ConnectionTone(state: $0.state) == tone } } ?? rows
+        let internet = rows.filter { IPLookup.publicAddress(NetworkPortCollector.endpoint($0.remoteAddress)?.host ?? "") != nil }.count
+        return VStack(alignment: .leading, spacing: 10) {
+            FlowLayout {
+                ForEach([ConnectionTone.active, .listening, .closing, .idle].filter { tones[$0] != nil }, id: \.self) { tone in
+                    DetailFilterChip(title: tone.title, count: tones[tone]?.count ?? 0, color: tone.color, selected: model.connectionTone == tone) {
+                        model.connectionTone = model.connectionTone == tone ? nil : tone
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    processBadge([row.process])
                 }
-                .padding(.vertical, 3)
-                Divider()
+                if internet > 0 { DetailBadge(text: "\(internet) to the internet", systemImage: "globe", color: .cyan).padding(.vertical, 2) }
             }
-            capNote(rows.count)
+            if !shown.isEmpty {
+                DetailRowGroup {
+                    ForEach(shown.prefix(Self.rowLimit)) { row in
+                        InventoryConnectionRow(protocolName: row.protocolName, localAddress: row.localAddress,
+                                               remoteAddress: row.remoteAddress, state: row.state) {
+                            processBadge([row.process])
+                        }
+                    }
+                }
+            }
+            capNote(shown.count)
             if let hidden = inspection.applicationInventory?.unnamedSocketCount, hidden > 0 {
-                Text("\(hidden) unnamed UNIX sockets not shown.").font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                Text("\(hidden) unnamed UNIX sockets not shown.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
 
+    /// One chip cloud per process, the process with most threads first.
     private var threadsList: some View {
         let rows = (inspection.applicationInventory?.threads ?? []).filter {
             model.filter.isEmpty || "\($0.name) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.prefix(Self.rowLimit)) { row in
-                HStack(spacing: 8) {
-                    Text(row.count > 1 ? "\(row.name) ×\(row.count)" : row.name).frame(maxWidth: .infinity, alignment: .leading)
-                    processBadge([row.process])
+        let byProcess = Dictionary(grouping: rows, by: \.process)
+            .map { (process: $0.key, threads: $0.value, total: $0.value.reduce(0) { $0 + $1.count }) }
+            .sorted { $0.total != $1.total ? $0.total > $1.total : $0.process.pid < $1.process.pid }
+        return VStack(alignment: .leading, spacing: 10) {
+            ForEach(byProcess.prefix(Self.rowLimit), id: \.process) { group in
+                MetricCard(title: group.process.label, systemImage: "square.stack.3d.up", color: DetailSectionStyle.threads.color) {
+                    HStack {
+                        DetailBadge(text: "\(group.total) threads", color: DetailSectionStyle.threads.color)
+                        Spacer()
+                        Button("Open process") { store.route = .process(group.process.id) }.buttonStyle(.link).font(.caption)
+                    }
+                    ThreadChips(names: DetailReadings.threadNames(group.threads.flatMap { thread in
+                        Array(repeating: thread.name == "Unnamed thread" ? nil : thread.name, count: thread.count)
+                    }))
                 }
-                .padding(.vertical, 3)
-                Divider()
             }
             capNote(rows.count)
         }
@@ -532,34 +631,70 @@ struct ApplicationDetailView: View {
     @ViewBuilder
     private func provenanceTab(_ app: ApplicationMetrics) -> some View {
         if let main = ApplicationReadings.mainProcess(app) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Main process: \(main.name) (\(main.identity.pid))").font(.caption).foregroundStyle(.secondary)
-                ProvenanceSection(store: store, process: main)
-            }
-            .onAppear { store.loadProvenance(for: main) }
+            ProvenanceSection(store: store, process: main)
+                .onAppear { store.loadProvenance(for: main) }
         } else {
             Text("No process to inspect.").foregroundStyle(.secondary)
         }
     }
 
     private func processesList(_ app: ApplicationMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(app.processes.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(Self.rowLimit)) { process in
-                Button { store.route = .process(process.id) } label: {
-                    HStack(spacing: 10) {
-                        Text("\(process.name) (\(process.identity.pid))").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(Formatting.percent(process.cpuUsage)).monospacedDigit().frame(width: 70, alignment: .trailing)
-                        Text(Formatting.bytes(process.memoryBytes)).monospacedDigit().foregroundStyle(.secondary).frame(width: 90, alignment: .trailing)
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+        let sorted = app.processes.sorted { $0.memoryBytes > $1.memoryBytes }
+        let maxCPU = max(sorted.map(\.cpuUsage).max() ?? 0, 1)
+        let maxMemory = max(Double(sorted.map(\.memoryBytes).max() ?? 0), 1)
+        let main = ApplicationReadings.mainProcess(app)?.id
+        return VStack(alignment: .leading, spacing: 10) {
+            DetailRowGroup {
+                ForEach(sorted.prefix(Self.rowLimit)) { process in
+                    Button { store.route = .process(process.id) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: process.id == main ? "star.circle.fill" : "circle.fill")
+                                .font(process.id == main ? .body : .system(size: 6))
+                                .foregroundStyle(process.id == main ? Color.accentColor : Color.secondary)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 6) {
+                                    Text(process.name).fontWeight(.medium).lineLimit(1)
+                                    if process.id == main { DetailBadge(text: "Main", color: .accentColor) }
+                                    if let user = process.userName, user != NSUserName() {
+                                        DetailBadge(text: user, color: user == "root" ? .orange : .secondary)
+                                    }
+                                }
+                                Text("PID \(process.identity.pid) · \(process.threadCount) threads").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            ShareMeter(value: Formatting.percent(process.cpuUsage), fraction: process.cpuUsage / maxCPU, color: .blue)
+                            ShareMeter(value: Formatting.bytes(process.memoryBytes), fraction: Double(process.memoryBytes) / maxMemory, color: .purple)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                Divider()
             }
             capNote(app.processes.count)
         }
+    }
+}
+
+/// A figure over a thin bar showing its share of the largest one in the list.
+private struct ShareMeter: View {
+    let value: String
+    let fraction: Double
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text(value).font(.callout).monospacedDigit().lineLimit(1)
+            Capsule().fill(.quaternary)
+                .frame(height: 4)
+                .overlay(alignment: .leading) {
+                    GeometryReader { proxy in
+                        Capsule().fill(color).frame(width: max(2, proxy.size.width * min(max(fraction, 0), 1)))
+                    }
+                }
+        }
+        .frame(width: 96)
     }
 }
 

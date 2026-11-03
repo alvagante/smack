@@ -59,6 +59,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.title = "Smack"
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
+        // An empty unified toolbar gives the standard 52pt header with vertically centered window controls.
+        panel.toolbar = NSToolbar(identifier: "SmackPanel")
+        panel.toolbarStyle = .unified
         panel.hidesOnDeactivate = false
         // An ordinary window level, so Spotlight, alerts, menus and other apps' windows can come in front of it.
         // It still opens on the current Space, including over a full-screen app.
@@ -78,9 +81,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         let titleBarControls = NSTitlebarAccessoryViewController()
         titleBarControls.layoutAttribute = .right
         let titleBarView = NSHostingView(rootView: rootView.titleBarControls(layout: titleBarLayout) { [weak self] width in
-            self?.titleBarView?.setFrameSize(NSSize(width: ceil(width), height: 28))
+            self?.titleBarView?.setFrameSize(NSSize(width: ceil(width), height: TitleBarLayout.height))
         })
-        titleBarView.setFrameSize(NSSize(width: 400, height: 28))
+        titleBarView.setFrameSize(NSSize(width: 400, height: TitleBarLayout.height))
         titleBarControls.view = titleBarView
         self.titleBarView = titleBarView
         panel.addTitlebarAccessoryViewController(titleBarControls)
