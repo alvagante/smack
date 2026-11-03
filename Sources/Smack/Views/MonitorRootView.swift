@@ -33,7 +33,7 @@ struct MonitorRootView: View {
             HSplitView {
                 if titleBarLayout.showsSidebar {
                     MonitorSidebar(store: store, settingsStore: settingsStore)
-                        .frame(minWidth: 152, idealWidth: 173, maxWidth: 192)
+                        .frame(minWidth: 168, idealWidth: 196, maxWidth: 224)
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleBarLayout.sidebarWidth = $0 }
                 }
                 VStack(spacing: 0) {

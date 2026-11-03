@@ -153,12 +153,12 @@ struct SettingsView: View {
 
     private var paneSidebar: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: SidebarStyle.groupSpacing) {
                 ForEach(Array(SettingsPane.groups.enumerated()), id: \.offset) { _, group in
-                    VStack(spacing: 4) {
+                    VStack(spacing: SidebarStyle.rowSpacing) {
                         ForEach(group) { pane in
                             Button { model.pane = pane } label: {
-                                HStack(spacing: 8) {
+                                HStack(spacing: SidebarStyle.iconSpacing) {
                                     SettingsIcon(systemImage: pane.systemImage, tint: pane.tint)
                                         .accessibilityHidden(true)
                                     Text(pane.rawValue)
@@ -170,7 +170,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-            }.padding(16)
+            }.padding(SidebarStyle.padding)
         }
         .frame(minWidth: 184, idealWidth: 208, maxWidth: 224)
         .background(MonitorStyle.sidebar)

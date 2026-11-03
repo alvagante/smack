@@ -18,7 +18,7 @@ struct DetailSectionGroup<ID: Hashable>: Identifiable {
 /// The second sidebar of a Detail Page, beside the panel sidebar. Compact draws icons only, for a narrow panel.
 struct DetailSectionSidebar<ID: Hashable>: View {
     static var width: CGFloat { 220 }
-    static var compactWidth: CGFloat { 64 }
+    static var compactWidth: CGFloat { 2 * (SidebarStyle.padding + SidebarStyle.rowInset) + SidebarStyle.iconSize }
 
     let groups: [DetailSectionGroup<ID>]
     @Binding var selection: ID
@@ -26,18 +26,17 @@ struct DetailSectionSidebar<ID: Hashable>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     if compact {
-                        if index > 0 { Divider().padding(.vertical, 6) }
+                        if index > 0 { Divider().padding(.vertical, SidebarStyle.groupSpacing / 2) }
                     } else if !group.title.isEmpty {
-                        Text(group.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            .padding(.horizontal, 12).padding(.top, index == 0 ? 0 : 12).padding(.bottom, 2)
+                        SidebarHeader(title: group.title, isFirst: index == 0)
                     }
                     ForEach(group.sections) { row($0) }
                 }
             }
-            .padding(10)
+            .padding(SidebarStyle.padding)
         }
         .frame(width: compact ? Self.compactWidth : Self.width)
         .accessibilityLabel("Sections")
@@ -45,8 +44,8 @@ struct DetailSectionSidebar<ID: Hashable>: View {
 
     private func row(_ section: DetailSection<ID>) -> some View {
         Button { selection = section.id } label: {
-            HStack(spacing: 8) {
-                ResourceIcon(systemImage: section.systemImage, color: section.color, size: 20)
+            HStack(spacing: SidebarStyle.iconSpacing) {
+                ResourceIcon(systemImage: section.systemImage, color: section.color, size: SidebarStyle.iconSize)
                 if !compact {
                     Text(section.title).lineLimit(1).minimumScaleFactor(0.85)
                     Spacer(minLength: 4)
