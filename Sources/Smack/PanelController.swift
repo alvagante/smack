@@ -60,8 +60,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
         panel.hidesOnDeactivate = false
-        panel.isFloatingPanel = true
-        panel.level = .statusBar
+        // An ordinary window level, so Spotlight, alerts, menus and other apps' windows can come in front of it.
+        // It still opens on the current Space, including over a full-screen app.
+        panel.isFloatingPanel = false
+        panel.level = .normal
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 720, height: 340)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
@@ -140,12 +143,12 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func updateStickButton() {
         let name = stuck ? "pin.fill" : "pin"
-        let label = stuck ? "Unstick window" : "Keep window in foreground"
+        let label = stuck ? "Unstick window" : "Keep window open"
         stickButton?.image = NSImage(systemSymbolName: name, accessibilityDescription: label)
         stickButton?.contentTintColor = stuck ? .controlAccentColor : .secondaryLabelColor
         stickButton?.toolTip = stuck
             ? "Stuck: the window stays open when you click elsewhere.\nClick to unstick. Closing the window also unsticks it."
-            : "Keep this window in the foreground, even when you click elsewhere.\nClick to stick it."
+            : "Keep this window open, even when you click elsewhere.\nClick to stick it."
         stickButton?.setAccessibilityLabel(label)
     }
 

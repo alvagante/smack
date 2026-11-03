@@ -108,9 +108,11 @@ private struct HoverHint: ViewModifier {
         content
             .onHover { state.hover($0) }
             .popover(isPresented: $state.isPresented, arrowEdge: .top) {
+                // Short hints stay on one line; explanations wrap at a readable width.
                 Text(text)
                     .font(.caption)
-                    .fixedSize()
+                    .frame(width: text.count > 70 ? 320 : nil, alignment: .leading)
+                    .fixedSize(horizontal: text.count <= 70, vertical: true)
                     .padding(8)
             }
     }

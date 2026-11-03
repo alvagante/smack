@@ -1082,7 +1082,8 @@ struct SettingsLabel: View {
                 if let help {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                        .help(help)
+                        .contentShape(Rectangle())
+                        .hoverHint(help)
                         .accessibilityLabel(help)
                 }
             }

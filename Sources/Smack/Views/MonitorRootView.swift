@@ -191,24 +191,14 @@ private struct MonitorTitleBarControls: View {
 
     /// `shedding` 1 drops uptime, load and battery; 2 also drops sponsor and thermal; 3 keeps only the clock.
     private func content(shedding: Int) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             info(shedding: shedding).fixedSize()
-            HStack(spacing: 8) {
-                Button { store.route = .systemDetails } label: { Image(systemName: "info.circle") }
-                    .hoverHint("System details")
-                    .accessibilityLabel("System details")
-                Button { store.route = .settings } label: { Image(systemName: "gear") }
-                    .hoverHint("Settings")
-                    .accessibilityLabel("Settings")
-                exitControls
-            }
-            .fixedSize()
+            exitControls.fixedSize()
         }
         .font(.caption)
         .lineLimit(1)
         .controlSize(.small)
-        .padding(.leading, 8)
-        .padding(.trailing, 12)
+        .padding(.horizontal, 16)
     }
 
     @ViewBuilder private func info(shedding: Int) -> some View {
