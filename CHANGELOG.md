@@ -33,6 +33,8 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Added
 
+- Add Insights (spec 006 phase 1), read on demand from existing history with no new collection or writes. Spike attribution: clicking a system history chart zooms to five minutes, and any zoom shows the top programs by CPU, memory, disk and wakeups plus the events in the window; the program list ranks the zoomed window. The Insights page (`smack://insights`) has a disk write ledger per program with local-time bars and the device total. Its process churn ranking flags launchd-started programs outside system paths that restart often. It also lists new public destinations per program over the last 24 hours (direct build). A Summary card digests the last 24 hours. Add Settings > Historical Data > Insights > Last 24 hours card on Summary; it is on by default and off in the Minimal preset. Cards show which recording is off and link to its Settings pane.
+
 - Show a sponsor link, hostname, primary IPv4 address with prefix and a configurable clock in the panel title bar, with optional uptime, load average, battery and thermal warning. Each item is toggled in Settings > Appearance; items drop out in groups when the panel is narrow. The sponsor link is not shown in the App Store build.
 - Add project-grouped Dev Servers with git context, Compose mapping, directory actions, confirmed stop and cached CLI v2 queries.
 - Add versioned portable machine baselines, deterministic JSON, field-level drift reports, import/export, retention and pinning, CLI create/list/diff/export with 0/1/2 diff exits, and daily golden-baseline Security events.

@@ -26,7 +26,12 @@ struct SummaryView: View {
                     health
                 }
                 SummarySection("Activity") {
-                    ActivityDiffCard(store: store)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+                        ActivityDiffCard(store: store)
+                        if settingsStore.settings.history.showInsightsDigest {
+                            InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settingsStore.settings)) { store.route = .insights }
+                        }
+                    }
                     activity
                 }
                 SummarySection("Environment") {

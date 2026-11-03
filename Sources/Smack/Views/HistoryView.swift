@@ -15,12 +15,13 @@ final class HistoryViewModel: ObservableObject {
     /// The instance picker lists only the most recent instances; programs like docker have thousands.
     static let instancePickerLimit = 100
 
-    @Published var enabledMetrics: Set<SystemMetric> = [.cpu]
+    @Published var enabledMetrics: Set<SystemMetric> = [.cpu] { didSet { updateAttribution() } }
     @Published var enabledProcessMetrics: Set<ProcessMetric> = [.cpuUsage]
     /// Changing the range drops any zoom, which would otherwise point outside it.
     @Published var hours = 1.0 { didSet { if hours != oldValue { zoom = nil } } }
     /// Window selected by dragging on the chart; it is queried at full point resolution.
-    @Published var zoom: ClosedRange<Date>?
+    /// A new window drops the previous window's counts, so attribution never pairs old counts with new programs.
+    @Published var zoom: ClosedRange<Date>? { didSet { if zoom != oldValue { windowEventCounts = nil } } }
     /// Window being dragged, drawn as a highlight until the drag ends.
     @Published var dragRange: ClosedRange<Date>?
     @Published var showPeaks = true
@@ -33,12 +34,26 @@ final class HistoryViewModel: ObservableObject {
     @Published var loading = false
     @Published var query = ""
     @Published var sort = ProgramSort.recent
-    @Published var programs: [HistoricalProgram] = []
+    @Published var programs: [HistoricalProgram] = [] { didSet { updateAttribution() } }
     @Published var instances: [HistoricalProcess] = []
     /// A program is every instance sharing a process name; `selectedInstance` narrows it to one process ID.
-    @Published private(set) var selectedProgram: String?
+    @Published private(set) var selectedProgram: String? { didSet { updateAttribution() } }
     @Published var selectedInstance: String?
     @Published var selectedDate: Date?
+    /// Event counts inside the zoom window, for attribution; nil when not zoomed.
+    @Published var windowEventCounts: [ActivityEventKind: Int]? { didSet { updateAttribution() } }
+    /// Top programs and events inside the zoom window. Stored rather than computed, because hovering the chart
+    /// re-renders the view on every pointer move; metric toggles re-rank without another query.
+    @Published private(set) var attribution: SpikeAttribution?
+
+    func updateAttribution() {
+        guard let zoom, selectedProgram == nil, let windowEventCounts else {
+            if attribution != nil { attribution = nil }
+            return
+        }
+        attribution = SpikeAttribution.make(programs: programs, metrics: enabledMetrics,
+                                            window: DateInterval(start: zoom.lowerBound, end: zoom.upperBound), eventCounts: windowEventCounts)
+    }
 
     /// Toggling metrics only filters what is drawn, so it is not part of the request.
     var requestID: String {
@@ -48,6 +63,14 @@ final class HistoryViewModel: ObservableObject {
 
     /// Narrower drags are treated as clicks.
     static let minimumZoom: TimeInterval = 30
+    /// A click on the chart zooms to this window centred on the click, which attributes the moment to programs.
+    static let clickZoom: TimeInterval = 300
+    static let eventLimit = 500
+
+    /// The program list ranks the zoom window when zoomed, so sorting by CPU or Disk explains a spike.
+    var programsRequestID: String {
+        "\(hours)-" + (zoom.map { "\($0.lowerBound.timeIntervalSince1970)-\($0.upperBound.timeIntervalSince1970)" } ?? "full")
+    }
 
     /// Seconds spanned by the chart, zoomed or not.
     var visibleSpan: TimeInterval { zoom.map { $0.upperBound.timeIntervalSince($0.lowerBound) } ?? hours * 3_600 }
@@ -55,6 +78,14 @@ final class HistoryViewModel: ObservableObject {
     func zoom(to range: ClosedRange<Date>) {
         guard range.upperBound.timeIntervalSince(range.lowerBound) >= Self.minimumZoom else { return }
         zoom = range
+    }
+
+    /// Zooms to `clickZoom` around `date`, kept inside `domain`; ignored once the view is already that narrow.
+    func zoom(around date: Date, within domain: ClosedRange<Date>) {
+        guard visibleSpan > Self.clickZoom else { return }
+        let half = Self.clickZoom / 2
+        let start = min(max(date.addingTimeInterval(-half), domain.lowerBound), domain.upperBound.addingTimeInterval(-Self.clickZoom))
+        zoom(to: max(start, domain.lowerBound)...min(start.addingTimeInterval(Self.clickZoom), domain.upperBound))
     }
     var instancesRequestID: String { "\(selectedProgram ?? "")-\(hours)" }
 
@@ -279,14 +310,19 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 controls
                 HStack(alignment: .top, spacing: 12) {
-                    chart.frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 8) {
+                        chart.frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
+                        if let attribution = model.attribution {
+                            SpikeAttributionStrip(attribution: attribution, processHistory: store.settingsStore.settings.history.recordProcessHistory) { model.select(program: $0) }
+                        }
+                    }
                     processList.frame(width: 300)
                 }
             }
             .padding([.horizontal, .bottom])
         }
         .task(id: model.requestID) { await reload() }
-        .task(id: model.hours) { model.programs = await store.historicalPrograms(hours: model.hours) }
+        .task(id: model.programsRequestID) { await loadPrograms() }
         .task(id: model.instancesRequestID) { await loadInstances() }
     }
 
@@ -345,7 +381,7 @@ struct HistoryView: View {
                 .help("Draw vertical markers for activity events such as listeners, startup changes and pressure warnings. At most \(HistoryViewModel.markerLimit) are shown, preferring warnings.")
             Image(systemName: "info.circle").foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .hoverHint("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound. Drag across the chart to zoom into a time window; double-click to zoom out.")
+                .hoverHint("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound. Drag across the chart to zoom into a time window, or click to zoom to five minutes around a moment; double-click to zoom out. When zoomed, the program list ranks the zoomed window and the strip under the chart names the top programs and events in it.")
             if model.zoom != nil {
                 Button { model.zoom = nil } label: { Label("Reset Zoom", systemImage: "arrow.up.left.and.arrow.down.right") }
                     .controlSize(.small)
@@ -517,6 +553,11 @@ struct HistoryView: View {
                             }
                     )
                     .onTapGesture(count: 2) { model.zoom = nil }
+                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                        if let date = date(atX: location.x, proxy: proxy, geometry: geometry, domain: domain) {
+                            model.zoom(around: date, within: domain)
+                        }
+                    }
             }
         }
         .chartYScale(domain: 0...yUpperBound(series))
@@ -658,7 +699,7 @@ struct HistoryView: View {
 
     /// Range averages count time without the program as zero, so they match the ranking totals.
     private func programSummary(_ program: HistoricalProgram) -> Text {
-        let minutes = model.hours * 60
+        let minutes = model.visibleSpan / 60
         switch model.sort {
         case .recent: return Text(program.lastSeen, style: .relative)
         case .cpu: return Text("avg \(Formatting.percent(program.cpuTotal / minutes))")
@@ -669,7 +710,7 @@ struct HistoryView: View {
     }
 
     private func programHelp(_ program: HistoricalProgram) -> String {
-        let minutes = model.hours * 60
+        let minutes = model.visibleSpan / 60
         return [
             "\(program.name): \(program.instanceCount) instance\(program.instanceCount == 1 ? "" : "s") in range",
             "CPU avg \(Formatting.percent(program.cpuTotal / minutes)), peak \(Formatting.percent(program.cpuPeak))",
@@ -688,7 +729,7 @@ struct HistoryView: View {
         let now = Date()
         let window = model.zoom ?? now.addingTimeInterval(-model.hours * 3_600)...now
         // Markers load once per request, so toggling them never reloads history.
-        let events = await store.activityFeed.events(from: window.lowerBound, to: window.upperBound, kinds: nil, search: "", limit: 500)
+        let events = await store.activityFeed.events(from: window.lowerBound, to: window.upperBound, kinds: nil, search: "", limit: HistoryViewModel.eventLimit)
         model.markers = HistoryViewModel.selectMarkers(events)
         if let program = model.selectedProgram {
             model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance,
@@ -702,8 +743,81 @@ struct HistoryView: View {
         }
     }
 
+    private func loadPrograms() async {
+        // `.task(id:)` cancels on a new request, but an actor read already under way still returns; drop it.
+        if let zoom = model.zoom {
+            let programs = await store.historicalPrograms(from: zoom.lowerBound, to: zoom.upperBound)
+            let counts = await store.eventCounts(from: zoom.lowerBound, to: zoom.upperBound)
+            guard !Task.isCancelled else { return }
+            model.programs = programs
+            model.windowEventCounts = counts
+        } else {
+            let programs = await store.historicalPrograms(hours: model.hours)
+            guard !Task.isCancelled else { return }
+            model.programs = programs
+        }
+    }
+
     private func loadInstances() async {
         guard let program = model.selectedProgram else { return }
         model.instances = await store.historicalInstances(of: program, hours: model.hours)
+    }
+}
+
+/// Top programs and events in the zoom window, under the system chart.
+private struct SpikeAttributionStrip: View {
+    let attribution: SpikeAttribution
+    let processHistory: Bool
+    let select: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Label("In this window", systemImage: "scope").font(.caption.weight(.semibold))
+                Text(events).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+            }
+            HStack(alignment: .top, spacing: 16) {
+                ForEach(attribution.rankings) { ranking in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ranking.measure.rawValue).font(.caption2).foregroundStyle(.secondary)
+                        if ranking.entries.isEmpty {
+                            Text("None").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        ForEach(ranking.entries, id: \.name) { entry in
+                            Button { select(entry.name) } label: {
+                                HStack(spacing: 4) {
+                                    Text(entry.name).lineLimit(1).truncationMode(.middle)
+                                    Text(SpikeAttribution.format(entry.value, measure: ranking.measure)).foregroundStyle(.secondary).monospacedDigit()
+                                }
+                                .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show \(entry.name) in this window")
+                        }
+                    }
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+            }
+            if !processHistory {
+                Text("Process history is off (Settings > Processes), so recent windows have no programs to attribute.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            if !attribution.unattributable.isEmpty {
+                Text("Network and GPU have no per-process history, so they cannot be attributed here.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .monitorSurface()
+        .help("Averages over the window count time without a program as zero. Disk is bytes read plus written.")
+    }
+
+    private var events: String {
+        let parts = ActivityEventKind.Group.allCases.compactMap { group in
+            attribution.eventCounts[group].map { "\($0) \(group.rawValue.lowercased())" }
+        }
+        return parts.isEmpty ? "No events" : parts.joined(separator: " · ")
     }
 }

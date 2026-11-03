@@ -11,6 +11,7 @@ import Testing
         #expect(routes.contains(.summary))
         #expect(routes.contains(.systemDetails))
         #expect(routes.contains(.settings))
+        #expect(routes.contains(.insights))
         #expect(routes.contains(.resource(.battery)))
         for resource in ResourceKind.allCases { #expect(routes.contains(.resource(resource))) }
         if !Capabilities.isSandboxed {
@@ -67,12 +68,32 @@ import Testing
             store.receive(sample)
         }
         store.receive(obsSnapshot([], apps: [obsProcess(123, name: "Preview", app: true, cpu: 12)]))
+        // Recent history, so Insights and the digest render rows instead of empty states.
+        let now = Date().timeIntervalSince1970
+        for minute in 0..<30 {
+            var writer = obsProcess(321, name: "writer", cpu: 8)
+            writer.diskWriteRate = Double(1_000_000 * (minute % 5 + 1))
+            try await history.save(processes: obsSnapshot([writer], at: now - Double(minute) * 120))
+        }
+        var events: [ActivityEvent] = []
+        for index in 0..<12 {
+            let id = "\(500 + index)-\(index)", time = now - 3_000 + Double(index) * 200
+            events.append(.make(kind: .processStarted, timestamp: Date(timeIntervalSince1970: time), subject: "agent", processID: id,
+                                processName: "agent", severity: .info, details: ["parent": "1", "path": "/Applications/Vendor.app/agent"]))
+            events.append(.make(kind: .processExited, timestamp: Date(timeIntervalSince1970: time + 3), subject: "agent", processID: id,
+                                processName: "agent", severity: .info))
+        }
+        events.append(.make(kind: .connectionOpened, timestamp: Date(timeIntervalSince1970: now - 3 * 86_400), subject: "10.0.0.2:5000 → 8.8.8.8:443",
+                            processName: "browser", severity: .info))
+        events.append(.make(kind: .connectionOpened, timestamp: Date(timeIntervalSince1970: now - 600), subject: "10.0.0.2:5001 → 1.1.1.1:443",
+                            processName: "browser", severity: .info))
+        try await history.save(events: events)
         let nativeMenuBar = NativeMenuBarStore()
         let output = ProcessInfo.processInfo.environment["SMACK_DESIGN_PREVIEW_DIR"].map { URL(fileURLWithPath: $0) }
         if let output { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
         for dark in [false, true] {
             for width in [900.0, 1440.0] {
-                let routes: [AppRoute] = [.summary, .resource(.cpu), .applications, .settings, .resource(.storage)]
+                let routes: [AppRoute] = [.summary, .resource(.cpu), .applications, .settings, .resource(.storage), .insights, .history]
                 let root = MonitorRootView(store: store, nativeMenuBarStore: nativeMenuBar, onClose: {})
                     .frame(width: width, height: 900)
                     .environment(\.colorScheme, dark ? .dark : .light)

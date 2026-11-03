@@ -15,7 +15,7 @@ private func parseLink(_ text: String, flavor: DistributionFlavor = .direct) -> 
         ("app/com.example.live", .application("app-id")), ("process/42", .process("42-start")),
         ("ports", .networkPorts), ("port/443", .networkPorts), ("docker", .docker), ("homebrew", .homebrew),
         ("dev", .devEnvironments), ("home", .userHome), ("agents", .agents), ("installed", .installedApps),
-        ("startup", .startupItems), ("security", .security), ("timeline", .timeline), ("history", .history),
+        ("startup", .startupItems), ("security", .security), ("timeline", .timeline), ("history", .history), ("insights", .insights),
         ("settings", .settings), ("settings/alerts", .settings), ("system", .systemDetails)]
     for (path, route) in routes { #expect(parseLink("smack://" + path).route == route) }
 }

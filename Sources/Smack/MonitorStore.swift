@@ -30,6 +30,7 @@ enum AppRoute: Hashable {
     case startupItems
     case timeline
     case history
+    case insights
     case settings
     case systemDetails
     case security
@@ -160,6 +161,7 @@ final class MonitorStore: ObservableObject {
     let agentsModel = AgentMonitor()
     let installedAppsModel = InstalledAppsMonitor()
     let baselines = BaselineModel()
+    let insights: InsightsModel
     let activityFeed: ActivityFeedModel
     let inspection: ProcessInspectionModel
     let devServersModel = DevServersModel()
@@ -214,6 +216,7 @@ final class MonitorStore: ObservableObject {
         self.history = history
         self.scheduler = scheduler
         activityFeed = ActivityFeedModel(events: history, metadata: history, defaults: defaults)
+        insights = InsightsModel(history: history)
         inspection = ProcessInspectionModel(knowledgeBase: knowledgeBase) { process in await scheduler.inventory(for: process) }
         historyViewModel.showEvents = settingsStore.settings.activity.showEventsOnCharts
         startupItemsModel.onInventory = { [weak self] inventory in
@@ -556,6 +559,19 @@ final class MonitorStore: ObservableObject {
             errorMessage = "History could not be read: \(error.localizedDescription)"
             return []
         }
+    }
+
+    func historicalPrograms(from start: Date, to end: Date) async -> [HistoricalProgram] {
+        do {
+            return try await history.programs(from: start, to: end)
+        } catch {
+            errorMessage = "History could not be read: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    func eventCounts(from start: Date, to end: Date) async -> [ActivityEventKind: Int] {
+        (try? await history.eventCounts(from: start, to: end)) ?? [:]
     }
 
     func historicalInstances(of program: String, hours: Double) async -> [HistoricalProcess] {

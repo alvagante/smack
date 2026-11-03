@@ -715,6 +715,16 @@ struct SettingsView: View {
             SettingsFooter("Process history, usually the largest part, is set in Processes.")
         }
         Section {
+            Toggle(isOn: binding(\.history.showInsightsDigest)) {
+                SettingsLabel("Last 24 hours card on Summary", help: "Peaks, top consumers, disk writes and notable events from stored history. Reads take about a second, at most every five minutes while Summary is shown; nothing is written. Minimal performance turns it off.",
+                              subtitle: "Reads only")
+            }
+        } header: {
+            Text("Insights")
+        } footer: {
+            SettingsFooter("Insights use what is already recorded: process history for disk writes and spike attribution, process events for churn, and connection events (Network) for new destinations.")
+        }
+        Section {
             if let usage = model.usage {
                 ForEach(usage.categories) { category in
                     LabeledContent {
