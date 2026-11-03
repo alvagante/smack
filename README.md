@@ -8,29 +8,18 @@ No windows to manage, no third-party dependencies, no data leaving the machine.
 
 ![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
 
-## New in 0.7.0
+## Advanced features
 
-Docker and Homebrew management, installed-app inventory and size measurement, runtime
-discovery for 26 languages, AI-agent configuration browsing, and a user-home browser.
-Application and process pages gain launch context, logs, startup, security and file-activity
-inspections. Live network rates now cover individual processes and applications, and
-native menu-bar icons support macOS 27. These features require the direct build.
-
-See [the changelog](CHANGELOG.md#070---2026-10-31) for the full release notes.
-
-Release 1.0.0 is unreleased and combines specs 004 and
-[005](docs/specs/005-dev-sessions-baseline-export.md). Spec 005 implements dev servers,
-agent sessions, baseline drift and portable file export; Prometheus export will not be implemented.
-Completed spec 004 work includes: disabled-by-default alert templates, navigation URLs,
-cached CLI/typed intents, CSV/TSV exports, offline Security checks and bounded persistence monitoring.
-Security checks start after 60 seconds and default to a six-hour schedule. Unknown results explicitly
-cover missing Full Disk Access, helper/version limitations and unreadable preferences.
-See [CLI](docs/cli.md), [URLs](docs/url-scheme.md), [capabilities](docs/distribution.md) and
-[validation/release gates](docs/spec-004-validation.md). Validation uses M5 Max/macOS 27.2;
-M1/macOS 15 remain unverified and accepted. Shortcuts and the helper upgrade were accepted by the user.
-Distribution remains GitHub releases and the Homebrew cask without Developer ID or notarization;
-Local 1.0.0 (build 10) release bundles are prepared by phase 4; publication still requires approval.
-See [spec 005 hardening and release gates](docs/spec-005-phase4-validation.md).
+- **Dev servers:** Summary's Dev servers card opens project-grouped TCP listeners with git branches, project types and Docker Compose context. Open a listener in the browser, copy its address, reveal its project, open the configured terminal or editor, or confirm a process or container action. Settings > Development selects installed terminal and editor apps and optional background collection. Direct builds also provide `smack devservers --json`, `smack who 3000` and `smack://devservers`, all using the same cached rows.
+- **Agent sessions:** the Agents page shows live sessions above the configuration inventory, with project and git branch, nested sessions, aggregate resource use, configured or inferred MCP servers, helpers, recent commands, listeners, remote endpoints and best-effort session log locations. Ended sessions remain for ten minutes. File Activity uses the existing helper capture on demand. Arguments stay out of session models, history and CLI output; command-line reveal is opt-in and uses Launch Context masking. Direct builds provide `smack agents --json`, lifecycle events in the Agents group, and disabled alert templates for external listeners and long-running session roots. App Store builds omit agent sessions.
+- **Machine baselines:** capture selected machine inventories, compare stored or fresh state, and import another Mac's JSON. Open the header branch icon or `smack://baseline`. Export baseline JSON and drift reports as JSON or Markdown; direct builds also provide `smack baseline create|list|diff|export`. Baselines support retention and pinning, and daily comparison to a golden baseline emits Security events. See the [baseline format](docs/baseline-format.md).
+- **Alerts:** create local-notification rules for sustained metric thresholds or activity events. Built-in templates cover CPU, memory pressure, swap, disk space, thermal state, battery, process CPU, external listeners, persistence and posture changes; all are disabled by default. Rules have sustain, cooldown, snooze and test controls, plus global pause and rate limiting. Every firing is recorded in the Timeline, including suppressed notifications.
+- **Automation and Shortcuts:** navigate directly to pages with `smack://` URLs. Direct builds include a `smack` CLI for cached status, process, app, port, event, history, startup, posture and alert queries, future-only event following, page opening, and JSON, CSV or TSV output. Five App Intents provide system status, top processes, port owners and recent events to Shortcuts, or open a Smack page. Settings > Automation controls each interface independently. See the [CLI](docs/cli.md) and [URL scheme](docs/url-scheme.md).
+- **Security and persistence monitoring:** the Security page runs offline checks for system integrity, encryption, network exposure, device management, privacy grants and persistence, with evidence, remediation links and explicit unknown reasons. Checks start after 60 seconds and default to a six-hour schedule. Bounded watchers detect startup and persistence-file changes, enriched with signing, notarization, quarantine and location details; a current helper adds background-item and configuration-profile scans.
+- **Dedicated GPU page:** device utilization with Live, 1h, 24h and 7d charts, renderer and tiler lines, memory in use and allocated, and recoveries since boot. Apple GPU process time has Apps and All scopes, live row graphs and detail navigation. Process counters are read only while the page is visible and are never saved to history.
+- **Battery history:** the Battery page combines live charge, time remaining, health and cycle count with macOS PowerLog history for charge levels, charging sessions, time near full, drain, screen time, capacity, temperature and system power. Choose 24-hour, 7-day or 30-day ranges. History is read from macOS rather than recorded by Smack and is unavailable in the App Store build.
+- **Customizable title bar:** optionally show a sponsor link, hostname, primary IPv4 address and prefix, a configurable clock, uptime, load average, battery and thermal warnings. Items drop out in groups when the panel is narrow; the sponsor link is omitted from the App Store build.
+- **History chart zoom:** drag across a system or program history chart to inspect a time window at full available resolution. Double-click or use Reset Zoom to return to the complete range.
 
 ## Core features: see, change, monitor
 
@@ -39,7 +28,7 @@ What you can **see** and **monitor**:
 - **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in, direct build).
 - **Live dashboard:** CPU, GPU, memory, network and disk activity with inline trend charts, plus grouped health and activity readings, on hover or click of the notch or menu-bar icon. Each resource opens a detail view with a large live or 1h/24h/7d chart above the heaviest processes, each with its own sparkline. Summary uses System Settings-style grouped rows for Performance, Health, Activity and Environment. The Thermal State page charts hardware temperature sensors and fan speeds as horizontal bars (direct build).
 - **Applications and processes:** sortable metrics with real app icons, and per-process details with open files, connections, threads, and loaded libraries.
-- **Process inspections:** Launch Context (arguments, working directory, masked environment), Logs (severity, search, live refresh and crash reports), Startup (matching registrations and restart triggers), Security (identity, signing and entitlements), and File Activity (five-second filesystem traces via the updated superuser helper). Available on application and individual process pages in direct builds.
+- **Process inspections:** Launch Context (arguments, working directory, masked environment), Logs (severity, search, live refresh and crash reports), Startup (matching registrations and restart triggers), Security (identity, signing and entitlements), and File Activity (configurable 5-, 10- or 30-second filesystem traces via the updated superuser helper). Available on application and individual process pages in direct builds.
 - **Application detail:** one page per application merging files, connections, threads, libraries, provenance, timeline and history across all its processes, plus on-demand profiling with `footprint`, `vmmap`, `heap`, `leaks` and `sample` summarized as highlights (direct build). Heap and Leaks ask before they suspend the process.
 - **Network:** live per-process and per-application receive/send rates with sparklines (direct build, live only), listening TCP ports with browser links, plus all TCP connections grouped by application with expandable details (direct build). Per-process network rates use one persistent `nettop` process while the panel is visible, refreshing at the configured interval (five seconds by default); sampling stops when hidden.
 - **Storage explorer:** on-demand home-folder or startup-disk scans with an interactive directory map, size rankings, recursive file counts, breadcrumbs, progress, and cancellation. The App Store build scans a folder you select.
@@ -59,7 +48,7 @@ What you can **change**:
 
 - **Startup items:** every Open at Login app, app-registered background item, launch agent and daemon, and user cron job, with running state and an enable/disable switch for each (direct build). Open at Login apps and app background items appear after Scan for All Items, which asks for an administrator password; daemon changes ask for one too; Apple items are listed read-only.
 - **Quit or kill applications:** Terminate asks an application to quit as the Dock does, so it can offer to save; Force Kill ends its processes immediately. Only the processes shown at confirmation are touched, and a pid reused in the meantime is skipped (direct build).
-- **Settings:** grouped forms with a settings navigation column and one pane per feature: System, Processes, Network and Security each hold their background interval, history and Activity Timeline switches; Development, Docker, AI Agents and Other Pages each start with a Show page master switch that also stops the page's background work. A Performance pane offers Standard, Light and Minimal presets over refresh, background intervals, battery slowdown, process history, memory budget and Docker statistics. Historical Data covers retention, Storage Usage, compaction, export and delete.
+- **Settings:** grouped forms with a settings navigation column and one pane per feature. System, Processes, Network and Security each hold their background interval, history and Activity Timeline switches; Development, Docker, AI Agents and Other Pages each start with a Show page master switch that also stops the page's background work. Performance offers Standard, Light and Minimal presets over refresh, background intervals, battery slowdown, process history, memory budget and Docker statistics. Individual controls cover panel refresh, per-process network rates, inventory visibility and cache lifetimes, Docker auto-refresh and statistics, development scan depth, agent selection and custom folders, Timeline capacity, and File Activity trace length. Historical Data covers retention, Storage Usage, compaction, export and delete; Alerts and Automation have independent evaluation, delivery and access controls.
 
 ## Additional features
 
@@ -166,26 +155,3 @@ release. App Store packages are produced by the manual workflow; see
 ## License
 
 Smack is released under the [MIT License](LICENSE).
-
-### Dev servers (unreleased)
-
-Summary's Dev servers card opens project-grouped TCP listeners with git branches, project types and
-Docker Compose context. Open a listener in the browser, copy its address, reveal its project, open
-the configured terminal/editor, or confirm a process/container action. Settings > Development
-selects installed terminal/editor apps and optional background collection. Direct builds only.
-`smack devservers --json`, `smack who 3000` and `smack://devservers` use the same cached rows.
-
-### Agent sessions (unreleased)
-
-The Agents page shows live agent sessions above the configuration inventory: project and git branch,
-nested sessions, aggregate resource use, configured or inferred MCP servers, helpers, recent commands,
-listeners, remote endpoints and best-effort session log locations. Ended sessions remain for ten minutes.
-File Activity uses the existing helper capture on demand. Arguments stay out of session models,
-history and CLI output; command line reveal is opt-in and uses Launch Context masking.
-Direct builds provide `smack agents --json`, lifecycle events in the Agents group, and disabled alert
-templates for external listeners and long-running session roots. App Store builds omit agent sessions.
-
-Baselines capture selected machine inventories, compare stored or fresh state, and import another Mac's
-JSON. Open the header branch icon or `smack://baseline`. Export baseline JSON and drift reports as JSON
-or Markdown; direct builds also provide `smack baseline create|list|diff|export`. Daily comparison to a
-golden baseline emits Security events. See [baseline format](docs/baseline-format.md) and [CLI](docs/cli.md).

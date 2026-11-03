@@ -192,6 +192,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     static let constrainedPowerChoices = [1, 2, 4, 8]
     static let processNetworkRateRange: ClosedRange<TimeInterval> = 2...60
     static let maximumEventRowsRange: ClosedRange<Int> = 10_000...1_000_000
+    static let timelineReadLimitRange: ClosedRange<Int> = 500...20_000
     static let dockerRefreshChoices = [0, 15, 30, 60]
     static let devScanDepthRange: ClosedRange<Int> = 1...8
     static let fileActivityChoices = [5, 10, 30]
@@ -434,6 +435,8 @@ struct ActivitySettings: Codable, Equatable, Sendable {
     var eventRetentionDays = 7
     /// Newest Activity Events kept regardless of retention.
     var maximumEventRows = 100_000
+    /// Newest events the Timeline reads for one window; filters and search run on these in memory.
+    var timelineReadLimit = 2_000
     /// Outbound connection churn is noisy, so connection events are opt-in.
     var recordConnectionEvents = false
     var showEventsOnCharts = true
@@ -463,6 +466,7 @@ struct ActivitySettings: Codable, Equatable, Sendable {
         typealias S = CollectionSettings
         eventRetentionDays = min(max(eventRetentionDays, S.eventRetentionRange.lowerBound), S.eventRetentionRange.upperBound)
         maximumEventRows = min(max(maximumEventRows, S.maximumEventRowsRange.lowerBound), S.maximumEventRowsRange.upperBound)
+        timelineReadLimit = min(max(timelineReadLimit, S.timelineReadLimitRange.lowerBound), S.timelineReadLimitRange.upperBound)
     }
 
     init() {}
@@ -473,6 +477,7 @@ struct ActivitySettings: Codable, Equatable, Sendable {
         recordActivity = c.value(.recordActivity, or: d.recordActivity)
         eventRetentionDays = c.value(.eventRetentionDays, or: d.eventRetentionDays)
         maximumEventRows = c.value(.maximumEventRows, or: d.maximumEventRows)
+        timelineReadLimit = c.value(.timelineReadLimit, or: d.timelineReadLimit)
         recordConnectionEvents = c.value(.recordConnectionEvents, or: d.recordConnectionEvents)
         showEventsOnCharts = c.value(.showEventsOnCharts, or: d.showEventsOnCharts)
         recordProcessEvents = c.value(.recordProcessEvents, or: d.recordProcessEvents)

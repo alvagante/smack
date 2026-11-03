@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "What changed" tile on Summary: the latest changes and peaks since the user last looked. The full list lives in
+/// "Timeline" tile on Summary: the latest changes and peaks since the user last looked. The full list lives in
 /// the Timeline.
 struct ActivityDiffCard: View {
     @ObservedObject var store: MonitorStore
@@ -15,7 +15,7 @@ struct ActivityDiffCard: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("What changed", systemImage: "list.bullet.rectangle")
+                    Label("Timeline", systemImage: "list.bullet.rectangle")
                         .font(.body.weight(.medium))
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
@@ -39,7 +39,7 @@ struct ActivityDiffCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("What changed. View timeline")
+        .accessibilityLabel("Timeline. Recent changes")
         .help("Events and peaks \(subtitle). Click for the full timeline.")
     }
 

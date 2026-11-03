@@ -10,8 +10,7 @@ struct AgentsSummaryTile: View {
             SummaryNavigationRow(route: .agents,
                 value: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
                 detail: "Configuration, logs, memory and skills", open: open)
-                .background(MonitorStyle.page)
-        .task { if model.snapshot == nil { await model.refresh() } }
+                .task { if model.snapshot == nil { await model.refresh() } }
         }
     }
 }

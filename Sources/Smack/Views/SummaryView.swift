@@ -29,10 +29,8 @@ struct SummaryView: View {
                     ActivityDiffCard(store: store)
                     activity
                 }
-                if !Capabilities.isSandboxed && SummaryPage.allCases.contains(where: settingsStore.settings.shows) {
-                    SummarySection("Environment") {
-                        environment
-                    }
+                SummarySection("Environment") {
+                    environment
                 }
             }
             .frame(maxWidth: 1000)
@@ -44,17 +42,35 @@ struct SummaryView: View {
     private var macOverview: some View {
         Button { store.route = .systemDetails } label: {
             HStack(spacing: 16) {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 32, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 56, height: 48)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
-                        .font(MonitorStyle.title)
-                    Text([SystemInformation.processorName, Formatting.bytes(ProcessInfo.processInfo.physicalMemory) + " memory"].compactMap { $0 }.joined(separator: " · "))
-                        .font(.callout).foregroundStyle(.secondary)
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .frame(width: 48, height: 48)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("Smack").font(MonitorStyle.title)
+                        // Unbundled debug runs have no Info.plist version.
+                        Text((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).map { "v\($0)" } ?? "dev")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("All you can know").font(.callout).foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: 16)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
+                        .font(.body.weight(.medium))
+                    Text([SystemInformation.processorName, Formatting.bytes(ProcessInfo.processInfo.physicalMemory) + " memory"].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.trailing)
+                if let boot = SystemInformation.bootTime {
+                    Divider().frame(height: 32)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(CPUReadings.uptime(Date().timeIntervalSince(boot))).font(.body.weight(.medium)).monospacedDigit()
+                        Text("Uptime").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .help("Up since \(boot.formatted(date: .abbreviated, time: .shortened))")
+                }
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
             .padding(16)
@@ -122,7 +138,7 @@ struct SummaryView: View {
     }
 
     private var health: some View {
-        VStack(spacing: 0) {
+        SummaryGrid {
             SummaryNavigationRow(route: .resource(.thermal), value: store.system?.thermalCondition.rawValue.capitalized ?? "Collecting…", detail: "Temperature sensors and fans") { store.route = .resource(.thermal) }
             if let volumes = store.system?.volumes, !volumes.isEmpty {
                 let total = volumes.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
@@ -136,9 +152,7 @@ struct SummaryView: View {
             if Capabilities.supportsPostureChecks {
                 securityRow
             }
-            BaselineSummaryTile(model: store.baselines, settingsStore: settingsStore) { store.route = .baseline }
         }
-        .monitorSurface()
     }
 
     private var securityRow: some View {
@@ -151,7 +165,7 @@ struct SummaryView: View {
     }
 
     private var activity: some View {
-        VStack(spacing: 0) {
+        SummaryGrid {
             SummaryNavigationRow(route: .applications, value: store.processes.map { "\($0.applications.count) running" } ?? "Collecting…",
                                  detail: store.processes?.applications.max(by: { $0.cpuUsage < $1.cpuUsage }).map { "Most active: \($0.name) · \(Formatting.percent($0.cpuUsage)) CPU" } ?? "Applications and processes") { store.route = .applications }
             if Capabilities.supportsNetworkPortInspection {
@@ -162,14 +176,19 @@ struct SummaryView: View {
                 StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems }
             }
             SummaryNavigationRow(route: .history, value: "Explore trends", detail: "System and per-program history") { store.route = .history }
+            BaselineSummaryTile(model: store.baselines, settingsStore: settingsStore) { store.route = .baseline }
         }
-        .monitorSurface()
+    }
+
+    private var macOSVersion: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "macOS \(version.majorVersion).\(version.minorVersion)"
     }
 
     private var environment: some View {
         let settings = settingsStore.settings
-        return VStack(spacing: 0) {
-            if settings.shows(.devServers) {
+        return SummaryGrid {
+            if !Capabilities.isSandboxed && settings.shows(.devServers) {
                 SummaryNavigationRow(route: .devServers, value: devServers.devServers.map { "\($0.count) servers" } ?? "Awaiting collection", detail: "Projects, listeners and containers") { store.route = .devServers }
             }
             if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
@@ -178,6 +197,18 @@ struct SummaryView: View {
             if settings.shows(.agents) { AgentsSummaryTile(model: store.agentsModel) { store.route = .agents } }
             if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
             if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
+            SummaryNavigationRow(route: .systemDetails, value: macOSVersion, detail: "Hardware, software and limits") { store.route = .systemDetails }
+        }
+    }
+}
+
+/// Two columns of Summary links on one surface; each row stretches to the tallest cell in its grid row.
+private struct SummaryGrid<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
+            content
         }
         .monitorSurface()
     }
@@ -228,7 +259,7 @@ struct SummaryNavigationRow: View {
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
-            .frame(minHeight: 64)
+            .frame(minHeight: 64, maxHeight: .infinity)
             .contentShape(Rectangle())
             .overlay(alignment: .bottom) { Rectangle().fill(MonitorStyle.separator.opacity(0.5)).frame(height: 0.5).padding(.leading, 56) }
         }

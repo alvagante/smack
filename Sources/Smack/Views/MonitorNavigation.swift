@@ -12,18 +12,18 @@ enum MonitorNavigation {
         var health: [AppRoute] = [.resource(.storage), .resource(.thermal)]
         if hasBattery { health.append(.resource(.battery)) }
         if Capabilities.supportsPostureChecks { health.append(.security) }
-        health.append(.baseline)
         var activity: [AppRoute] = [.applications, .timeline, .history]
         if Capabilities.supportsNetworkPortInspection { activity.append(.networkPorts) }
         if Capabilities.supportsStartupItems { activity.append(.startupItems) }
-        let environment: [AppRoute] = Capabilities.isSandboxed ? [] : SummaryPage.allCases.filter(settings.shows).map(\.route)
+        activity.append(.baseline)
+        let environment: [AppRoute] = (Capabilities.isSandboxed ? [] : SummaryPage.allCases.filter(settings.shows).map(\.route)) + [.systemDetails]
         return [
             MonitorNavigationSection(title: "", routes: [.summary]),
             MonitorNavigationSection(title: "Performance", routes: [.resource(.cpu), .resource(.gpu), .resource(.memory), .resource(.network), .resource(.disk)]),
             MonitorNavigationSection(title: "Health", routes: health),
             MonitorNavigationSection(title: "Activity", routes: activity),
             MonitorNavigationSection(title: "Environment", routes: environment),
-            MonitorNavigationSection(title: "Smack", routes: [.systemDetails, .settings])
+            MonitorNavigationSection(title: "Smack", routes: [.settings])
         ].filter { !$0.routes.isEmpty }
     }
 }
