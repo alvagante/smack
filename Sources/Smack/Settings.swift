@@ -102,7 +102,7 @@ enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: "Default resolution: live refresh every second, background system and process samples every 5 and 10 s, full process history."
         case .light: "Coarser history at lower cost: live refresh every 2 s, background samples every 15 and 30 s, history for the 50 busiest processes, smaller caches."
-        case .minimal: "Lowest cost: live refresh every 5 s, system samples every minute, no background process or port sampling, no process history. Background agent sessions, process events and process alerts stop while the panel is closed."
+        case .minimal: "Lowest cost: live refresh every 5 s, system samples every minute, no background process or port sampling, no process history and no Summary digest. Background agent sessions, process events and process alerts stop while the panel is closed."
         }
     }
 
@@ -118,6 +118,7 @@ enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
             settings.sampling.constrainedPowerMultiplier = 1
             settings.history.recordProcessHistory = true
             settings.history.processHistoryTopCount = 0
+            settings.history.showInsightsDigest = true
             settings.sampling.memoryBudget = .standard
             settings.devTools.dockerLiveStats = true
         case .light:
@@ -130,6 +131,7 @@ enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
             settings.sampling.constrainedPowerMultiplier = 4
             settings.history.recordProcessHistory = true
             settings.history.processHistoryTopCount = 50
+            settings.history.showInsightsDigest = true
             settings.sampling.memoryBudget = .small
             settings.devTools.dockerLiveStats = false
         case .minimal:
@@ -140,6 +142,7 @@ enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
             settings.sampling.backgroundNetworkInterval = nil
             settings.sampling.constrainedPowerMultiplier = 8
             settings.history.recordProcessHistory = false
+            settings.history.showInsightsDigest = false
             settings.sampling.memoryBudget = .small
             settings.devTools.dockerLiveStats = false
         }
@@ -403,6 +406,9 @@ struct HistorySettings: Codable, Equatable, Sendable {
     var processHistoryTopCount = 0
     /// How long one-minute process rows are kept, capped by `retentionDays`.
     var processMinuteRetentionDays = 7
+    /// The Summary "Last 24 hours" card. It only reads history (about a second of queries, at most every five minutes
+    /// while Summary is shown); off skips those reads. The Insights page itself always reads on demand.
+    var showInsightsDigest = true
 
     mutating func validate() {
         typealias S = CollectionSettings
@@ -424,6 +430,7 @@ struct HistorySettings: Codable, Equatable, Sendable {
         recordProcessHistory = c.value(.recordProcessHistory, or: d.recordProcessHistory)
         processHistoryTopCount = c.value(.processHistoryTopCount, or: d.processHistoryTopCount)
         processMinuteRetentionDays = c.value(.processMinuteRetentionDays, or: d.processMinuteRetentionDays)
+        showInsightsDigest = c.value(.showInsightsDigest, or: d.showInsightsDigest)
     }
 }
 

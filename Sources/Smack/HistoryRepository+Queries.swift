@@ -76,8 +76,8 @@ extension HistoryRepository {
             })
     }
 
-    /// Programs (process names) with history since `start`, with interval-independent totals for ranking.
-    func programs(from start: Date) throws -> [HistoricalProgram] {
+    /// Programs (process names) with history between `start` and `end`, with interval-independent totals for ranking.
+    func programs(from start: Date, to end: Date = .distantFuture) throws -> [HistoricalProgram] {
         try withStatement("""
             SELECT p.name, COUNT(DISTINCT u.process_id), MAX(p.last_seen),
                 SUM(u.cpu), MAX(u.cpu_peak), SUM(u.memory), MAX(u.memory_peak), SUM(u.disk) * 60, MAX(u.disk_peak),
@@ -88,7 +88,7 @@ extension HistoryRepository {
                     SUM(memory * weight) / SUM(weight) AS memory, MAX(memory) AS memory_peak,
                     SUM((disk_read + disk_write) * weight) / SUM(weight) AS disk, MAX(disk_read + disk_write) AS disk_peak,
                     SUM(wakeups * weight) / SUM(weight) AS wakeups, MAX(wakeups) AS wakeups_peak
-                FROM process_samples WHERE timestamp >= ?
+                FROM process_samples WHERE timestamp >= ? AND timestamp <= ?
                 GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
                 UNION ALL
                 SELECT process_id,
@@ -96,13 +96,13 @@ extension HistoryRepository {
                     memory_total / sample_count, memory_peak,
                     (disk_read_total + disk_write_total) / sample_count, disk_read_peak + disk_write_peak,
                     wakeups_total / sample_count, wakeups_peak
-                FROM process_minutes WHERE timestamp >= ?
+                FROM process_minutes WHERE timestamp >= ? AND timestamp <= ?
             ) u
             JOIN processes p ON p.id = u.process_id
             GROUP BY p.name
             """) { statement in
-            bind(start.timeIntervalSince1970, at: 1, to: statement)
-            bind(start.timeIntervalSince1970, at: 2, to: statement)
+            for index: Int32 in [1, 3] { bind(start.timeIntervalSince1970, at: index, to: statement) }
+            for index: Int32 in [2, 4] { bind(min(end.timeIntervalSince1970, 1e12), at: index, to: statement) }
             var result: [HistoricalProgram] = []
             while true {
                 let code = sqlite3_step(statement)

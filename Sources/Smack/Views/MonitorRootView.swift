@@ -99,6 +99,7 @@ struct MonitorRootView: View {
                 case .startupItems: StartupItemsView(model: store.startupItemsModel)
                 case .timeline: TimelineView(store: store)
                 case .history: HistoryView(store: store)
+                case .insights: InsightsView(store: store)
                 case .settings: SettingsView(store: store)
                 case .systemDetails: SystemDetailsView(store: store)
                 case .baseline: BaselineView(store: store, model: store.baselines)

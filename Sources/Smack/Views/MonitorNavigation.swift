@@ -12,7 +12,7 @@ enum MonitorNavigation {
         var health: [AppRoute] = [.resource(.storage), .resource(.thermal)]
         if hasBattery { health.append(.resource(.battery)) }
         if Capabilities.supportsPostureChecks { health.append(.security) }
-        var activity: [AppRoute] = [.applications, .timeline, .history]
+        var activity: [AppRoute] = [.applications, .timeline, .history, .insights]
         if Capabilities.supportsNetworkPortInspection { activity.append(.networkPorts) }
         if Capabilities.supportsStartupItems { activity.append(.startupItems) }
         activity.append(.baseline)
@@ -69,6 +69,7 @@ extension AppRoute {
         case .startupItems: "Startup items"
         case .timeline: "Timeline"
         case .history: "Historical data"
+        case .insights: "Insights"
         case .settings: "Settings"
         case .systemDetails: "System details"
         case .security: "Security"
@@ -103,6 +104,7 @@ extension AppRoute {
         case .startupItems: "sunrise"
         case .timeline: "list.bullet.rectangle"
         case .history: "clock.arrow.circlepath"
+        case .insights: "lightbulb"
         case .settings: "gearshape"
         case .systemDetails: "info.circle"
         case .security: "shield"
@@ -122,6 +124,7 @@ extension AppRoute {
         case .timeline, .history, .devEnvironments: .teal
         case .userHome: .pink
         case .startupItems: .orange
+        case .insights: .yellow
         case .settings, .systemDetails, .unavailable: .gray
         default: .blue
         }

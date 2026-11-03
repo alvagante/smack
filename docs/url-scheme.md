@@ -2,7 +2,7 @@
 
 `smack://` opens Summary. Resource pages use `cpu`, `memory`, `network`, `disk`, `storage`, `battery`
 and `thermal`. Other hosts: `apps`, `ports`, `devservers`, `docker`, `homebrew`, `dev`, `home`, `agents`, `installed`,
-`startup`, `security`, `baseline`, `timeline`, `history`, `settings`, `system`.
+`startup`, `security`, `baseline`, `timeline`, `history`, `insights`, `settings`, `system`.
 
 Specific routes: `smack://app/<bundle-id>`, `smack://process/<pid>`, `smack://port/<port>`,
 `smack://settings/alerts`. Timeline accepts `since=1h`, comma-separated `kind`, and `q` search.

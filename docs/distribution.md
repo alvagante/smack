@@ -37,6 +37,8 @@ out of scope. App Sandbox prevents that flavor from using the root sampling help
 | Terminate and Force Kill | yes; Terminate asks applications to quit, Force Kill sends SIGKILL | unavailable: the sandbox denies signaling other processes |
 | Hardware temperature sensors | yes, undocumented IOHIDEventSystemClient, read only while the thermal page is open | unavailable: private interface, not compiled in |
 | Update channel | GitHub release zip and `alvagante/tap` cask | not planned |
+| Insights: spike attribution, disk write ledger, process churn, Summary digest (unreleased) | yes | yes, from the history the build records |
+| Insights: new network destinations (unreleased) | yes, when connection events are on (off by default) | unavailable: connection events are direct-only |
 | Threshold/event alerts and navigation URLs (unreleased) | yes | yes, available metrics only |
 | Typed App Intents (unreleased) | five packaged actions; macOS 27.2 checks accepted by user, macOS 15 unverified | compile only; runtime out of scope |
 | Same-UID control socket and CLI (unreleased) | cached queries, bounded history, future-only follow, delivery controls, CSV/TSV output | unavailable, no socket/CLI |
