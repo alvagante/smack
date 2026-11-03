@@ -301,6 +301,20 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     #expect(summed[.cpuUsage]?.first?.average == 20)
     let single = try await repository.processHistory(program: "worker", processID: "1-1234.0", from: start.addingTimeInterval(-1), limit: 720)
     #expect(single[.cpuUsage]?.first?.average == 10)
+    let window = try await repository.processHistory(program: "worker", processID: "1-1234.0", from: start.addingTimeInterval(10), to: start.addingTimeInterval(19), limit: 720)
+    #expect(window[.cpuUsage]?.count == 10)
+}
+
+@Test func seriesStopAtTheEndOfAZoomWindow() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+    let start = Date(timeIntervalSince1970: 1_760_000_000)
+    for second in 0..<10 {
+        try await repository.save(system: makeSystemSample(timestamp: start.addingTimeInterval(Double(second)), cpu: Double(second), memory: 10))
+    }
+    let points = try await repository.systemSeries(.cpu, from: start.addingTimeInterval(2), to: start.addingTimeInterval(5))
+    #expect(points.map(\.average) == [2, 3, 4, 5])
 }
 
 @Test(arguments: ["=1+1", "+1+1", "-1+1", "@SUM(1)", "  =1+1", "\t=1+1", "\r=1+1", "=SUM(1,2)"])

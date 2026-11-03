@@ -216,7 +216,9 @@ struct HomebrewDetailView: View {
             Image(systemName: package.kind == .formula ? "terminal" : "app").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(package.name).font(.headline)
-                Text(package.fullName).font(.caption.monospaced()).foregroundStyle(.secondary)
+                if package.fullName != package.name {
+                    Text(package.fullName).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
                 if !package.description.isEmpty { Text(package.description).font(.caption).foregroundStyle(.secondary) }
                 Text(package.kind.label + (installed && !package.installedVersion.isEmpty ? " · \(package.installedVersion)" : "") + (package.pinned ? " · Pinned" : ""))
                     .font(.caption).foregroundStyle(.secondary)
@@ -228,34 +230,25 @@ struct HomebrewDetailView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack {
                     Button("Details", systemImage: "info.circle") { inspectionRead = .info; inspectedPackage = package }
-                        .fixedSize()
-                        .disabled(blocked)
                     if installed {
-                        Button("Uninstall…", role: .destructive) {
-                            pending = BrewPackageAction.uninstall.operation(for: package)
-                        }.disabled(blocked)
+                        Button("Files", systemImage: "folder") { inspectionRead = .files; inspectedPackage = package }
                     } else {
                         Button("Install…") {
                             pending = BrewOperation(title: "Install \(package.name)?", arguments: package.arguments("install"))
-                        }.disabled(blocked)
+                        }
                     }
                 }
                 if installed {
                     HStack {
-                        if BrewPackageAction.upgrade.isAvailable(for: package) {
-                            Button("Update…") { pending = BrewPackageAction.upgrade.operation(for: package) }
-                                .disabled(blocked)
-                        }
-                        Menu("More", systemImage: "ellipsis.circle") {
-                            Button("Show installed files") { inspectionRead = .files; inspectedPackage = package }
-                            Divider()
-                            ForEach([BrewPackageAction.reinstall, .pin, .unpin].filter { $0.isAvailable(for: package) }, id: \.self) { action in
-                                Button(action.title + "…") { pending = action.operation(for: package) }
+                        ForEach([BrewPackageAction.upgrade, .reinstall, .pin, .unpin, .uninstall].filter { $0.isAvailable(for: package) }, id: \.self) { action in
+                            Button(action.title + "…", role: action == .uninstall ? .destructive : nil) {
+                                pending = action.operation(for: package)
                             }
-                        }.disabled(blocked)
+                        }
                     }
                 }
             }
+            .disabled(blocked)
             .buttonStyle(.bordered)
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -309,7 +302,9 @@ struct BrewPackageDetailView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(package.name).font(.title2.weight(.semibold))
-                    Text(package.fullName).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    if package.fullName != package.name {
+                        Text(package.fullName).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 RefreshButton { refreshID += 1 }.disabled(loading)

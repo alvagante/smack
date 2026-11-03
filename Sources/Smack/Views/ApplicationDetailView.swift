@@ -584,9 +584,14 @@ struct ApplicationDetailView: View {
         let rows = (inspection.applicationInventory?.threads ?? []).filter {
             model.filter.isEmpty || "\($0.name) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
-        let byProcess = Dictionary(grouping: rows, by: \.process)
-            .map { (process: $0.key, threads: $0.value, total: $0.value.reduce(0) { $0 + $1.count }) }
-            .sorted { $0.total != $1.total ? $0.total > $1.total : $0.process.pid < $1.process.pid }
+        typealias ProcessThreads = (process: ProcessRef, threads: [AggregatedThread], total: Int)
+        let grouped = Dictionary(grouping: rows, by: \.process)
+        let byProcess: [ProcessThreads] = grouped.map { entry -> ProcessThreads in
+            let total: Int = entry.value.reduce(0) { $0 + $1.count }
+            return (process: entry.key, threads: entry.value, total: total)
+        }.sorted { (lhs: ProcessThreads, rhs: ProcessThreads) -> Bool in
+            lhs.total != rhs.total ? lhs.total > rhs.total : lhs.process.pid < rhs.process.pid
+        }
         return VStack(alignment: .leading, spacing: 10) {
             ForEach(byProcess.prefix(Self.rowLimit), id: \.process) { group in
                 MetricCard(title: group.process.label, systemImage: "square.stack.3d.up", color: DetailSectionStyle.threads.color) {

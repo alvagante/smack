@@ -278,13 +278,17 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    func windowDidResize(_ notification: Notification) { updateTitleBarLayout() }
+    /// The hosting controller can resize the window inside a SwiftUI update; publishing then is undefined behavior.
+    func windowDidResize(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.updateTitleBarLayout() }
+    }
 
     /// Keeps titlebar items clear of the traffic lights and pin button.
     private func updateTitleBarLayout() {
         let reserved = (stickButton?.frame.maxX ?? 100) + 16
-        titleBarLayout.available = max(160, panel.frame.width - reserved)
-        titleBarLayout.leading = reserved
+        let available = max(160, panel.frame.width - reserved)
+        if titleBarLayout.available != available { titleBarLayout.available = available }
+        if titleBarLayout.leading != reserved { titleBarLayout.leading = reserved }
     }
 
     func windowWillClose(_ notification: Notification) {
