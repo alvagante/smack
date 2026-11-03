@@ -625,7 +625,7 @@ func controlProductionFollowUnderLoad() async throws {
         await AutomationSnapshot.query($0)
     }
     defer { server.stop() }
-    let received = Synchronization.Mutex([Int](repeating: 0, count: 4))
+    let received = FollowProgress(count: 4)
     let peers = try (0..<4).map { _ in try ControlSocket.connect(path) }
     defer { peers.forEach { close($0) } }
     var request = ControlRequest(op: "events"); request.follow = true
@@ -642,7 +642,7 @@ func controlProductionFollowUnderLoad() async throws {
             let response = try reader.next(from: fd)
             #expect(response.error == nil && !response.end)
             ids.append(contentsOf: response.records.map(\.id))
-            received.withLock { $0[index] = ids.count }
+            received.set(index, ids.count)
         }
         return ids
     } }
@@ -661,10 +661,10 @@ func controlProductionFollowUnderLoad() async throws {
             subject: "load-\(batch * 16 + offset)", severity: .notice, dedupe: UUID().uuidString) }
         expected.append(contentsOf: events.map(\.id))
         store.receive(events)
-        while received.withLock({ $0.min()! }) < expected.count && ContinuousClock.now < deadline {
+        while received.minimum < expected.count && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(received.withLock { $0.min()! } == expected.count)
+        #expect(received.minimum == expected.count)
     }
     for reader in readers { #expect(try await reader.value == expected) }
     for query in queries { try await query.value }
@@ -674,6 +674,13 @@ func controlProductionFollowUnderLoad() async throws {
     }
     #expect(server.activeClientCount == 0)
     print("follow load: 4 followers x 1024 ordered events, 200 concurrent status queries, all clients released")
+}
+
+private final class FollowProgress: Sendable {
+    private let counts: Synchronization.Mutex<[Int]>
+    init(count: Int) { counts = Synchronization.Mutex([Int](repeating: 0, count: count)) }
+    var minimum: Int { counts.withLock { $0.min()! } }
+    func set(_ index: Int, _ value: Int) { counts.withLock { $0[index] = value } }
 }
 #endif
 
