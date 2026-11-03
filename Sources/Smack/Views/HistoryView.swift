@@ -17,7 +17,12 @@ final class HistoryViewModel: ObservableObject {
 
     @Published var enabledMetrics: Set<SystemMetric> = [.cpu]
     @Published var enabledProcessMetrics: Set<ProcessMetric> = [.cpuUsage]
-    @Published var hours = 1.0
+    /// Changing the range drops any zoom, which would otherwise point outside it.
+    @Published var hours = 1.0 { didSet { if hours != oldValue { zoom = nil } } }
+    /// Window selected by dragging on the chart; it is queried at full point resolution.
+    @Published var zoom: ClosedRange<Date>?
+    /// Window being dragged, drawn as a highlight until the drag ends.
+    @Published var dragRange: ClosedRange<Date>?
     @Published var showPeaks = true
     /// Whether event markers are drawn; mirrors `CollectionSettings.activity.showEventsOnCharts`.
     @Published var showEvents = true
@@ -36,7 +41,21 @@ final class HistoryViewModel: ObservableObject {
     @Published var selectedDate: Date?
 
     /// Toggling metrics only filters what is drawn, so it is not part of the request.
-    var requestID: String { "\(selectedProgram ?? "system")-\(selectedInstance ?? "all")-\(hours)" }
+    var requestID: String {
+        let window = zoom.map { "\($0.lowerBound.timeIntervalSince1970)-\($0.upperBound.timeIntervalSince1970)" } ?? "full"
+        return "\(selectedProgram ?? "system")-\(selectedInstance ?? "all")-\(hours)-\(window)"
+    }
+
+    /// Narrower drags are treated as clicks.
+    static let minimumZoom: TimeInterval = 30
+
+    /// Seconds spanned by the chart, zoomed or not.
+    var visibleSpan: TimeInterval { zoom.map { $0.upperBound.timeIntervalSince($0.lowerBound) } ?? hours * 3_600 }
+
+    func zoom(to range: ClosedRange<Date>) {
+        guard range.upperBound.timeIntervalSince(range.lowerBound) >= Self.minimumZoom else { return }
+        zoom = range
+    }
     var instancesRequestID: String { "\(selectedProgram ?? "")-\(hours)" }
 
     var visiblePrograms: [HistoricalProgram] {
@@ -289,8 +308,9 @@ struct HistoryView: View {
 
     /// What the chart shows; a program name can be long, so it stays in the one-line subtitle.
     private var showing: String {
-        guard let program = model.selectedProgram else { return "Showing the whole system" }
-        return "Showing \(program), " + (model.selectedInstance == nil ? "all instances" : "one instance")
+        let subject = model.selectedProgram.map { "\($0), " + (model.selectedInstance == nil ? "all instances" : "one instance") } ?? "the whole system"
+        guard let zoom = model.zoom else { return "Showing \(subject)" }
+        return "Showing \(subject), zoomed to \(zoom.lowerBound.formatted(timeFormat)) to \(zoom.upperBound.formatted(timeFormat))"
     }
 
     // MARK: Controls
@@ -325,7 +345,12 @@ struct HistoryView: View {
                 .help("Draw vertical markers for activity events such as listeners, startup changes and pressure warnings. At most \(HistoryViewModel.markerLimit) are shown, preferring warnings.")
             Image(systemName: "info.circle").foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .hoverHint("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound.")
+                .hoverHint("A program sums every instance sharing a process name; pick an instance to see one process. Full resolution lasts up to the configured hours; older one-minute points preserve averages and peaks. When the storage limit is reached, process history older than an hour is compacted to one-minute points first, and the oldest process history is deleted before system history. Disabling collection does not delete history; periods without collection appear as breaks in the line. With several metrics shown, values are scaled to 0 to 100 (system CPU is absolute, system memory is a share of physical memory, the rest use their range maximum); hover for real values. Peaks of one-minute points summed over several instances are an upper bound. Drag across the chart to zoom into a time window; double-click to zoom out.")
+            if model.zoom != nil {
+                Button { model.zoom = nil } label: { Label("Reset Zoom", systemImage: "arrow.up.left.and.arrow.down.right") }
+                    .controlSize(.small)
+                    .help("Show the whole range again; double-clicking the chart does the same.")
+            }
             Picker("Range", selection: $model.hours) {
                 Text("1h").tag(1.0)
                 Text("24h").tag(24.0)
@@ -429,7 +454,18 @@ struct HistoryView: View {
         let series = series
         let markers = visibleMarkers(series)
         let format = series.first?.format ?? { Formatting.percent($0) }
+        let domain = xDomain(series)
         return Chart {
+            if let range = model.dragRange {
+                RectangleMark(xStart: .value("Start", range.lowerBound), xEnd: .value("End", range.upperBound))
+                    .foregroundStyle(Color.accentColor.opacity(0.15))
+                    .annotation(position: .top, alignment: .center, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        Text("\(range.lowerBound.formatted(timeFormat)) to \(range.upperBound.formatted(timeFormat))")
+                            .font(.caption).monospacedDigit()
+                            .padding(4)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                    }
+            }
             ForEach(markers) { event in
                 RuleMark(x: .value("Event", event.timestamp))
                     .foregroundStyle(markerColor(event).opacity(0.45))
@@ -449,7 +485,7 @@ struct HistoryView: View {
                     }
                 }
             }
-            if let selectedDate = model.selectedDate {
+            if model.dragRange == nil, let selectedDate = model.selectedDate {
                 RuleMark(x: .value("Selected", selectedDate))
                     .foregroundStyle(.secondary.opacity(0.5))
                     .annotation(position: .top, alignment: .center, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
@@ -457,7 +493,32 @@ struct HistoryView: View {
                     }
             }
         }
-        .chartXSelection(value: $model.selectedDate)
+        .chartXScale(domain: domain)
+        .chartPlotStyle { $0.clipped() }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location): model.selectedDate = date(atX: location.x, proxy: proxy, geometry: geometry, domain: domain)
+                        case .ended: model.selectedDate = nil
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 4)
+                            .onChanged { drag in
+                                guard let start = date(atX: drag.startLocation.x, proxy: proxy, geometry: geometry, domain: domain),
+                                      let end = date(atX: drag.location.x, proxy: proxy, geometry: geometry, domain: domain) else { return }
+                                model.dragRange = min(start, end)...max(start, end)
+                            }
+                            .onEnded { _ in
+                                if let range = model.dragRange { model.zoom(to: range) }
+                                model.dragRange = nil
+                            }
+                    )
+                    .onTapGesture(count: 2) { model.zoom = nil }
+            }
+        }
         .chartYScale(domain: 0...yUpperBound(series))
         .chartYAxis {
             if !normalized, let ticks = series.first?.ticks {
@@ -483,6 +544,27 @@ struct HistoryView: View {
         }
     }
 
+    /// The zoom window, else the plotted data, else the selected range ending now.
+    private func xDomain(_ series: [HistorySeries]) -> ClosedRange<Date> {
+        if let zoom = model.zoom { return zoom }
+        let times = series.flatMap { [$0.samples.first?.timestamp, $0.samples.last?.timestamp] }.compactMap { $0 }
+        if let first = times.min(), let last = times.max(), last > first { return first...last }
+        let now = Date()
+        return now.addingTimeInterval(-model.hours * 3_600)...now
+    }
+
+    /// Pointer position clamped to the plot area and mapped to a date, so drags past the edges stop at the domain.
+    private func date(atX x: CGFloat, proxy: ChartProxy, geometry: GeometryProxy, domain: ClosedRange<Date>) -> Date? {
+        guard let plot = proxy.plotFrame else { return nil }
+        let frame = geometry[plot]
+        guard frame.width > 0, let date = proxy.value(atX: min(max(0, x - frame.origin.x), frame.width), as: Date.self) else { return nil }
+        return min(max(date, domain.lowerBound), domain.upperBound)
+    }
+
+    private var timeFormat: Date.FormatStyle {
+        model.visibleSpan > 24 * 3_600 ? .dateTime.weekday().hour().minute() : .dateTime.hour().minute().second()
+    }
+
     private func yUpperBound(_ series: [HistorySeries]) -> Double {
         if normalized { return 100 }
         let maximum = series.flatMap(\.samples).map { model.showPeaks ? max($0.plotted, $0.plottedPeak) : $0.plotted }.max() ?? 0
@@ -492,7 +574,7 @@ struct HistoryView: View {
 
     /// The marker closest to the cursor, if it is within a few percent of the visible range.
     private func nearestMarker(to date: Date, in markers: [ActivityEvent]) -> ActivityEvent? {
-        let tolerance = model.hours * 3_600 / 60
+        let tolerance = model.visibleSpan / 60
         return markers
             .min { abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date)) }
             .flatMap { abs($0.timestamp.timeIntervalSince(date)) <= tolerance ? $0 : nil }
@@ -500,7 +582,7 @@ struct HistoryView: View {
 
     private func readout(at date: Date, series: [HistorySeries], markers: [ActivityEvent]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(date, format: model.hours > 24 ? .dateTime.weekday().hour().minute() : .dateTime.hour().minute().second())
+            Text(date, format: timeFormat)
                 .foregroundStyle(.secondary)
             if let event = nearestMarker(to: date, in: markers) {
                 Label("\(event.kind.title): \(event.subject) at \(event.timestamp.formatted(date: .omitted, time: .standard))", systemImage: event.kind.systemImage)
@@ -604,15 +686,17 @@ struct HistoryView: View {
         defer { model.loading = false }
         let limit = HistoryViewModel.pointLimit
         let now = Date()
+        let window = model.zoom ?? now.addingTimeInterval(-model.hours * 3_600)...now
         // Markers load once per request, so toggling them never reloads history.
-        let events = await store.activityFeed.events(from: now.addingTimeInterval(-model.hours * 3_600), to: now, kinds: nil, search: "", limit: 500)
+        let events = await store.activityFeed.events(from: window.lowerBound, to: window.upperBound, kinds: nil, search: "", limit: 500)
         model.markers = HistoryViewModel.selectMarkers(events)
         if let program = model.selectedProgram {
-            model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance, hours: model.hours, limit: limit)
+            model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance,
+                                                             from: window.lowerBound, to: window.upperBound, limit: limit)
         } else {
             var result: [SystemMetric: [HistoricalPoint]] = [:]
             for metric in SystemMetric.allCases {
-                result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, hours: model.hours), limit: limit)
+                result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, from: window.lowerBound, to: window.upperBound), limit: limit)
             }
             model.systemPoints = result
         }

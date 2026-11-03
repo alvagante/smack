@@ -274,17 +274,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func pauseAlertsIndefinitely() { store?.alertDispatcher?.pausedUntil = .distantFuture }
     @objc private func resumeAlerts() { store?.alertDispatcher?.pausedUntil = nil }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                                           withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+    // Async variants: the completion-handler forms differ in closure sendability across SDKs.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                           withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let id = (response.notification.request.content.userInfo["ruleID"] as? String).flatMap(UUID.init(uuidString:))
         let action = response.actionIdentifier
-        Task { @MainActor [weak self] in
-            defer { completionHandler() }
+        await MainActor.run { [weak self] in
             guard let self, let store = self.store, let id,
                   let rule = store.alertRules.rules.first(where: { $0.id == id }) else { return }
             switch action {

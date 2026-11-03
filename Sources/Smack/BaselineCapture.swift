@@ -195,8 +195,14 @@ struct MachineBaselineCollector: BaselineSectionCollector {
             case "docker":
                 guard let executable = DockerCollector.executable() else { return .init(status: .unavailable, error: "Docker not installed") }
                 let value = await DockerCollector().collect(executable: executable, details: true, section: .images, stats: false)
-                let containers = (value.containers ?? []).map { ["kind": "container", "name": $0.name, "imageID": $0.imageID ?? "", "state": $0.state] }
-                let images = (value.images ?? []).map { ["kind": "image", "name": (($0.Repository == "<none>" || $0.Tag == "<none>") ? $0.ID : $0.Repository + ":" + $0.Tag), "imageID": $0.ID] }
+                let containers: [BaselineItem] = (value.containers ?? []).map { container -> BaselineItem in
+                    ["kind": "container", "name": container.name, "imageID": container.imageID ?? "", "state": container.state]
+                }
+                let images: [BaselineItem] = (value.images ?? []).map { image -> BaselineItem in
+                    let untagged = image.Repository == "<none>" || image.Tag == "<none>"
+                    let name: String = untagged ? image.ID : "\(image.Repository):\(image.Tag)"
+                    return ["kind": "image", "name": name, "imageID": image.ID]
+                }
                 return .init(status: value.warnings.isEmpty ? .complete : .incomplete,
                              error: value.warnings.isEmpty ? nil : "Some Docker inventory unavailable", items: containers + images)
             default: return .init(status: .unavailable, error: "Unknown section")

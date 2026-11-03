@@ -3,18 +3,20 @@ import SQLite3
 
 // Reading series, programs and process history for charts and lists.
 extension HistoryRepository {
-    func systemSeries(_ metric: SystemMetric, from start: Date) throws -> [HistoricalPoint] {
+    func systemSeries(_ metric: SystemMetric, from start: Date, to end: Date = .distantFuture) throws -> [HistoricalPoint] {
         let query = metric.query
         return try readPoints(sql: """
             SELECT timestamp, \(query.raw), \(query.raw)
-            FROM system_samples WHERE timestamp >= ? AND \(query.rawFilter)
+            FROM system_samples WHERE timestamp >= ? AND timestamp <= ? AND \(query.rawFilter)
             UNION ALL
             SELECT timestamp, \(query.minuteAverage), \(query.minutePeak)
-            FROM system_minutes WHERE timestamp >= ? AND \(query.minuteFilter)
+            FROM system_minutes WHERE timestamp >= ? AND timestamp <= ? AND \(query.minuteFilter)
             ORDER BY timestamp
             """, bind: { statement in
                 bind(start.timeIntervalSince1970, at: 1, to: statement)
-                bind(start.timeIntervalSince1970, at: 2, to: statement)
+                bind(end.timeIntervalSince1970, at: 2, to: statement)
+                bind(start.timeIntervalSince1970, at: 3, to: statement)
+                bind(end.timeIntervalSince1970, at: 4, to: statement)
             })
     }
 
@@ -151,24 +153,26 @@ extension HistoryRepository {
     }
 
     /// Every metric for one instance, or summed over all instances of a program, downsampled to `limit` points.
-    func processHistory(program name: String, processID: String?, from start: Date, limit: Int) throws -> [ProcessMetric: [HistoricalPoint]] {
+    func processHistory(program name: String, processID: String?, from start: Date, to end: Date = .distantFuture, limit: Int) throws -> [ProcessMetric: [HistoricalPoint]] {
         let filter = processID == nil ? "process_id IN (SELECT id FROM processes WHERE name = ?)" : "process_id = ?"
         let key = processID ?? name
         let rows = try withStatement("""
             SELECT process_id, timestamp, cpu, memory, disk_read, disk_write, wakeups, cpu, memory, disk_read, disk_write, wakeups
-            FROM process_samples WHERE \(filter) AND timestamp >= ?
+            FROM process_samples WHERE \(filter) AND timestamp >= ? AND timestamp <= ?
             UNION ALL
             SELECT process_id, timestamp,
                 cpu_total / sample_count, memory_total / sample_count, disk_read_total / sample_count, disk_write_total / sample_count,
                 wakeups_total / sample_count,
                 cpu_peak, memory_peak, disk_read_peak, disk_write_peak, wakeups_peak
-            FROM process_minutes WHERE \(filter) AND timestamp >= ?
+            FROM process_minutes WHERE \(filter) AND timestamp >= ? AND timestamp <= ?
             ORDER BY timestamp
             """) { statement in
             bind(key, at: 1, to: statement)
             bind(start.timeIntervalSince1970, at: 2, to: statement)
-            bind(key, at: 3, to: statement)
-            bind(start.timeIntervalSince1970, at: 4, to: statement)
+            bind(end.timeIntervalSince1970, at: 3, to: statement)
+            bind(key, at: 4, to: statement)
+            bind(start.timeIntervalSince1970, at: 5, to: statement)
+            bind(end.timeIntervalSince1970, at: 6, to: statement)
             var rows: [ProcessHistoryRow] = []
             while true {
                 let code = sqlite3_step(statement)

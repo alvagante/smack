@@ -24,11 +24,11 @@ enum ProcessNetworkCollector {
     static func stream(interval: TimeInterval,
                        receive: @escaping @Sendable (ProcessNetworkSample?) async -> Void) async {
         guard !Capabilities.isSandboxed else { return }
-        let parser = Mutex(ProcessNetworkStreamParser())
         let (samples, continuation) = AsyncStream<ProcessNetworkSample?>.makeStream(bufferingPolicy: .bufferingNewest(1))
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 defer { continuation.finish() }
+                let parser = Mutex(ProcessNetworkStreamParser())
                 // nettop ignores write errors and macOS has no parent-death signal, so an abrupt Smack exit would
                 // orphan it forever. The watcher gets EOF on held stdin when Smack dies and kills nettop, which
                 // exec keeps as the spawned PID for signals and exit status. nettop keeps the held stdin too: on an

@@ -523,8 +523,12 @@ final class MonitorStore: ObservableObject {
     func launchdIndex() -> [String: LaunchdMatch] { inspection.launchdIndex(from: startupItemsModel.inventory) }
 
     func systemHistory(_ metric: SystemMetric, hours: Double = 1) async -> [HistoricalPoint] {
+        await systemHistory(metric, from: Date().addingTimeInterval(-hours * 3600))
+    }
+
+    func systemHistory(_ metric: SystemMetric, from start: Date, to end: Date = .distantFuture) async -> [HistoricalPoint] {
         do {
-            return try await history.systemSeries(metric, from: Date().addingTimeInterval(-hours * 3600))
+            return try await history.systemSeries(metric, from: start, to: end)
         } catch {
             errorMessage = "History could not be read: \(error.localizedDescription)"
             return []
@@ -533,8 +537,12 @@ final class MonitorStore: ObservableObject {
 
     /// Every metric for one instance (`processID`), or summed over all instances of `program`.
     func processHistory(program: String, processID: String?, hours: Double, limit: Int) async -> [ProcessMetric: [HistoricalPoint]] {
+        await processHistory(program: program, processID: processID, from: Date().addingTimeInterval(-hours * 3600), limit: limit)
+    }
+
+    func processHistory(program: String, processID: String?, from start: Date, to end: Date = .distantFuture, limit: Int) async -> [ProcessMetric: [HistoricalPoint]] {
         do {
-            return try await history.processHistory(program: program, processID: processID, from: Date().addingTimeInterval(-hours * 3600), limit: limit)
+            return try await history.processHistory(program: program, processID: processID, from: start, to: end, limit: limit)
         } catch {
             errorMessage = "History could not be read: \(error.localizedDescription)"
             return [:]

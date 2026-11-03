@@ -34,7 +34,7 @@ struct MonitorRootView: View {
                 if titleBarLayout.showsSidebar {
                     MonitorSidebar(store: store, settingsStore: settingsStore)
                         .frame(minWidth: 168, idealWidth: 196, maxWidth: 224)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleBarLayout.sidebarWidth = $0 }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in if titleBarLayout.sidebarWidth != width { titleBarLayout.sidebarWidth = width } }
                 }
                 VStack(spacing: 0) {
                     if Capabilities.supportsNativeMenuBarIcons, settingsStore.settings.panel.showTopBarIcons {
