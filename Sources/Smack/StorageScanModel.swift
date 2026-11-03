@@ -25,12 +25,13 @@ final class StorageScanModel: ObservableObject {
     @Published private(set) var currentChildren: [StorageDirectory] = []
     private var task: Task<Void, Never>?
     private var localJob: StorageScanJob?
-    private let client = PrivilegedSamplingClient()
+    private let client: any PrivilegedStorageScanning
     private var privilegedJob = false
     private var cancelRequested = false
     private var helperSubscription: AnyCancellable?
 
-    init(helper: PrivilegedSamplingController? = nil) {
+    init(helper: PrivilegedSamplingController? = nil, client: any PrivilegedStorageScanning = PrivilegedSamplingClient()) {
+        self.client = client
         // Subscribe once: recreating a current-value publisher while rendering feeds changes
         // back into SwiftUI, even when the reported helper state has not changed.
         helperSubscription = helper?.$state.map { state in

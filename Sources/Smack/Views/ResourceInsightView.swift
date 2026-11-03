@@ -86,7 +86,7 @@ enum UserApplications {
 }
 
 /// One charted line of a resource: which stored metric feeds it and how it is converted for display.
-private struct InsightSeries: Identifiable {
+struct InsightSeries: Identifiable {
     var id: String { title }
     let title: String
     let color: Color
@@ -95,38 +95,6 @@ private struct InsightSeries: Identifiable {
     /// Converts the stored history value into the charted unit.
     let history: (Double) -> Double
     let format: (Double) -> String
-
-    /// CPU and memory are charted as percentages; memory history is stored in bytes.
-    static func series(for resource: ResourceKind) -> [InsightSeries] {
-        let physicalMemory = Double(max(1, ProcessInfo.processInfo.physicalMemory))
-        switch resource {
-        case .cpu:
-            return [InsightSeries(title: "CPU", color: .blue, metric: .cpu, live: \.cpuUsage, history: { $0 }, format: Formatting.percent)]
-        case .memory:
-            return [
-                InsightSeries(title: "Memory", color: .purple, metric: .memoryUsedBytes, live: \.memoryUsage,
-                              history: { $0 / physicalMemory * 100 }, format: Formatting.percent),
-                InsightSeries(title: "Swap", color: .orange, metric: .swapUsedBytes,
-                              live: { $0.swapUsedBytes / physicalMemory * 100 },
-                              history: { $0 / physicalMemory * 100 },
-                              format: { Formatting.bytes(UInt64(max(0, $0 / 100 * physicalMemory))) }),
-            ]
-        case .network:
-            return [
-                InsightSeries(title: "In", color: .cyan, metric: .networkReceiveRate, live: \.receiveRate, history: { $0 }, format: Formatting.rate),
-                InsightSeries(title: "Out", color: .mint, metric: .networkSendRate, live: \.sendRate, history: { $0 }, format: Formatting.rate),
-            ]
-        case .disk:
-            return [
-                InsightSeries(title: "Read", color: .orange, metric: .diskReadRate, live: \.diskReadRate, history: { $0 }, format: Formatting.rate),
-                InsightSeries(title: "Write", color: .pink, metric: .diskWriteRate, live: \.diskWriteRate, history: { $0 }, format: Formatting.rate),
-            ]
-        case .gpu:
-            return [InsightSeries(title: "GPU", color: .indigo, metric: .gpuUtilization, live: \.gpuUsage, history: { $0 }, format: Formatting.percent)]
-        default:
-            return []
-        }
-    }
 }
 
 private struct InsightSample: Identifiable {
@@ -174,29 +142,23 @@ struct InsightRow: Identifiable {
 struct ResourceInsightView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ResourceInsightViewModel
-    let resource: ResourceKind
+    let resource: InsightResource
     /// Width of the process list, so secondary columns can drop out before the row graphs get too narrow.
     @State private var listWidth: CGFloat = 0
     /// Below about 1000 pt the CPU cards stack, so per-core bars keep a readable width.
     private var isNarrowPage: Bool { listWidth > 0 && listWidth < 1000 }
 
-    init(store: MonitorStore, resource: ResourceKind) {
+    init(store: MonitorStore, resource: InsightResource) {
         self.store = store
         self.resource = resource
         model = store.resourceInsightViewModel
     }
 
-    private var series: [InsightSeries] {
-        let base = InsightSeries.series(for: resource)
-        guard resource == .gpu, model.range == .live else { return base }
-        return base + [
-            InsightSeries(title: "Renderer", color: .purple, metric: .gpuUtilization, live: \.gpuRendererUsage, history: { $0 }, format: Formatting.percent),
-            InsightSeries(title: "Tiler", color: .mint, metric: .gpuUtilization, live: \.gpuTilerUsage, history: { $0 }, format: Formatting.percent),
-        ]
-    }
+    private var profile: InsightProfile { resource.profile }
+    private var series: [InsightSeries] { resource.series(live: model.range == .live) }
     var hasProcessList: Bool { resource != .network || !Capabilities.isSandboxed }
     /// Network and GPU rows are always live: their per-process figures are never stored.
-    private var usesLiveProcessRows: Bool { resource == .network || resource == .gpu || model.range == .live }
+    private var usesLiveProcessRows: Bool { profile.liveRowsOnly || model.range == .live }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -215,7 +177,7 @@ struct ResourceInsightView: View {
                     case .memory: memoryOverview
                     case .network: networkOverview
                     case .gpu: gpuOverview
-                    default: diskOverview
+                    case .disk: diskOverview
                     }
                     Divider()
                     if hasProcessList {
@@ -239,16 +201,16 @@ struct ResourceInsightView: View {
         }
         .onDisappear {
             // Clear only this page's request: Thermal and the application detail make their own on appear.
-            if resource == .cpu { store.setTemperaturesWanted(false) }
-            if resource == .gpu { store.setGPUProcessesWanted(false) }
+            if profile.wantsTemperatures { store.setTemperaturesWanted(false) }
+            if profile.wantsGPUProcesses { store.setGPUProcessesWanted(false) }
         }
     }
 
     /// Temperatures and fans are read only while the CPU page is open, the driver's GPU clients only on the GPU
     /// page. Set once here: inside the header's `ViewThatFits`, appear and disappear can fire in either order.
-    private func requestSensors(for resource: ResourceKind) {
-        store.setTemperaturesWanted(resource == .cpu)
-        store.setGPUProcessesWanted(resource == .gpu)
+    private func requestSensors(for resource: InsightResource) {
+        store.setTemperaturesWanted(resource.profile.wantsTemperatures)
+        store.setGPUProcessesWanted(resource.profile.wantsGPUProcesses)
     }
 
     // MARK: Header
@@ -266,7 +228,7 @@ struct ResourceInsightView: View {
         case .gpu:
             ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: .indigo,
                           subtitle: GPUReadings.subtitle(name: system?.gpuName, cores: system?.gpuCoreCount), status: GPUReadings.status(system?.gpu))
-        default:
+        case .disk:
             ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: .orange,
                           subtitle: system.map { "\(DiskReadings.devices($0.disks).count) disks · \($0.volumes.count) volumes" })
         }
@@ -279,7 +241,7 @@ struct ResourceInsightView: View {
         case .memory: MemoryStatsRow(memory: system?.memory, gpu: system?.gpu)
         case .network: NetworkStatsRow(system: system, recent: store.recentMetrics.points)
         case .gpu: GPUStatsRow(store: store)
-        default: DiskStatsRow(system: system, recent: store.recentMetrics.points)
+        case .disk: DiskStatsRow(system: system, recent: store.recentMetrics.points)
         }
     }
 
@@ -384,7 +346,7 @@ struct ResourceInsightView: View {
 
     /// Memory pressure over the charted range: live samples, or the stored history (peak per bucket).
     private var pressureBands: [PressureBand] {
-        guard resource == .memory else { return [] }
+        guard profile.pressureBands else { return [] }
         let points: [HistoricalPoint] = model.range == .live
             ? store.recentMetrics.points.compactMap { point in point.memoryPressure.map { HistoricalPoint(timestamp: point.timestamp, average: $0, peak: $0) } }
             : model.points[.memoryPressure] ?? []
@@ -393,7 +355,7 @@ struct ResourceInsightView: View {
 
     /// Extra stored metrics a page draws besides its chart lines.
     private var extraHistoryMetrics: [SystemMetric] {
-        resource == .memory ? [.memoryPressure] : []
+        profile.extraHistoryMetrics
     }
 
     private var rangePicker: some View {
@@ -448,7 +410,7 @@ struct ResourceInsightView: View {
     private var chart: some View {
         let lines = lines
         let format = lines.first?.series.format ?? Formatting.percent
-        let percentScale = resource == .cpu || resource == .memory || resource == .gpu
+        let percentScale = profile.chartScale != .absolute
         let bands = pressureBands
         return Chart {
             ForEach(bands) { band in
@@ -483,7 +445,7 @@ struct ResourceInsightView: View {
             }
             AxisMarks(values: .automatic(desiredCount: 6)) { _ in AxisValueLabel() }
         }
-        .chartYScale(domain: 0...yUpperBound(lines, percentScale: percentScale))
+        .chartYScale(domain: 0...profile.yUpperBound(maximum: lines.flatMap(\.samples).map(\.value).max() ?? 0))
         .chartYAxis {
             AxisMarks { value in
                 AxisGridLine()
@@ -514,15 +476,6 @@ struct ResourceInsightView: View {
 
     private var chartDomain: ClosedRange<Date> {
         timeDomain(live: model.range == .live) ?? Date().addingTimeInterval(-60)...Date()
-    }
-
-    private func yUpperBound(_ lines: [InsightLine], percentScale: Bool) -> Double {
-        if percentScale {
-            let maximum = lines.flatMap(\.samples).map(\.value).max() ?? 0
-            return resource == .memory ? max(100, maximum * 1.1) : 100
-        }
-        let maximum = lines.flatMap(\.samples).map(\.value).max() ?? 0
-        return maximum > 0 ? maximum * 1.1 : 1
     }
 
     private func readout(at date: Date, lines: [InsightLine]) -> some View {
@@ -640,7 +593,7 @@ struct ResourceInsightView: View {
 
     /// The chosen order where it applies: CPU page only, and never Energy on history ranges.
     var effectiveSort: InsightSort {
-        guard resource == .cpu else { return .resource }
+        guard profile.sortable else { return .resource }
         return model.sort == .energy && !usesLiveProcessRows ? .resource : model.sort
     }
 
@@ -659,25 +612,17 @@ struct ResourceInsightView: View {
         case .memory: Double(memory)
         case .network: network?.total ?? -1
         case .gpu: store.currentGPUUsage(id) ?? -1
-        default: read + write
+        case .disk: read + write
         }
     }
 
     /// CPU and memory are range averages (time without the program counts as zero); disk is bytes moved in the range.
     private func historicalValue(_ program: HistoricalProgram, minutes: Double) -> Double {
-        switch resource {
-        case .cpu: program.cpuTotal / minutes
-        case .memory: program.memoryTotal / minutes
-        default: program.diskBytes
-        }
+        profile.historicalValue?(program, minutes) ?? 0
     }
 
     private func format(_ value: Double) -> String {
-        switch resource {
-        case .cpu, .gpu: Formatting.percent(value)
-        case .memory: Formatting.bytes(UInt64(max(0, value)))
-        default: model.range == .live ? Formatting.rate(value) : "\(Formatting.bytes(UInt64(max(0, value)))) total"
-        }
+        profile.format(value, liveRange: model.range == .live)
     }
 
     private var sortName: String {
@@ -688,15 +633,7 @@ struct ResourceInsightView: View {
         }
     }
 
-    private var metricName: String {
-        switch resource {
-        case .cpu: "CPU"
-        case .memory: "memory"
-        case .network: "network activity"
-        case .gpu: "GPU"
-        default: "disk activity"
-        }
-    }
+    private var metricName: String { profile.metricName }
 
     private var processSection: some View {
         let rows = rows()
@@ -717,13 +654,8 @@ struct ResourceInsightView: View {
                         .controlSize(.small)
                 }
             }
-            if resource == .gpu {
-                Text("Live GPU time per application from the GPU driver, while this page is open; good for comparing apps, not an exact load (see the column help). The chart range applies to the system GPU; per-app GPU use is not recorded.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if resource == .network {
-                Text("Live receive/send rates by application, summed across observable processes. The chart range applies to system totals; per-app network history is not recorded.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if let note = profile.listNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
             }
             if shown.isEmpty {
                 ContentUnavailableView("No Process Data", systemImage: "app.dashed", description: Text(emptyMessage))
@@ -745,7 +677,7 @@ struct ResourceInsightView: View {
         if model.loading { return "Loading…" }
         switch resource {
         case .network:
-            return store.settingsStore.settings.processNetworkRateEnabled
+            return store.settingsStore.settings.sampling.processNetworkRateEnabled
                 ? "No network samples available. Only processes with observable TCP or UDP sockets are listed."
                 : "Per-process network rates are off. Turn them on in Settings › Network."
         case .gpu:
@@ -757,7 +689,7 @@ struct ResourceInsightView: View {
                     ? "No application used the GPU in the live window. Switch to All to include background processes."
                     : "No process used the GPU in the live window."
             }
-        default:
+        case .cpu, .memory, .disk:
             return model.scope == .apps
                 ? "No application data for this range. Switch to All to include background processes."
                 : "No process data for this range."
@@ -841,7 +773,7 @@ struct ResourceInsightView: View {
             return columns
         case .network:
             return [RowColumn(title: "Throughput", width: 200, emphasized: true) { ($0.throughput?.formatted ?? "Unavailable", nil) }]
-        default:
+        case .disk:
             guard live else { return [RowColumn(title: "Moved", width: 130, emphasized: true) { (format($0.value), nil) }] }
             return [
                 RowColumn(title: "Read", width: 90) { ($0.readRate.map(Formatting.rate) ?? "–", nil) },
@@ -856,7 +788,7 @@ struct ResourceInsightView: View {
             Spacer(minLength: 0)
             ForEach(columns) { column in
                 Group {
-                    if let sort = column.sort, resource == .cpu {
+                    if let sort = column.sort, profile.sortable {
                         Button { model.sort = sort } label: {
                             HStack(spacing: 2) {
                                 Text(column.title)
@@ -965,7 +897,7 @@ struct ResourceInsightView: View {
                 line("In", .cyan, live: { $0.networkThroughput?.receiveRate }, history: nil),
                 line("Out", .mint, live: { $0.networkThroughput?.sendRate }, history: nil),
             ]
-        default:
+        case .disk:
             return [
                 line("Read", .orange, live: \.diskReadRate, history: .diskReadRate),
                 line("Write", .pink, live: \.diskWriteRate, history: .diskWriteRate),
@@ -973,14 +905,7 @@ struct ResourceInsightView: View {
         }
     }
 
-    /// Row graph readout: the sampled value, which is a rate for disk and network on every range.
-    private func seriesFormat(_ value: Double) -> String {
-        switch resource {
-        case .cpu, .gpu: Formatting.percent(value)
-        case .memory: Formatting.bytes(UInt64(max(0, value)))
-        default: Formatting.rate(value)
-        }
-    }
+    private func seriesFormat(_ value: Double) -> String { profile.seriesFormat(value) }
 
     private func historyKey(_ row: InsightRow) -> String { "\(row.id)|\(model.range.rawValue)" }
 

@@ -126,7 +126,7 @@ actor RecordingAlertNotifier: UserNotifying {
     let directory = try obsTemporaryDirectory()
     let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
     var settings = CollectionSettings()
-    settings.postureCheckInterval = nil; settings.recordSystemEvents = false
+    settings.security.postureCheckInterval = nil; settings.activity.recordSystemEvents = false
     let scheduler = CollectionScheduler(systemCollector: SystemCollector(),
         processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: PrivilegedSamplingClient()),
         inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(),
@@ -135,11 +135,11 @@ actor RecordingAlertNotifier: UserNotifying {
         onProcesses: { _ in Issue.record("Feature settings must not start process collection") })
     let rule = AlertRule(name: "Mount", enabled: true, kind: .event(kinds: [.volumeMounted], minimumSeverity: .info, predicates: []))
     await scheduler.update(rules: [rule])
-    settings.alertsEnabled = false
+    settings.automation.alertsEnabled = false
     await scheduler.updateFeatureSettings(settings)
     await scheduler.recordVolumeMounted(path: "/disabled", name: "Disabled")
     #expect(try await repository.events(from: .distantPast, to: .distantFuture, kinds: [.alertFired], search: "", limit: 10).isEmpty)
-    settings.alertsEnabled = true
+    settings.automation.alertsEnabled = true
     await scheduler.updateFeatureSettings(settings)
     await scheduler.recordVolumeMounted(path: "/enabled", name: "Enabled")
     #expect(try await repository.events(from: .distantPast, to: .distantFuture, kinds: [.alertFired], search: "", limit: 10).count == 1)
@@ -218,7 +218,7 @@ actor RecordingAlertNotifier: UserNotifying {
     defer { try? FileManager.default.removeItem(at: directory) }
     let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
     var settings = CollectionSettings()
-    settings.recordSystemEvents = false
+    settings.activity.recordSystemEvents = false
     let client = PrivilegedSamplingClient()
     let scheduler = CollectionScheduler(
         systemCollector: SystemCollector(),

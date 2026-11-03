@@ -17,16 +17,12 @@ actor CollectionScheduler {
     private let inventoryCollector: InventoryCollecting
     private let networkPortCollector: NetworkPortCollecting
     private let history: HistoryPersistence
-    private let metadata: HistoryRepository
+    private let security: SecurityMonitor
     private let onPosture: @Sendable (PostureSnapshot) -> Void
     private let onStartup: @Sendable (StartupInventory) -> Void
     private var postureTask: Task<Void, Never>?
     private var postureInterval: TimeInterval?
     private var cachedListeners: NetworkPortSnapshot?
-    private let persistenceScanner = PersistenceScanner()
-    private let helper: PrivilegedSamplingClient?
-    private var cachedProfile: PostureCheck?
-    private var lastPosture: PostureSnapshot?
     private let activity: any ActivityRecording
     private let alertEngine = AlertEngine()
     private var agentSessions = AgentSessionTracker()
@@ -59,7 +55,7 @@ actor CollectionScheduler {
         processCollector: ProcessMetricsCollecting,
         inventoryCollector: InventoryCollecting,
         networkPortCollector: NetworkPortCollecting,
-        history: HistoryRepository,
+        history: any CollectionHistoryStoring,
         settings: CollectionSettings,
         onSystem: @escaping @Sendable (SystemSample) -> Void,
         onProcesses: @escaping @Sendable (ProcessSnapshot) -> Void,
@@ -70,7 +66,7 @@ actor CollectionScheduler {
         onEvents: @escaping @Sendable ([ActivityEvent]) -> Void = { _ in },
         onPosture: @escaping @Sendable (PostureSnapshot) -> Void = { _ in },
         onStartup: @escaping @Sendable (StartupInventory) -> Void = { _ in },
-        helper: PrivilegedSamplingClient? = nil,
+        helper: (any PrivilegedSecurityQuerying)? = nil,
         onAlert: @escaping @Sendable (FiredAlert) async -> ActivityEvent = { alert in
             .make(kind: .alertFired, timestamp: alert.timestamp, subject: alert.rule.name, severity: .warning, details: alert.details)
         },
@@ -78,8 +74,6 @@ actor CollectionScheduler {
         isPowerConstrained: @escaping @Sendable () -> Bool = PowerConstraint.current
     ) {
         self.onAlert = onAlert
-        self.metadata = history
-        self.helper = helper
         self.onPosture = onPosture
         self.onStartup = onStartup
         self.onWake = onWake
@@ -87,7 +81,9 @@ actor CollectionScheduler {
         self.processCollector = processCollector
         self.inventoryCollector = inventoryCollector
         self.networkPortCollector = networkPortCollector
-        self.history = HistoryPersistence(writer: history, onHealth: onHistoryHealth)
+        let persistence = HistoryPersistence(writer: history, onHealth: onHistoryHealth)
+        self.history = persistence
+        self.security = SecurityMonitor(metadata: history, history: persistence, helper: helper)
         self.activity = activity ?? ActivityRecorder(metadata: history)
         self.settings = settings
         self.tracksAgentSessions = Self.wantsAgentSessions(settings, rules: [])
@@ -115,10 +111,10 @@ actor CollectionScheduler {
     }
 
     func update(settings: CollectionSettings) async {
-        let alertsChanged = self.settings.alertsEnabled != settings.alertsEnabled
+        let alertsChanged = self.settings.automation.alertsEnabled != settings.automation.alertsEnabled
         self.settings = settings
         updateAgentTracking()
-        if alertsChanged { await alertEngine.update(rules: settings.alertsEnabled ? configuredAlertRules : []) }
+        if alertsChanged { await alertEngine.update(rules: settings.automation.alertsEnabled ? configuredAlertRules : []) }
         await processCollector.setNetworkSampling(visible: visible, interval: networkRateInterval)
         await restartSampling()
         await maintainHistory()
@@ -127,37 +123,37 @@ actor CollectionScheduler {
     func inventory(for process: ProcessMetrics) async -> ProcessInventory {
         await inventoryCollector.collectInventory(
             for: process,
-            includePrivileged: settings.privilegedSampling
+            includePrivileged: settings.sampling.privilegedSampling
         )
     }
 
     func networkPorts() async -> NetworkPortSnapshot {
         await networkPortCollector.collectNetworkPorts(
-            includePrivileged: settings.privilegedSampling
+            includePrivileged: settings.sampling.privilegedSampling
         )
     }
 
     private var networkRateInterval: TimeInterval? {
-        settings.processNetworkRateEnabled ? settings.processNetworkRateSeconds : nil
+        settings.sampling.processNetworkRateEnabled ? settings.sampling.processNetworkRateSeconds : nil
     }
 
     /// The panel-visible period, or the background interval stretched on battery or in Low Power Mode.
     func sleepInterval(background: TimeInterval?, live: TimeInterval? = nil) -> TimeInterval? {
-        if visible { return live ?? settings.liveRefreshSeconds }
+        if visible { return live ?? settings.sampling.liveRefreshSeconds }
         guard let background else { return nil }
-        let multiplier = settings.constrainedPowerMultiplier
+        let multiplier = settings.sampling.constrainedPowerMultiplier
         return multiplier > 1 && isPowerConstrained() ? background * Double(multiplier) : background
     }
 
     func update(rules: [AlertRule]) async {
         configuredAlertRules = rules
         updateAgentTracking()
-        await alertEngine.update(rules: settings.alertsEnabled ? rules : [])
+        await alertEngine.update(rules: settings.automation.alertsEnabled ? rules : [])
     }
 
     static func wantsAgentSessions(_ settings: CollectionSettings, rules: [AlertRule]) -> Bool {
         settings.shows(.agents) || settings.records(.agents)
-            || (settings.alertsEnabled && rules.contains { $0.enabled && $0.usesAgentSessions })
+            || (settings.automation.alertsEnabled && rules.contains { $0.enabled && $0.usesAgentSessions })
     }
 
     /// A stopped tracker is dropped, so restarting seeds from the running processes instead of reporting
@@ -171,20 +167,20 @@ actor CollectionScheduler {
     var isTrackingAgentSessions: Bool { tracksAgentSessions }
 
     func updateFeatureSettings(_ value: CollectionSettings) async {
-        let alertsChanged = settings.alertsEnabled != value.alertsEnabled
-        settings.scheduledDriftCheck = value.scheduledDriftCheck
-        settings.goldenBaselineID = value.goldenBaselineID
+        let alertsChanged = settings.automation.alertsEnabled != value.automation.alertsEnabled
+        settings.security.scheduledDriftCheck = value.security.scheduledDriftCheck
+        settings.security.goldenBaselineID = value.security.goldenBaselineID
         settings.hiddenPages = value.hiddenPages
-        settings.backgroundNetworkEnabled = value.backgroundNetworkEnabled
-        settings.recordAgentEvents = value.recordAgentEvents
-        settings.alertsEnabled = value.alertsEnabled
-        settings.postureCheckInterval = value.postureCheckInterval
-        settings.watchPersistence = value.watchPersistence
-        settings.persistenceEnrichmentEnabled = value.persistenceEnrichmentEnabled
-        settings.persistencePollInterval = value.persistencePollInterval
+        settings.sampling.backgroundNetworkEnabled = value.sampling.backgroundNetworkEnabled
+        settings.activity.recordAgentEvents = value.activity.recordAgentEvents
+        settings.automation.alertsEnabled = value.automation.alertsEnabled
+        settings.security.postureCheckInterval = value.security.postureCheckInterval
+        settings.security.watchPersistence = value.security.watchPersistence
+        settings.security.persistenceEnrichmentEnabled = value.security.persistenceEnrichmentEnabled
+        settings.security.persistencePollInterval = value.security.persistencePollInterval
         updateAgentTracking()
         configurePosture()
-        if alertsChanged { await alertEngine.update(rules: value.alertsEnabled ? configuredAlertRules : []) }
+        if alertsChanged { await alertEngine.update(rules: value.automation.alertsEnabled ? configuredAlertRules : []) }
     }
 
     func alertRuntime() async -> [UUID: AlertRuntime] { await alertEngine.runtime }
@@ -208,7 +204,7 @@ actor CollectionScheduler {
                 }
             }
         }
-        if let interval = settings.backgroundInventoryInterval {
+        if let interval = settings.sampling.backgroundInventoryInterval {
             inventoryTask = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self else { return }
@@ -226,12 +222,12 @@ actor CollectionScheduler {
                 includeGPUProcesses: visible && gpuProcessClients > 0
             )
             onSystem(sample)
-            if settings.alertsEnabled, let interval = sleepInterval(background: settings.backgroundSystemInterval) {
+            if settings.automation.alertsEnabled, let interval = sleepInterval(background: settings.sampling.backgroundSystemInterval) {
                 await deliverAlerts(await alertEngine.evaluate(system: sample, expectedInterval: interval))
             }
             await history.save(system: sample)
             await deliver(await activity.record(system: sample, settings: settings))
-            guard let interval = sleepInterval(background: settings.backgroundSystemInterval) else { return }
+            guard let interval = sleepInterval(background: settings.sampling.backgroundSystemInterval) else { return }
             try? await Task.sleep(for: .seconds(interval))
         }
     }
@@ -239,7 +235,7 @@ actor CollectionScheduler {
     private func runProcessLoop() async {
         while !Task.isCancelled {
             let started = ProcessInfo.processInfo.systemUptime
-            let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
+            let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.sampling.privilegedSampling)
             guard !Task.isCancelled else { return }
             if var snapshot {
                 if tracksAgentSessions {
@@ -249,15 +245,15 @@ actor CollectionScheduler {
                     await deliver(tracked.events)
                 }
                 onProcesses(snapshot)
-                if settings.alertsEnabled, let interval = sleepInterval(background: settings.backgroundProcessInterval) {
-                    await deliverAlerts(await alertEngine.evaluate(processes: snapshot, expectedInterval: interval, networkAvailable: visible && settings.processNetworkRateEnabled))
+                if settings.automation.alertsEnabled, let interval = sleepInterval(background: settings.sampling.backgroundProcessInterval) {
+                    await deliverAlerts(await alertEngine.evaluate(processes: snapshot, expectedInterval: interval, networkAvailable: visible && settings.sampling.processNetworkRateEnabled))
                 }
-                if settings.recordProcessHistory {
-                    await history.save(processes: snapshot.trimmedForHistory(limit: settings.processHistoryTopCount))
+                if settings.history.recordProcessHistory {
+                    await history.save(processes: snapshot.trimmedForHistory(limit: settings.history.processHistoryTopCount))
                 }
                 await deliver(await activity.record(processes: snapshot))
             }
-            guard let interval = sleepInterval(background: settings.backgroundProcessInterval) else { return }
+            guard let interval = sleepInterval(background: settings.sampling.backgroundProcessInterval) else { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - started
             try? await Task.sleep(for: .seconds(max(0.05, interval - elapsed)))
         }
@@ -267,28 +263,28 @@ actor CollectionScheduler {
         guard Capabilities.supportsNetworkPortInspection else { return }
         while !Task.isCancelled {
             let snapshot = await networkPortCollector.collectNetworkPorts(
-                includePrivileged: settings.privilegedSampling
+                includePrivileged: settings.sampling.privilegedSampling
             )
             guard !Task.isCancelled else { return }
             onNetworkPorts(snapshot)
             cachedListeners = snapshot
             await agentSessions.annotate(snapshot)
             await deliver(await agentSessions.annotateEvents(activity.record(network: snapshot, settings: settings)))
-            guard let interval = sleepInterval(background: settings.backgroundNetworkInterval ?? (settings.backgroundDevServersEnabled ? settings.backgroundNetworkSeconds : nil), live: 5) else { return }
+            guard let interval = sleepInterval(background: settings.sampling.backgroundNetworkInterval ?? (settings.devTools.backgroundDevServersEnabled ? settings.sampling.backgroundNetworkSeconds : nil), live: 5) else { return }
             try? await Task.sleep(for: .seconds(interval))
         }
     }
 
     private func runScheduledInventory() async {
         guard !visible, !Capabilities.isSandboxed else { return }
-        guard let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling),
+        guard let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.sampling.privilegedSampling),
               !Task.isCancelled else { return }
         let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         for process in processes {
             guard !Task.isCancelled else { return }
             let inventory = await inventoryCollector.collectInventory(
                 for: process,
-                includePrivileged: settings.privilegedSampling
+                includePrivileged: settings.sampling.privilegedSampling
             )
             guard !Task.isCancelled else { return }
             onInventory(process.id, inventory)
@@ -301,12 +297,12 @@ actor CollectionScheduler {
     /// still shows the events while the health banner reports that history may be incomplete.
     /// Recorders keep tracking state even for disabled groups, so re-enabling one emits only new changes.
     private func deliver(_ events: [ActivityEvent]) async {
-        if settings.alertsEnabled { await deliverAlerts(await alertEngine.evaluate(events: events)) }
+        if settings.automation.alertsEnabled { await deliverAlerts(await alertEngine.evaluate(events: events)) }
         await persistEvents(events)
     }
 
     private func deliverAlerts(_ alerts: [FiredAlert]) async {
-        guard settings.alertsEnabled else { return }
+        guard settings.automation.alertsEnabled else { return }
         for alert in alerts { await persistEvents([await onAlert(alert)]) }
     }
 
@@ -347,61 +343,22 @@ actor CollectionScheduler {
     }
 
     func baselineBackgroundTasks() async -> String? {
-        guard settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return nil }
-        return await helper.dumpBackgroundTasks()
+        await security.backgroundTasks(privileged: settings.sampling.privilegedSampling)
     }
 
     func baselineProfiles() async -> String? {
-        guard settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return nil }
-        return await helper.listConfigurationProfiles()
+        await security.configurationProfiles(privileged: settings.sampling.privilegedSampling)
     }
 
-    private var driftRunning = false
     func checkScheduledDrift(repository: BaselineRepository = BaselineRepository(), now: Date = Date(),
                              capture: @Sendable ([MachineBaselineCollector]) async throws -> BaselineDocument = {
                                  try await BaselineCapture.capture(collectors: $0, name: "Scheduled check")
                              }) async {
-        guard !Task.isCancelled, settings.scheduledDriftCheck, let golden = settings.goldenBaselineID, !driftRunning else { return }
-        driftRunning = true
-        defer { driftRunning = false }
-        let key = "baseline.lastDriftCheck." + golden
-        let last = (try? await metadata.metadata(key)).flatMap(Double.init) ?? 0
-        guard now.timeIntervalSince1970 - last >= 86400 else { return }
-        do {
-            let base = try await repository.load(golden)
-            let enabled = base.sections.keys.filter { id in
-                switch id {
-                case "posture": return settings.postureCheckInterval != nil
-                case "startup", "profiles": return settings.watchPersistence
-                case "listeners": return settings.backgroundNetworkEnabled
-                case "apps": return settings.shows(.installedApps)
-                case "homebrew": return settings.shows(.homebrew)
-                case "runtimes": return settings.shows(.devEnvironments)
-                case "agents": return settings.shows(.agents)
-                case "docker": return settings.shows(.docker)
-                default: return true
-                }
-            }
-            async let profile = enabled.contains("profiles") ? baselineProfiles() : nil
-            async let btm = enabled.contains("startup") ? baselineBackgroundTasks() : nil
-            async let listeners: NetworkPortSnapshot? = enabled.contains("listeners") || enabled.contains("posture")
-                ? networkPorts() : nil
-            let (profileValue, btmValue, listenerValue) = await (profile, btm, listeners)
-            var current = try await capture(enabled.map {
-                MachineBaselineCollector(id: $0, settings: settings, listeners: listenerValue, profiles: profileValue, backgroundTasks: btmValue)
-            })
-            try Task.checkCancellation()
-            guard settings.scheduledDriftCheck, settings.goldenBaselineID == golden else { return }
-            let skipped = Set(base.sections.keys).subtracting(enabled).sorted()
-            for id in skipped { current.sections[id] = .init(status: .unavailable, error: "Collector disabled in Settings") }
-            let diff = BaselineDiff.compare(base, current)
-            try await metadata.setMetadata(key, value: String(now.timeIntervalSince1970))
-            if diff.drift {
-                var details = diff.sections.mapValues { "added=\($0.added.count),removed=\($0.removed.count),changed=\($0.changed.count)" }
-                details["skipped"] = skipped.joined(separator: ",")
-                await deliver([.make(kind: .driftDetected, timestamp: Date(), subject: base.name, severity: .warning, details: details)])
-            }
-        } catch { /* Retry on the next maintenance pass. */ }
+        let event = await security.checkScheduledDrift(
+            settings: { await self.settings }, networkPorts: { await self.networkPorts() },
+            repository: repository, now: now, capture: capture
+        )
+        if let event { await deliver([event]) }
     }
 
     private func maintainHistory() async {
@@ -409,10 +366,11 @@ actor CollectionScheduler {
         await history.maintain(settings: settings)
     }
 
+    /// Steps run in order and re-check settings after each suspension; every event goes through `deliver`.
     func scanPersistence(hourly: Bool) async {
-        guard settings.watchPersistence, Capabilities.supportsPersistenceWatching, !Task.isCancelled else { return }
-        let (inventory, events) = await persistenceScanner.scan(metadata: metadata, enrich: settings.persistenceEnrichmentEnabled)
-        guard !Task.isCancelled, settings.watchPersistence else { return }
+        guard settings.security.watchPersistence, Capabilities.supportsPersistenceWatching, !Task.isCancelled else { return }
+        let (inventory, events) = await security.scanPersistence(enrich: settings.security.persistenceEnrichmentEnabled)
+        guard !Task.isCancelled, settings.security.watchPersistence else { return }
         if let inventory {
             onStartup(inventory)
             var startupEvents = await activity.record(startup: inventory)
@@ -425,30 +383,20 @@ actor CollectionScheduler {
             await deliver(startupEvents)
         }
         await deliver(events)
-        guard hourly, settings.persistencePollInterval != nil else { return }
-        let cron = await CommandRunner.run("/usr/bin/crontab", ["-l"], timeout: 5, outputLimit: 65_536)
-        if cron.status == 0 && !cron.truncated && !cron.cancelled {
-            var sources = StartupSources(); sources.crontab = cron.output
-            await record(startup: .init(timestamp: Date(), items: StartupItemCollector.items(from: sources),
-                warnings: [], includesBackgroundTasks: false, includedCategories: [.scheduled]))
+        guard hourly, settings.security.persistencePollInterval != nil else { return }
+        if let cron = await SecurityMonitor.crontabInventory() { await record(startup: cron) }
+        guard !Task.isCancelled else { return }
+        let privileged = settings.sampling.privilegedSampling
+        if let text = await security.backgroundTasks(privileged: privileged), !Task.isCancelled,
+           let inventory = SecurityMonitor.backgroundTaskInventory(text) {
+            await record(startup: inventory)
         }
-        guard !Task.isCancelled, settings.privilegedSampling, let helper, await helper.protocolVersion() >= 2 else { return }
-        if let text = await helper.dumpBackgroundTasks(), !Task.isCancelled, text.contains("Records for UID") {
-            var sources = StartupSources(); sources.btm = StartupParsers.btmRecords(text)
-            await record(startup: .init(timestamp: Date(), items: StartupItemCollector.items(from: sources).filter {
-                StartupInventory.backgroundTaskCategories.contains($0.category)
-            }, warnings: [], includesBackgroundTasks: true, includedCategories: StartupInventory.backgroundTaskCategories))
-        }
-        guard !Task.isCancelled, let text = await helper.listConfigurationProfiles(), !Task.isCancelled,
-              let events = await persistenceScanner.profiles(text, metadata: metadata) else { return }
+        guard !Task.isCancelled, let text = await security.configurationProfiles(privileged: privileged), !Task.isCancelled,
+              let events = await security.profileEvents(text) else { return }
         await deliver(events)
         let check = PostureCheck(id: "config-profiles", status: .pass, summary: "Configuration profile inventory available (informational)",
             evidence: "Helper v2, checked \(Date().ISO8601Format()); changes tracked by digest")
-        cachedProfile = check
-        if var snapshot = lastPosture, let index = snapshot.checks.firstIndex(where: { $0.id == check.id }) {
-            snapshot.checks[index] = check
-            await savePosture(snapshot, previous: nil)
-        }
+        if let snapshot = await security.recordProfileCheck(check) { await savePosture(snapshot, previous: nil) }
     }
 
     func stop() {
@@ -457,7 +405,7 @@ actor CollectionScheduler {
     }
 
     private func configurePosture() {
-        let interval = Capabilities.supportsPostureChecks ? settings.postureCheckInterval : nil
+        let interval = Capabilities.supportsPostureChecks ? settings.security.postureCheckInterval : nil
         guard interval != postureInterval else { return }
         postureInterval = interval
         postureTask?.cancel()
@@ -465,11 +413,11 @@ actor CollectionScheduler {
         guard let interval else { return }
         postureTask = Task { [weak self] in
             guard let self else { return }
-            var previous = await self.loadPosture()
+            var previous = await self.security.loadPosture()
             if let previous { await self.publishPosture(previous) }
             do { try await Task.sleep(for: .seconds(60)) } catch { return }
             while !Task.isCancelled {
-                let snapshot = await PostureCollector().collect(listeners: self.cachedListeners, profile: self.cachedProfile)
+                let snapshot = await self.security.collectPosture(listeners: self.cachedListeners)
                 guard !Task.isCancelled else { return }
                 await self.savePosture(snapshot, previous: previous)
                 previous = snapshot
@@ -478,25 +426,20 @@ actor CollectionScheduler {
         }
     }
 
-    private func loadPosture() async -> PostureSnapshot? {
-        guard let text = try? await metadata.metadata(PostureSnapshot.metadataKey) else { return nil }
-        return try? JSONDecoder().decode(PostureSnapshot.self, from: Data(text.utf8))
+    private func publishPosture(_ snapshot: PostureSnapshot) async {
+        await security.remember(snapshot)
+        onPosture(snapshot)
     }
 
-    private func publishPosture(_ snapshot: PostureSnapshot) { lastPosture = snapshot; onPosture(snapshot) }
-
     private func savePosture(_ snapshot: PostureSnapshot, previous: PostureSnapshot?) async {
-        if let data = try? JSONEncoder().encode(snapshot), let text = String(data: data, encoding: .utf8) {
-            await history.saveMetadata(PostureSnapshot.metadataKey, value: text, to: metadata)
-        }
-        publishPosture(snapshot)
+        await security.save(snapshot)
+        onPosture(snapshot)
         await deliver(snapshot.changes(from: previous))
     }
 
     func restoreSecurityCache() async {
-        if let snapshot = await loadPosture() {
-            publishPosture(snapshot)
-            cachedProfile = snapshot.checks.first { $0.id == "config-profiles" }
+        if let snapshot = await security.restoreCache() {
+            onPosture(snapshot)
         } else if !Capabilities.supportsPostureChecks {
             onPosture(.init(timestamp: Date(), checks: PostureParser.ids.map { .unknown($0, "Not available in this edition") }))
         }

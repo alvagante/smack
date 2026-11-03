@@ -70,7 +70,7 @@ struct ApplicationListView: View {
     }
 
     private var scope: ProcessScope {
-        model.effectiveScope(showBackgroundProcesses: store.settingsStore.settings.showBackgroundProcesses)
+        model.effectiveScope(showBackgroundProcesses: store.settingsStore.settings.panel.showBackgroundProcesses)
     }
 
     private var layout: ApplicationListLayout { ApplicationListLayout(width: listWidth) }
@@ -308,6 +308,7 @@ struct ApplicationListView: View {
 struct ProcessDetailView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: ProcessDetailViewModel
+    @ObservedObject private var inspection: ProcessInspectionModel
     let id: String
     @State private var inspectionTab: ProcessInspectionTab?
 
@@ -315,6 +316,7 @@ struct ProcessDetailView: View {
         self.store = store
         self.id = id
         model = store.processDetailViewModel
+        inspection = store.inspection
     }
     var body: some View {
         ScrollView {
@@ -371,9 +373,9 @@ struct ProcessDetailView: View {
                             .id("\(process.id)#\(inspectionTab.rawValue)")
                     } else {
                         ProvenanceSection(store: store, process: process)
-                        RefreshButton(hint: "Refresh live inventory") { store.loadInventory(for: process) }
-                        if store.inventoryLoading { ProgressView("Inspecting process…") }
-                        if let inventory = store.inventory {
+                        RefreshButton(hint: "Refresh live inventory") { inspection.loadInventory(for: process) }
+                        if inspection.inventoryLoading { ProgressView("Inspecting process…") }
+                        if let inventory = inspection.inventory {
                             if !inventory.warnings.isEmpty {
                                 ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
                             }
@@ -417,7 +419,7 @@ struct ProcessDetailView: View {
             inspectionTab = nil
             if let process = store.process(id: id) {
                 store.loadProvenance(for: process)
-                store.loadInventory(for: process)
+                inspection.loadInventory(for: process)
             }
         }
     }

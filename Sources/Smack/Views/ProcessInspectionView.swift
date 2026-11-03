@@ -20,7 +20,7 @@ struct ProcessInspectionView: View {
     @State private var crashes: [URL] = []
     @State private var segment = 0
 
-    private var traceSeconds: Int { store.settingsStore.settings.fileActivitySeconds }
+    private var traceSeconds: Int { store.settingsStore.settings.sampling.fileActivitySeconds }
     private var traceSegments: Int { max(1, traceSeconds / CollectionSettings.fileActivitySegmentSeconds) }
 
     var body: some View {

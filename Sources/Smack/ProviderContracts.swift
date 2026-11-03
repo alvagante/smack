@@ -43,6 +43,24 @@ protocol PrivilegedSamplingProviding: AnyObject, Sendable {
     func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload?
 }
 
+/// Helper queries behind persistence scans and baselines; both need helper protocol v2.
+protocol PrivilegedSecurityQuerying: AnyObject, Sendable {
+    func protocolVersion() async -> Int
+    func dumpBackgroundTasks() async -> String?
+    func listConfigurationProfiles() async -> String?
+}
+
+/// The helper's storage scan job, polled by `StorageScanModel`.
+protocol PrivilegedStorageScanning: AnyObject, Sendable {
+    func setAvailable(_ value: Bool)
+    func startStorageScan() async -> Bool?
+    func storageScanStatus() async -> StorageScanSnapshot?
+    func cancelStorageScan() async
+}
+
+/// History storage used by `CollectionScheduler`: sample and event writes plus key-value state.
+typealias CollectionHistoryStoring = HistoryWriting & ActivityMetadataStoring
+
 struct MetricDelta {
     static func difference(current: UInt64, previous: UInt64) -> UInt64? {
         current >= previous ? current - previous : nil

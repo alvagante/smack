@@ -203,12 +203,12 @@ func agentSteadyStateBenchmark() async {
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     object["recordAgentEvents"] = nil; object["showAgentCommandLines"] = nil
     let older = try JSONDecoder().decode(CollectionSettings.self, from: JSONSerialization.data(withJSONObject: object))
-    #expect(older.recordAgentEvents)
-    #expect(!older.showAgentCommandLines)
-    var changed = original; changed.recordAgentEvents = false; changed.showAgentCommandLines = true
+    #expect(older.activity.recordAgentEvents)
+    #expect(!older.devTools.showAgentCommandLines)
+    var changed = original; changed.activity.recordAgentEvents = false; changed.devTools.showAgentCommandLines = true
     let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(changed))
-    #expect(!decoded.recordAgentEvents)
-    #expect(decoded.showAgentCommandLines)
+    #expect(!decoded.activity.recordAgentEvents)
+    #expect(decoded.devTools.showAgentCommandLines)
 }
 
 @Test func configuredMCPCommandsClassifyDirectChildrenOnly() async throws {

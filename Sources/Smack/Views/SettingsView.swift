@@ -192,14 +192,14 @@ struct SettingsView: View {
         case .otherPages: otherPagesPane
         case .alerts:
             Section {
-                Toggle(isOn: localBinding(\.alertsEnabled)) {
+                Toggle(isOn: localBinding(\.automation.alertsEnabled)) {
                     SettingsLabel("Enable alerts", help: "Stops rule evaluation and new alert delivery when off. Saved rules are kept. Pause and snooze only suppress delivery.",
                         subtitle: "CPU grows with enabled rules and matching processes; no extra sampling. Production CPU budget remains unverified.")
                 }
             }
-            AlertsSettingsView(store: store, rules: store.alertRules).disabled(!settings.settings.alertsEnabled)
+            AlertsSettingsView(store: store, rules: store.alertRules).disabled(!settings.settings.automation.alertsEnabled)
             timelineSection {
-                Toggle(isOn: binding(\.recordAlertEvents)) {
+                Toggle(isOn: binding(\.activity.recordAlertEvents)) {
                     SettingsLabel("Alerts", help: "Fired alerts, including suppressed notifications.")
                 }
             }
@@ -218,18 +218,18 @@ struct SettingsView: View {
 
     @ViewBuilder private var generalPane: some View {
         Section {
-            Picker(selection: binding(\.trigger)) {
+            Picker(selection: binding(\.panel.trigger)) {
                 ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
             } label: { SettingsLabel("Open the panel with", help: "How the camera hot zone opens the panel.") }
-            if settings.settings.trigger == .hover {
-                LabeledContent("Hover delay") { NumberField(value: binding(\.hoverDelay), unit: "s") }
+            if settings.settings.panel.trigger == .hover {
+                LabeledContent("Hover delay") { NumberField(value: binding(\.panel.hoverDelay), unit: "s") }
             }
             Picker(selection: soundSelectionBinding) {
                 ForEach(PanelSound.allCases) { Text($0.displayName).tag($0) }
             } label: { SettingsLabel("Sound", help: "Played when the panel opens. Choosing one plays a preview.") }
         }
         Section {
-            Toggle("Launch at Login", isOn: binding(\.launchAtLogin))
+            Toggle("Launch at Login", isOn: binding(\.panel.launchAtLogin))
         }
         Section {
             LabeledContent {
@@ -242,24 +242,24 @@ struct SettingsView: View {
 
     @ViewBuilder private var appearancePane: some View {
         Section("Appearance") {
-            Picker("Color scheme", selection: appearanceBinding(\.appearance)) {
+            Picker("Color scheme", selection: appearanceBinding(\.panel.appearance)) {
                 ForEach(PanelAppearance.allCases) { Text($0.rawValue).tag($0) }
             }
         }
         if Capabilities.supportsNativeMenuBarIcons {
             Section("Menu-bar icons") {
-                Toggle("Show top bar icons row", isOn: appearanceBinding(\.showTopBarIcons))
+                Toggle("Show top bar icons row", isOn: appearanceBinding(\.panel.showTopBarIcons))
             }
         }
         Section {
-            Toggle(isOn: appearanceBinding(\.glassMode)) {
+            Toggle(isOn: appearanceBinding(\.panel.glassMode)) {
                 SettingsLabel("Glass mode", help: "Translucent panel background that shows the desktop through it.")
             }
-            if settings.settings.glassMode {
+            if settings.settings.panel.glassMode {
                 LabeledContent {
                     HStack {
-                        Slider(value: appearanceBinding(\.glassOpacity), in: CollectionSettings.glassOpacityRange).frame(width: 160)
-                        Text(settings.settings.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
+                        Slider(value: appearanceBinding(\.panel.glassOpacity), in: CollectionSettings.glassOpacityRange).frame(width: 160)
+                        Text(settings.settings.panel.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
                             .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                     }
                 } label: {
@@ -269,48 +269,48 @@ struct SettingsView: View {
         }
         titleBarSection
         Section("Charts") {
-            Toggle(isOn: binding(\.showEventsOnCharts)) {
+            Toggle(isOn: binding(\.activity.showEventsOnCharts)) {
                 SettingsLabel("Show events on history charts", help: "Draws event markers on the history graphs. Display only; does not change what is recorded.")
             }
         }
     }
 
     @ViewBuilder private var titleBarSection: some View {
-        let options = settings.settings.titleBar
+        let options = settings.settings.panel.titleBar
         Section {
             if Capabilities.flavor == .direct {
-                Toggle(isOn: appearanceBinding(\.titleBar.showSponsor)) {
+                Toggle(isOn: appearanceBinding(\.panel.titleBar.showSponsor)) {
                     SettingsLabel("Sponsor link", subtitle: "Opens GitHub Sponsors for Smack.")
                 }
             }
-            Toggle(isOn: appearanceBinding(\.titleBar.showHostname)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showHostname)) {
                 SettingsLabel("Hostname", help: "Click it in the title bar to copy it.")
             }
             if options.showHostname {
-                Picker(selection: appearanceBinding(\.titleBar.hostnameStyle)) {
+                Picker(selection: appearanceBinding(\.panel.titleBar.hostnameStyle)) {
                     ForEach(TitleBarSettings.HostnameStyle.allCases) { Text($0.rawValue).tag($0) }
                 } label: {
                     SettingsLabel("Show as", subtitle: store.hostIdentity.hostname(options.hostnameStyle) ?? "Unavailable")
                 }
             }
-            Toggle(isOn: appearanceBinding(\.titleBar.showNetwork)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showNetwork)) {
                 SettingsLabel("Network address", help: "IPv4 address and prefix of the primary interface. Click it in the title bar to copy it.",
                               subtitle: store.hostIdentity.cidr.map { cidr in
                                   store.hostIdentity.primaryInterface.map { "\(cidr) on \($0)" } ?? cidr
                               } ?? "No IPv4 network")
             }
-            Toggle(isOn: appearanceBinding(\.titleBar.showClock)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showClock)) {
                 SettingsLabel("Clock")
             }
             if options.showClock {
-                Picker(selection: appearanceBinding(\.titleBar.clockStyle)) {
+                Picker(selection: appearanceBinding(\.panel.titleBar.clockStyle)) {
                     ForEach(TitleBarSettings.ClockStyle.allCases) { Text($0.rawValue).tag($0) }
                 } label: {
                     SettingsLabel("Format", subtitle: options.clockText(Date()))
                 }
                 if options.clockStyle == .custom {
                     LabeledContent {
-                        TextField("Pattern", text: appearanceBinding(\.titleBar.clockPattern),
+                        TextField("Pattern", text: appearanceBinding(\.panel.titleBar.clockPattern),
                                   prompt: Text(TitleBarSettings.defaultClockPattern))
                             .font(.body.monospaced()).frame(width: 180)
                     } label: {
@@ -322,14 +322,14 @@ struct SettingsView: View {
             Text("Title bar")
         }
         Section {
-            Toggle(isOn: appearanceBinding(\.titleBar.showUptime)) { SettingsLabel("Uptime") }
-            Toggle(isOn: appearanceBinding(\.titleBar.showLoadAverage)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showUptime)) { SettingsLabel("Uptime") }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showLoadAverage)) {
                 SettingsLabel("Load average", subtitle: "One-minute value; all three on hover.")
             }
-            Toggle(isOn: appearanceBinding(\.titleBar.showBattery)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showBattery)) {
                 SettingsLabel("Battery", subtitle: "Hidden on Macs without a battery.")
             }
-            Toggle(isOn: appearanceBinding(\.titleBar.showThermal)) {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showThermal)) {
                 SettingsLabel("Thermal warning", subtitle: "Shown only while the Mac is thermally constrained.")
             }
         } header: {
@@ -353,7 +353,7 @@ struct SettingsView: View {
             SettingsFooter("A preset sets live refresh, Network Rate, background System, Process and listening-port intervals, the battery slowdown, process history, the Memory Budget and Docker statistics. Each also appears in its own pane; changing one there shows Custom. Security and Activity Timeline settings are never changed by a preset.")
         }
         Section {
-            Picker(selection: binding(\.liveRefreshSeconds)) {
+            Picker(selection: binding(\.sampling.liveRefreshSeconds)) {
                 ForEach(CollectionSettings.liveRefreshChoices, id: \.self) { Text("Every \(Int($0)) s").tag($0) }
             } label: {
                 SettingsLabel("Refresh", help: "How often system and process metrics update while the panel is visible. Slower refresh uses less CPU, especially with the panel pinned.")
@@ -364,7 +364,7 @@ struct SettingsView: View {
             SettingsFooter("Faster refresh increases CPU use. Hardware sensors are read only on relevant pages. CPU cost depends on process count.")
         }
         Section {
-            Picker(selection: binding(\.constrainedPowerMultiplier)) {
+            Picker(selection: binding(\.sampling.constrainedPowerMultiplier)) {
                 ForEach(CollectionSettings.constrainedPowerChoices, id: \.self) { Text($0 == 1 ? "Off" : "\($0)× slower").tag($0) }
             } label: {
                 SettingsLabel("On battery or Low Power Mode", help: "Stretches every background interval (System, Processes, Network) while the Mac runs on battery or in Low Power Mode, to save energy. History becomes coarser during that time.")
@@ -380,7 +380,7 @@ struct SettingsView: View {
             }
         }
         Section {
-            Picker(selection: localBinding(\.memoryBudget)) {
+            Picker(selection: localBinding(\.sampling.memoryBudget)) {
                 ForEach(MemoryBudget.allCases) { Text($0.rawValue).tag($0) }
             } label: {
                 SettingsLabel("Memory budget", help: "Caps memory held by caches and on-demand reports: profiling output, development runtime inspections, application icons and process signature facts.",
@@ -393,7 +393,7 @@ struct SettingsView: View {
         }
         if !Capabilities.isSandboxed {
             Section {
-                Picker(selection: localBinding(\.inventoryCache)) {
+                Picker(selection: localBinding(\.devTools.inventoryCache)) {
                     ForEach(InventoryCachePreset.allCases) { Text($0.label).tag($0) }
                 } label: {
                     SettingsLabel("Reuse inventories", help: "How long Docker, Homebrew, development runtime and AI agent results are reused before they are collected again. Refresh buttons always collect immediately.")
@@ -405,20 +405,20 @@ struct SettingsView: View {
     }
 
     private var memoryBudgetSummary: String {
-        let budget = settings.settings.memoryBudget
+        let budget = settings.settings.sampling.memoryBudget
         return "Profiling \(Formatting.bytes(UInt64(budget.profileOutputBytes))) · \(budget.iconCount) icons · \(budget.fileFactsEntries) signatures"
     }
 
     @ViewBuilder private var systemPane: some View {
         Section {
-            IntervalRow(title: "System metrics", help: "CPU, memory, disk and network samples taken while the panel is closed. They feed the history graphs and system events. Approximate storage per hour at full resolution; compacted to about a tenth after the full-resolution window.", estimate: StorageEstimate.system, seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
+            IntervalRow(title: "System metrics", help: "CPU, memory, disk and network samples taken while the panel is closed. They feed the history graphs and system events. Approximate storage per hour at full resolution; compacted to about a tenth after the full-resolution window.", estimate: StorageEstimate.system, seconds: optionalBinding(\.sampling.backgroundSystemInterval), minimum: 1)
         } header: {
             Text("While the panel is closed")
         } footer: {
             SettingsFooter("While the panel is open, metrics follow Refresh in Performance. Temperatures, fans and per-process GPU time are read only while a page showing them is open.")
         }
         timelineSection {
-            Toggle(isOn: binding(\.recordSystemEvents)) {
+            Toggle(isOn: binding(\.activity.recordSystemEvents)) {
                 SettingsLabel("System", help: "Volumes, sleep/wake, power source, thermal and memory pressure.", subtitle: "<1 KB/h")
             }
         }
@@ -426,14 +426,14 @@ struct SettingsView: View {
 
     @ViewBuilder private var processesPane: some View {
         Section {
-            Toggle(isOn: binding(\.showBackgroundProcesses)) {
+            Toggle(isOn: binding(\.panel.showBackgroundProcesses)) {
                 SettingsLabel("Show background processes", help: "Lists processes that are not user-facing applications next to applications.")
             }
         }
         Section {
-            IntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
+            IntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.sampling.backgroundProcessInterval), minimum: 1)
             if !Capabilities.isSandboxed {
-                IntervalRow(title: "Process inventories", help: "Collects open files, ports and memory maps for every process on a schedule, so the process detail views are already populated. Expensive; unrelated to history graphs and the timeline. Kept in memory only, never stored on disk.", estimate: { _ in "no storage" }, seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
+                IntervalRow(title: "Process inventories", help: "Collects open files, ports and memory maps for every process on a schedule, so the process detail views are already populated. Expensive; unrelated to history graphs and the timeline. Kept in memory only, never stored on disk.", estimate: { _ in "no storage" }, seconds: optionalBinding(\.sampling.backgroundInventoryInterval), minimum: 10)
             }
         } header: {
             Text("While the panel is closed")
@@ -446,27 +446,27 @@ struct SettingsView: View {
             }
         }
         Section("Process history") {
-            Toggle(isOn: binding(\.recordProcessHistory)) {
+            Toggle(isOn: binding(\.history.recordProcessHistory)) {
                 SettingsLabel("Record process history", help: "Per-process CPU, memory and disk history. The largest storage consumer. Turn off to keep only system history and timeline events.")
             }
-            if settings.settings.recordProcessHistory {
+            if settings.settings.history.recordProcessHistory {
                 StepperRow(
                     title: "Busiest processes only",
                     help: "Store only the N busiest processes (by CPU or memory) in each snapshot. 0 stores every process. Lower values shrink process history substantially.",
-                    text: settings.settings.processHistoryTopCount == 0 ? "All" : "\(settings.settings.processHistoryTopCount)",
-                    value: binding(\.processHistoryTopCount), range: CollectionSettings.processTopCountRange, step: 10
+                    text: settings.settings.history.processHistoryTopCount == 0 ? "All" : "\(settings.settings.history.processHistoryTopCount)",
+                    value: binding(\.history.processHistoryTopCount), range: CollectionSettings.processTopCountRange, step: 10
                 )
-                StepperRow(title: "Per-minute process data", help: "How long one-minute process rows are kept. Never longer than Retention. This is usually the biggest part of the database.", text: "\(settings.settings.processMinuteRetentionDays) days", value: binding(\.processMinuteRetentionDays), range: CollectionSettings.processMinuteRetentionRange)
+                StepperRow(title: "Per-minute process data", help: "How long one-minute process rows are kept. Never longer than Retention. This is usually the biggest part of the database.", text: "\(settings.settings.history.processMinuteRetentionDays) days", value: binding(\.history.processMinuteRetentionDays), range: CollectionSettings.processMinuteRetentionRange)
             }
         }
         timelineSection {
-            Toggle(isOn: binding(\.recordProcessEvents)) {
+            Toggle(isOn: binding(\.activity.recordProcessEvents)) {
                 SettingsLabel("Processes", help: "Process started and exited. About 300 bytes per event; a build-heavy Mac can reach 1 MB per hour, a quiet one a few tens of KB.", subtitle: "~30 KB-1 MB/h")
             }
         }
         if Capabilities.supportsProfiling {
             Section {
-                Picker(selection: localBinding(\.fileActivitySeconds)) {
+                Picker(selection: localBinding(\.sampling.fileActivitySeconds)) {
                     ForEach(CollectionSettings.fileActivityChoices, id: \.self) { Text("\($0) seconds").tag($0) }
                 } label: {
                     SettingsLabel("File Activity trace", help: "Length of a File Activity capture on application and process pages, taken through the Privileged Helper. Longer traces are taken as consecutive five-second segments, with short gaps between them.")
@@ -480,12 +480,12 @@ struct SettingsView: View {
     @ViewBuilder private var networkPane: some View {
         if !Capabilities.isSandboxed {
             Section {
-                Toggle(isOn: binding(\.processNetworkRateEnabled)) {
+                Toggle(isOn: binding(\.sampling.processNetworkRateEnabled)) {
                     SettingsLabel("Per-process network rates", help: "Receive and send rates for each process and application, from a separate sampler that runs only while the panel is visible. Off shows Off instead of a rate.")
                 }
-                if settings.settings.processNetworkRateEnabled {
-                    StepperRow(title: "Network rate interval", text: "\(Int(settings.settings.processNetworkRateSeconds)) s",
-                               value: Binding(get: { Int(settings.settings.processNetworkRateSeconds) }, set: { value in binding(\.processNetworkRateSeconds).wrappedValue = TimeInterval(value) }),
+                if settings.settings.sampling.processNetworkRateEnabled {
+                    StepperRow(title: "Network rate interval", text: "\(Int(settings.settings.sampling.processNetworkRateSeconds)) s",
+                               value: Binding(get: { Int(settings.settings.sampling.processNetworkRateSeconds) }, set: { value in binding(\.sampling.processNetworkRateSeconds).wrappedValue = TimeInterval(value) }),
                                range: Int(CollectionSettings.processNetworkRateRange.lowerBound)...Int(CollectionSettings.processNetworkRateRange.upperBound))
                 }
             } header: {
@@ -496,7 +496,7 @@ struct SettingsView: View {
         }
         if Capabilities.supportsNetworkPortInspection {
             Section {
-                IntervalRow(title: "Listening ports", help: "Samples listening ports (and connections, if enabled) while the panel is closed. Feeds network timeline events; only the resulting events are stored.", estimate: { _ in "<10 KB/h" }, seconds: optionalBinding(\.backgroundNetworkInterval), minimum: 5)
+                IntervalRow(title: "Listening ports", help: "Samples listening ports (and connections, if enabled) while the panel is closed. Feeds network timeline events; only the resulting events are stored.", estimate: { _ in "<10 KB/h" }, seconds: optionalBinding(\.sampling.backgroundNetworkInterval), minimum: 5)
             } header: {
                 Text("While the panel is closed")
             } footer: {
@@ -504,16 +504,16 @@ struct SettingsView: View {
             }
         }
         timelineSection {
-            Toggle(isOn: binding(\.recordNetworkEvents)) {
+            Toggle(isOn: binding(\.activity.recordNetworkEvents)) {
                 SettingsLabel("Network", help: "Listening ports opened or closed, interface and address changes.", subtitle: "<10 KB/h")
             }
-            if settings.settings.recordNetworkEvents {
-                Toggle(isOn: binding(\.recordConnectionEvents)) {
+            if settings.settings.activity.recordNetworkEvents {
+                Toggle(isOn: binding(\.activity.recordConnectionEvents)) {
                     SettingsLabel("Include connections", help: "Adds opened/closed events for every non-listening socket, outbound or inbound. Can be noisy and grows the event store faster.", subtitle: "~0.1-1 MB/h")
                 }
             }
         } warning: {
-            if settings.settings.recordNetworkEvents && settings.settings.recordConnectionEvents {
+            if settings.settings.activity.recordNetworkEvents && settings.settings.activity.recordConnectionEvents {
                 Label("Connection events can be very frequent on busy machines. Event rows are capped, so older events drop sooner.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
@@ -525,35 +525,35 @@ struct SettingsView: View {
             Section {
                 IntervalRow(title: "Posture checks", help: "Offline checks of security settings. First check runs after 60 seconds. Off cancels collection; the last cached result is kept.",
                     estimate: { _ in "Brief CPU and file/tool activity per run; serial probes capped at 5 s each and 20 s combined. Total resource budget unverified." },
-                    seconds: localBinding(\.postureCheckInterval), minimum: 60, defaultSeconds: 21_600)
+                    seconds: localBinding(\.security.postureCheckInterval), minimum: 60, defaultSeconds: 21_600)
             } header: { Text("Scheduled checks") }
             footer: { SettingsFooter("Expected brief CPU and disk activity per check cycle. Actual total CPU, wall time and energy are unmeasured; command deadlines are limits, not measured resource usage.") }
         }
         if Capabilities.supportsPersistenceWatching {
             Section {
-                Toggle(isOn: localBinding(\.watchPersistence)) {
+                Toggle(isOn: localBinding(\.security.watchPersistence)) {
                     SettingsLabel("Watch persistence", help: "Launch agents, daemons and selected SSH, shell and system files. Off stops the watcher, pending rescans and scheduled persistence polls.",
                         subtitle: "Expected low idle CPU; file changes trigger hashing and rescans after a 2 s debounce. File reads capped at 1 MiB each. Production CPU/energy impact unmeasured.")
                 }
-                Toggle(isOn: localBinding(\.persistenceEnrichmentEnabled)) {
+                Toggle(isOn: localBinding(\.security.persistenceEnrichmentEnabled)) {
                     SettingsLabel("Enrich changed items", help: "Offline signature verification, quarantine and location details. Off keeps file hashes and change detection.",
                         subtitle: "Extra CPU and file reads during changes; at most 20 items per scan, 3 s per item within the scan deadline.")
-                }.disabled(!settings.settings.watchPersistence)
+                }.disabled(!settings.settings.security.watchPersistence)
                 IntervalRow(title: "Scheduled persistence scans", help: "Polls crontab and, with an enabled v2 helper, background tasks and configuration profiles. No password prompts. Off leaves file watching active.",
                     estimate: { _ in "Periodic tool/helper CPU and I/O; commands have 5 s deadlines. CPU/energy impact unmeasured." },
-                    seconds: localBinding(\.persistencePollInterval), minimum: 3600, defaultSeconds: 3600)
-                    .disabled(!settings.settings.watchPersistence)
+                    seconds: localBinding(\.security.persistencePollInterval), minimum: 3600, defaultSeconds: 3600)
+                    .disabled(!settings.settings.security.watchPersistence)
             } header: { Text("Persistence monitoring") }
             footer: { SettingsFooter("Scheduled scans add periodic tool/helper work. File changes can cause CPU and disk bursts, especially with enrichment enabled; production impact is unmeasured. Collection switches stop work. Activity Timeline recording switches only control stored events. Cached results remain available when collection is off.") }
         }
         timelineSection {
             if Capabilities.supportsPostureChecks || Capabilities.supportsPersistenceWatching {
-                Toggle(isOn: binding(\.recordSecurityEvents)) {
+                Toggle(isOn: binding(\.activity.recordSecurityEvents)) {
                     SettingsLabel("Security", help: "Security posture and persistence file changes.")
                 }
             }
             if Capabilities.supportsStartupItems {
-                Toggle(isOn: binding(\.recordStartupEvents)) {
+                Toggle(isOn: binding(\.activity.recordStartupEvents)) {
                     SettingsLabel("Startup items", help: "Login items, launch agents and daemons added, removed or changed.", subtitle: "<1 KB/h")
                 }
             }
@@ -564,15 +564,15 @@ struct SettingsView: View {
         if Capabilities.supportsNetworkPortInspection {
             Section("Dev servers") {
                 summaryToggle(.devServers)
-                Toggle(isOn: binding(\.backgroundDevServersEnabled)) {
+                Toggle(isOn: binding(\.devTools.backgroundDevServersEnabled)) {
                     SettingsLabel("Collect dev servers in background", help: "Keeps listening-port sampling and dev server detection running while the panel is closed, even with Listening ports off in Network.")
                 }
-                Picker("Terminal", selection: binding(\.terminalApp)) {
+                Picker("Terminal", selection: binding(\.devTools.terminalApp)) {
                     ForEach(ProjectApplications.installed(ProjectApplications.terminals), id: \.id) { app in
                         Text(app.name).tag(app.id)
                     }
                 }
-                Picker("Editor", selection: binding(\.editorApp)) {
+                Picker("Editor", selection: binding(\.devTools.editorApp)) {
                     Text("None").tag(nil as String?)
                     ForEach(ProjectApplications.installed(ProjectApplications.editors), id: \.id) { app in
                         Text(app.name).tag(Optional(app.id))
@@ -583,8 +583,8 @@ struct SettingsView: View {
         Section {
             summaryToggle(.devEnvironments)
             StepperRow(title: "Project scan depth", help: "Directory levels searched below each project folder for virtual environments and project-local runtimes.",
-                       text: "\(settings.settings.devScanDepth) levels", value: localBinding(\.devScanDepth), range: CollectionSettings.devScanDepthRange)
-            FolderListRows(folders: localBinding(\.devProjectFolders), addTitle: "Add Project Folder…", empty: "No project folders")
+                       text: "\(settings.settings.devTools.devScanDepth) levels", value: localBinding(\.devTools.devScanDepth), range: CollectionSettings.devScanDepthRange)
+            FolderListRows(folders: localBinding(\.devTools.devProjectFolders), addTitle: "Add Project Folder…", empty: "No project folders")
         } header: {
             Text("Development environments")
         }
@@ -600,12 +600,12 @@ struct SettingsView: View {
     @ViewBuilder private var dockerPane: some View {
         Section {
             summaryToggle(.docker)
-            Picker(selection: localBinding(\.dockerRefreshSeconds)) {
+            Picker(selection: localBinding(\.devTools.dockerRefreshSeconds)) {
                 ForEach(CollectionSettings.dockerRefreshChoices, id: \.self) { Text($0 == 0 ? "Only on request" : "Every \($0) s").tag($0) }
             } label: {
                 SettingsLabel("Auto-refresh", help: "How often container state updates while the panel is open.")
             }
-            Toggle(isOn: localBinding(\.dockerLiveStats)) {
+            Toggle(isOn: localBinding(\.devTools.dockerLiveStats)) {
                 SettingsLabel("Live container statistics", help: "CPU, memory, network and block I/O per container. The most expensive Docker query; off shows container state only.")
             }
         } footer: {
@@ -627,14 +627,14 @@ struct SettingsView: View {
             SettingsFooter("Turned-off agents are not looked for. Agents are listed only when they are installed.")
         }
         Section {
-            FolderListRows(folders: localBinding(\.customAgentFolders), addTitle: "Add Agent Folder…", empty: "No custom agent folders")
+            FolderListRows(folders: localBinding(\.devTools.customAgentFolders), addTitle: "Add Agent Folder…", empty: "No custom agent folders")
         } header: {
             Text("Custom agent folders")
         } footer: {
             SettingsFooter("Each folder appears as its own agent, browsed for the configuration, skills, memory, logs and sessions files known agents use.")
         }
         Section {
-            Toggle(isOn: binding(\.showAgentCommandLines)) {
+            Toggle(isOn: binding(\.devTools.showAgentCommandLines)) {
                 SettingsLabel("Allow per-session command line reveal", help: "Shows a button that reveals a running session's command line, which can contain secrets.")
             }
         } header: {
@@ -643,7 +643,7 @@ struct SettingsView: View {
             SettingsFooter("Running sessions are tracked on every process sample only while AI Agents is on Summary, session events are recorded, or an enabled alert rule uses agent sessions. Otherwise tracking stops, and the sessions list, the CLI, dev server links and listener event attribution show none.")
         }
         timelineSection {
-            Toggle(isOn: binding(\.recordAgentEvents)) {
+            Toggle(isOn: binding(\.activity.recordAgentEvents)) {
                 SettingsLabel("Agent sessions", help: "Agent session started and ended. Also keeps session tracking running while AI Agents is hidden from Summary.")
             }
         }
@@ -668,17 +668,17 @@ struct SettingsView: View {
 
     @ViewBuilder private var activityPane: some View {
         Section {
-            Toggle(isOn: binding(\.recordActivity)) {
+            Toggle(isOn: binding(\.activity.recordActivity)) {
                 SettingsLabel("Record activity", help: "Master switch. When off, no timeline events are stored or shown. Metric history is unaffected.")
             }
         } footer: {
             SettingsFooter("Smack records events only while it is running. Recording adds disk writes, roughly 335 bytes per event before retention/compaction. Off stops event storage, while collectors and enabled alert rules keep running. Which events are recorded is chosen in each feature's pane: System, Processes, Network, Security, AI Agents and Alerts.")
         }
-        if settings.settings.recordActivity {
+        if settings.settings.activity.recordActivity {
             Section {
-                StepperRow(title: "Event retention", help: "How long timeline events are kept. Events are also capped in number.", text: "\(settings.settings.eventRetentionDays) days", value: binding(\.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
+                StepperRow(title: "Event retention", help: "How long timeline events are kept. Events are also capped in number.", text: "\(settings.settings.activity.eventRetentionDays) days", value: binding(\.activity.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
                 StepperRow(title: "Maximum events", help: "The newest events kept regardless of retention; older ones are deleted first. About 335 bytes each on disk.",
-                           text: settings.settings.maximumEventRows.formatted(), value: binding(\.maximumEventRows), range: CollectionSettings.maximumEventRowsRange, step: 10_000)
+                           text: settings.settings.activity.maximumEventRows.formatted(), value: binding(\.activity.maximumEventRows), range: CollectionSettings.maximumEventRowsRange, step: 10_000)
             }
         }
     }
@@ -686,18 +686,18 @@ struct SettingsView: View {
     @ViewBuilder private var automationPane: some View {
         if Capabilities.supportsControlSocket {
             Section {
-                Toggle(isOn: localBinding(\.controlSocketEnabled)) {
+                Toggle(isOn: localBinding(\.automation.controlSocketEnabled)) {
                     SettingsLabel("CLI and local control socket", help: "Accepts same-user cached queries and delivery-only alert controls. Off closes the listener and connected followers immediately.",
                         subtitle: "Expected low idle overhead; requests use cached data/history. Follow adds per-client buffering and 2 s heartbeats. Production budget unverified.")
                 }
             }
         }
         Section {
-            Toggle(isOn: localBinding(\.appIntentsEnabled)) {
+            Toggle(isOn: localBinding(\.automation.appIntentsEnabled)) {
                 SettingsLabel("Shortcuts and App Intents", help: "Off rejects intent execution and entity queries. Packaged intents may remain listed in Shortcuts.",
                     subtitle: "No periodic collection; CPU and bounded cached/history reads on invocation. Cold invocation may launch Smack.")
             }
-            Toggle(isOn: localBinding(\.urlNavigationEnabled)) {
+            Toggle(isOn: localBinding(\.automation.urlNavigationEnabled)) {
                 SettingsLabel("URL navigation", help: "Allows smack:// navigation from launchers, CLI, Shortcuts and notification Open actions. Off ignores URL opens.",
                     subtitle: "No idle polling. Opening a page starts its normal visible-page work.")
             }
@@ -706,9 +706,9 @@ struct SettingsView: View {
 
     @ViewBuilder private var historyPane: some View {
         Section {
-            StepperRow(title: "Retention", text: "\(settings.settings.retentionDays) days", value: binding(\.retentionDays), range: 1...365)
-            StepperRow(title: "Full resolution", help: "Older samples are kept as one-minute averages and peaks.", text: "\(settings.settings.fullResolutionHours) hours", value: binding(\.fullResolutionHours), range: 1...168)
-            StepperRow(title: "Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.", text: "\(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), range: 25...10_000, step: 25)
+            StepperRow(title: "Retention", text: "\(settings.settings.history.retentionDays) days", value: binding(\.history.retentionDays), range: 1...365)
+            StepperRow(title: "Full resolution", help: "Older samples are kept as one-minute averages and peaks.", text: "\(settings.settings.history.fullResolutionHours) hours", value: binding(\.history.fullResolutionHours), range: 1...168)
+            StepperRow(title: "Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.", text: "\(settings.settings.history.historyStorageLimitMB) MB", value: binding(\.history.historyStorageLimitMB), range: 25...10_000, step: 25)
         } footer: {
             SettingsFooter("Process history, usually the largest part, is set in Processes.")
         }
@@ -780,7 +780,7 @@ struct SettingsView: View {
     /// Record activity master switch, so they are hidden (keeping their values) while it is off.
     @ViewBuilder private func timelineSection<Rows: View, Warning: View>(@ViewBuilder _ rows: () -> Rows,
                                                                          @ViewBuilder warning: () -> Warning = { EmptyView() }) -> some View {
-        if settings.settings.recordActivity {
+        if settings.settings.activity.recordActivity {
             Section {
                 rows()
             } header: {
@@ -852,9 +852,9 @@ struct SettingsView: View {
     /// Two-way binding for panel sound selection that persists user choices and triggers preview playback.
     var soundSelectionBinding: Binding<PanelSound> {
         Binding(
-            get: { settings.settings.panelSound },
+            get: { settings.settings.panel.panelSound },
             set: { sound in
-                settings.update { $0.panelSound = sound }
+                settings.update { $0.panel.panelSound = sound }
                 store.settingsChanged()
                 SmackSound().play(sound: sound)
             }
@@ -909,10 +909,10 @@ struct SettingsView: View {
     }
 
     private func agentBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { !settings.settings.excludedAgents.contains(id) }, set: { include in
+        Binding(get: { !settings.settings.devTools.excludedAgents.contains(id) }, set: { include in
             settings.update { settings in
-                settings.excludedAgents.removeAll { $0 == id }
-                if !include { settings.excludedAgents.append(id) }
+                settings.devTools.excludedAgents.removeAll { $0 == id }
+                if !include { settings.devTools.excludedAgents.append(id) }
             }
         })
     }
@@ -938,9 +938,9 @@ struct PrivilegedSamplingSection: View {
 
     private var isEnabled: Binding<Bool> {
         Binding(
-            get: { settings.settings.privilegedSampling },
+            get: { settings.settings.sampling.privilegedSampling },
             set: { enabled in
-                settings.update { $0.privilegedSampling = enabled }
+                settings.update { $0.sampling.privilegedSampling = enabled }
                 onChange()
                 controller.setEnabled(enabled)
             }
@@ -955,7 +955,7 @@ struct PrivilegedSamplingSection: View {
                 Toggle(toggleTitle, isOn: isEnabled).labelsHidden().toggleStyle(.switch).disabled(controller.isWorking)
             }
             SettingsFooter("Uses a root helper for process metrics, open-file and connection inventory, listening ports, optional full-disk size scans, and scheduled BTM/profile inventory. Those inventory commands are fixed and bounded. Expected CPU/I/O grows with sampling frequency and scan size; helper energy cost is not yet measured. Off stops app requests; removing the helper also removes the installed daemon. \(setupHint)")
-            if settings.settings.privilegedSampling {
+            if settings.settings.sampling.privilegedSampling {
                 HStack(spacing: 8) {
                     Image(systemName: statusImage)
                         .foregroundStyle(statusColor)

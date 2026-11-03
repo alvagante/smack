@@ -19,7 +19,7 @@ final class HistoryViewModel: ObservableObject {
     @Published var enabledProcessMetrics: Set<ProcessMetric> = [.cpuUsage]
     @Published var hours = 1.0
     @Published var showPeaks = true
-    /// Whether event markers are drawn; mirrors `CollectionSettings.showEventsOnCharts`.
+    /// Whether event markers are drawn; mirrors `CollectionSettings.activity.showEventsOnCharts`.
     @Published var showEvents = true
     /// At most `markerLimit` events for the selected range, already prioritized.
     @Published var markers: [ActivityEvent] = []
@@ -338,7 +338,7 @@ struct HistoryView: View {
             get: { model.showEvents },
             set: { value in
                 model.showEvents = value
-                store.settingsStore.update { $0.showEventsOnCharts = value }
+                store.settingsStore.update { $0.activity.showEventsOnCharts = value }
             }
         )
     }
@@ -604,7 +604,7 @@ struct HistoryView: View {
         let limit = HistoryViewModel.pointLimit
         let now = Date()
         // Markers load once per request, so toggling them never reloads history.
-        let events = await store.events(from: now.addingTimeInterval(-model.hours * 3_600), to: now, kinds: nil, search: "", limit: 500)
+        let events = await store.activityFeed.events(from: now.addingTimeInterval(-model.hours * 3_600), to: now, kinds: nil, search: "", limit: 500)
         model.markers = HistoryViewModel.selectMarkers(events)
         if let program = model.selectedProgram {
             model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance, hours: model.hours, limit: limit)

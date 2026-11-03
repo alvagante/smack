@@ -8,9 +8,9 @@ struct NativeMenuBarView: View {
 
     private var isEnabled: Binding<Bool> {
         Binding(
-            get: { settingsStore.settings.showMenuBarItems },
+            get: { settingsStore.settings.panel.showMenuBarItems },
             set: { enabled in
-                settingsStore.update { $0.showMenuBarItems = enabled }
+                settingsStore.update { $0.panel.showMenuBarItems = enabled }
                 menuBarStore.setFeatureEnabled(enabled)
                 if enabled { menuBarStore.requestPermissions() }
             }
@@ -19,7 +19,7 @@ struct NativeMenuBarView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            if settingsStore.settings.showMenuBarItems {
+            if settingsStore.settings.panel.showMenuBarItems {
                 enabledContent
                 Toggle("Show menu-bar icons", isOn: isEnabled)
                     .labelsHidden()
@@ -31,8 +31,8 @@ struct NativeMenuBarView: View {
                     .help("Show and activate native menu-bar icons. Requires Screen Recording and Accessibility.")
             }
         }
-        .onAppear { menuBarStore.setFeatureEnabled(settingsStore.settings.showMenuBarItems) }
-        .onChange(of: settingsStore.settings.showMenuBarItems) { _, enabled in
+        .onAppear { menuBarStore.setFeatureEnabled(settingsStore.settings.panel.showMenuBarItems) }
+        .onChange(of: settingsStore.settings.panel.showMenuBarItems) { _, enabled in
             menuBarStore.setFeatureEnabled(enabled)
         }
     }

@@ -158,11 +158,13 @@ final class TimelineViewModel: ObservableObject {
 struct TimelineView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: TimelineViewModel
+    @ObservedObject private var activity: ActivityFeedModel
     @AppStorage("timeline.graphLayout") private var graphLayout = false
     @State private var hover: TimelineHover?
 
     init(store: MonitorStore) {
         self.store = store
+        activity = store.activityFeed
         model = store.timelineViewModel
     }
 
@@ -173,11 +175,11 @@ struct TimelineView: View {
             content
         }
         // New events from this session refresh the list; the short sleep coalesces bursts into one query.
-        .task(id: "\(model.requestID)|\(store.recentEvents.first?.id ?? "")") {
+        .task(id: "\(model.requestID)|\(activity.recentEvents.first?.id ?? "")") {
             if !model.loaded.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
             await model.load { start, end, limit in
-                try await store.loadEvents(from: start, to: end, kinds: nil, search: "", limit: limit)
+                try await activity.loadEvents(from: start, to: end, kinds: nil, search: "", limit: limit)
             }
         }
     }

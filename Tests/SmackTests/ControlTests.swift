@@ -162,14 +162,14 @@ private func controlTemporaryPath() throws -> String {
     store.receive(StartupInventory(timestamp: Date(), items: [], warnings: [],
         includesBackgroundTasks: false, includedCategories: [.daemons]))
     #expect(AutomationSnapshot.response(ControlRequest(op: "startup")).error == nil)
-    settings.update { $0.appIntentsEnabled = false; $0.urlNavigationEnabled = false }
+    settings.update { $0.automation.appIntentsEnabled = false; $0.automation.urlNavigationEnabled = false }
     do { _ = try await GetSystemStatusIntent().perform(); Issue.record("Disabled intent must fail") }
     catch { #expect(error as? ControlError == .unavailable) }
     do { _ = try await SmackSnapshotQuery().entities(for: [entity.id]); Issue.record("Disabled entity query must fail") }
     catch { #expect(error as? ControlError == .unavailable) }
     #expect(AutomationSnapshot.response(ControlRequest(op: "open", url: "smack://cpu")).error == .unavailable)
     #expect(AutomationSnapshot.response(ControlRequest(op: "status")).error == nil)
-    settings.update { $0.appIntentsEnabled = true; $0.urlNavigationEnabled = true }
+    settings.update { $0.automation.appIntentsEnabled = true; $0.automation.urlNavigationEnabled = true }
     let emptyStartup = AutomationSnapshot.startupResponse(StartupInventory(timestamp: Date(), items: [],
         warnings: [], includesBackgroundTasks: false, includedCategories: [.agents]), limit: 1)
     #expect(emptyStartup.records.isEmpty)
@@ -179,11 +179,11 @@ private func controlTemporaryPath() throws -> String {
     let dispatcher = AlertDispatcher(notifier: notifier)
     store.alertDispatcher = dispatcher
     let before = store.alertRules.rules
-    settings.update { $0.alertsEnabled = false }
+    settings.update { $0.automation.alertsEnabled = false }
     let disabledAlerts = await AutomationSnapshot.query(ControlRequest(op: "alerts"))
     #expect(disabledAlerts.records.allSatisfy { $0.fields["evaluationEnabled"] == "false" && $0.fields["state"] == "Disabled" })
     #expect(store.alertRules.rules == before)
-    settings.update { $0.alertsEnabled = true }
+    settings.update { $0.automation.alertsEnabled = true }
     var pause = ControlRequest(op: "alerts"); pause.action = "pause"; pause.duration = 60
     #expect(await AutomationSnapshot.query(pause).error == nil)
     #expect((dispatcher.pausedUntil ?? .distantPast) > Date())
@@ -437,21 +437,21 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
     let path = try controlTemporaryPath()
     let defaults = try #require(UserDefaults(suiteName: "ControlLifecycle-" + UUID().uuidString))
     let settings = SettingsStore(defaults: defaults, legacyDefaults: nil)
-    settings.update { $0.controlSocketEnabled = false }
+    settings.update { $0.automation.controlSocketEnabled = false }
     let delegate = AppDelegate(terminateApplication: {})
     delegate.observeControlSocket(settings, paths: [path])
     #expect(!FileManager.default.fileExists(atPath: path))
-    settings.update { $0.controlSocketEnabled = true }
+    settings.update { $0.automation.controlSocketEnabled = true }
     var first = stat()
     #expect(lstat(path, &first) == 0)
-    settings.update { $0.panelSound = .none }
+    settings.update { $0.panel.panelSound = .none }
     var unchanged = stat()
     #expect(lstat(path, &unchanged) == 0 && unchanged.st_ino == first.st_ino)
     let idle = try ControlSocket.connect(path)
     defer { close(idle) }
-    settings.update { $0.controlSocketEnabled = false }
+    settings.update { $0.automation.controlSocketEnabled = false }
     #expect(!FileManager.default.fileExists(atPath: path))
-    settings.update { $0.controlSocketEnabled = true }
+    settings.update { $0.automation.controlSocketEnabled = true }
     #expect(FileManager.default.fileExists(atPath: path))
     let response = try await Task.detached {
         let fd = try ControlSocket.connect(path); defer { close(fd) }
@@ -462,8 +462,8 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
     #expect(response.error == .unsupportedVersion)
     delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
     #expect(!FileManager.default.fileExists(atPath: path))
-    settings.update { $0.controlSocketEnabled = false }
-    settings.update { $0.controlSocketEnabled = true }
+    settings.update { $0.automation.controlSocketEnabled = false }
+    settings.update { $0.automation.controlSocketEnabled = true }
     #expect(!FileManager.default.fileExists(atPath: path))
 }
 

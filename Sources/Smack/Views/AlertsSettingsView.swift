@@ -18,9 +18,9 @@ struct AlertsSettingsView: View {
                     Text("Some alerts pause while the panel is hidden. Alerts require their collection loop to run.")
                     Button("Enable background collection") {
                         store.settingsStore.update {
-                            $0.backgroundSystemInterval = $0.backgroundSystemInterval ?? 5
-                            $0.backgroundProcessInterval = $0.backgroundProcessInterval ?? 5
-                            $0.backgroundNetworkInterval = $0.backgroundNetworkInterval ?? 15
+                            $0.sampling.backgroundSystemInterval = $0.sampling.backgroundSystemInterval ?? 5
+                            $0.sampling.backgroundProcessInterval = $0.sampling.backgroundProcessInterval ?? 5
+                            $0.sampling.backgroundNetworkInterval = $0.sampling.backgroundNetworkInterval ?? 15
                         }
                         store.settingsChanged()
                     }
@@ -60,8 +60,8 @@ struct AlertsSettingsView: View {
                 }
             }
         }
-        .task(id: store.settingsStore.settings.alertsEnabled) {
-            guard store.settingsStore.settings.alertsEnabled else { return }
+        .task(id: store.settingsStore.settings.automation.alertsEnabled) {
+            guard store.settingsStore.settings.automation.alertsEnabled else { return }
             await store.alertDispatcher?.prepare(rules: rules.rules)
             while !Task.isCancelled {
                 runtime = await store.alertRuntime()
@@ -209,15 +209,15 @@ extension AlertRule {
     var isUnknown: Bool { if case .unknown = kind { true } else { false } }
     func expectedInterval(_ settings: CollectionSettings) -> TimeInterval {
         switch kind {
-        case .processThreshold: settings.backgroundProcessInterval ?? settings.liveRefreshSeconds
-        default: settings.backgroundSystemInterval ?? settings.liveRefreshSeconds
+        case .processThreshold: settings.sampling.backgroundProcessInterval ?? settings.sampling.liveRefreshSeconds
+        default: settings.sampling.backgroundSystemInterval ?? settings.sampling.liveRefreshSeconds
         }
     }
     func backgroundWarning(_ settings: CollectionSettings) -> String? {
         switch kind {
-        case .systemThreshold where settings.backgroundSystemInterval == nil: return "Paused while the panel is hidden"
-        case .processThreshold where settings.backgroundProcessInterval == nil: return "Paused while the panel is hidden"
-        case .event(let kinds, _, _) where kinds.contains(.listenerOpened) && settings.backgroundNetworkInterval == nil: return "Paused while the panel is hidden"
+        case .systemThreshold where settings.sampling.backgroundSystemInterval == nil: return "Paused while the panel is hidden"
+        case .processThreshold where settings.sampling.backgroundProcessInterval == nil: return "Paused while the panel is hidden"
+        case .event(let kinds, _, _) where kinds.contains(.listenerOpened) && settings.sampling.backgroundNetworkInterval == nil: return "Paused while the panel is hidden"
         default: return nil
         }
     }

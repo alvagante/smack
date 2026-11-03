@@ -7,9 +7,9 @@ extension HistoryRepository {
         var settings = settings
         settings.validate()
         let now = Date()
-        let fullResolutionCutoff = now.addingTimeInterval(-TimeInterval(settings.fullResolutionHours * 3_600))
-        let expirationCutoff = now.addingTimeInterval(-TimeInterval(settings.retentionDays * 86_400))
-        let processMinuteCutoff = now.addingTimeInterval(-TimeInterval(settings.processMinuteRetentionDays * 86_400))
+        let fullResolutionCutoff = now.addingTimeInterval(-TimeInterval(settings.history.fullResolutionHours * 3_600))
+        let expirationCutoff = now.addingTimeInterval(-TimeInterval(settings.history.retentionDays * 86_400))
+        let processMinuteCutoff = now.addingTimeInterval(-TimeInterval(settings.history.processMinuteRetentionDays * 86_400))
 
         try transaction {
             try execute("DELETE FROM system_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
@@ -24,7 +24,7 @@ extension HistoryRepository {
             try removeProcessesWithoutSamples()
         }
         try pruneEvents(settings: settings, now: now)
-        try enforceStorageLimit(settings.historyStorageLimitMB)
+        try enforceStorageLimit(settings.history.historyStorageLimitMB)
     }
 
     /// Measures what is really stored, per collection, from SQLite's own page accounting (indexes included).

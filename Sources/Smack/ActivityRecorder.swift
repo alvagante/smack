@@ -136,7 +136,7 @@ actor ActivityRecorder: ActivityRecording {
         networkSeeded = true
         knownListeners = isComplete ? currentListeners : knownListeners.merging(currentListeners) { _, new in new }
 
-        guard settings.recordConnectionEvents else {
+        guard settings.activity.recordConnectionEvents else {
             // Disabled: nothing is tracked, so enabling it later seeds from the next sample and emits nothing.
             knownConnections = nil
             return events

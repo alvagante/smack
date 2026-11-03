@@ -82,7 +82,7 @@ enum AutomationSnapshot {
                     "session": (try? JSONEncoder().encode(session)).map { String(decoding: $0, as: UTF8.self) } ?? ""])
             }
         case "devservers", "who":
-            guard Capabilities.supportsNetworkPortInspection, let rows = store.devServers else {
+            guard Capabilities.supportsNetworkPortInspection, let rows = store.devServersModel.devServers else {
                 return ControlResponse(error: .unavailable)
             }
             let matches = rows.filter { row in request.port == nil || row.ports.contains { Int($0.port) == request.port } }
@@ -111,7 +111,7 @@ enum AutomationSnapshot {
                     })) ?? Data("[]".utf8), as: UTF8.self), "protocol": $0.protocolName, "timestamp": snapshot.timestamp.ISO8601Format()])
             }
         case "events":
-            records = store.recentEvents.prefix(request.limit).map {
+            records = store.activityFeed.recentEvents.prefix(request.limit).map {
                 ControlRecord(id: $0.id, title: $0.subject, fields: ["kind": $0.kind.rawValue,
                     "timestamp": $0.timestamp.ISO8601Format(), "severity": $0.severity.rawValue])
             }
@@ -121,7 +121,7 @@ enum AutomationSnapshot {
                 ControlRecord(id: $0.id.uuidString, title: $0.name, fields: ["enabled": String($0.enabled)])
             }
         case "open":
-            guard store.settingsStore.settings.urlNavigationEnabled else { return ControlResponse(error: .unavailable) }
+            guard store.settingsStore.settings.automation.urlNavigationEnabled else { return ControlResponse(error: .unavailable) }
             guard let text = request.url, let url = URL(string: text), url.scheme == "smack",
                   let openURL else { return ControlResponse(error: .invalidRequest) }
             openURL(url); records = []
@@ -168,7 +168,7 @@ enum AutomationSnapshot {
             do {
                 if request.op == "events" {
                     let kinds = try eventKinds(request)
-                    let events = try await store.loadEvents(from: start, to: end, kinds: kinds,
+                    let events = try await store.activityFeed.loadEvents(from: start, to: end, kinds: kinds,
                                                            search: request.search ?? "", limit: request.limit)
                     return ControlResponse(records: events.map(eventRecord))
                 }
@@ -202,8 +202,8 @@ enum AutomationSnapshot {
             let runtime = await store.alertRuntime()
             return ControlResponse(records: store.alertRules.rules.prefix(request.limit).map {
                 ControlRecord(id: $0.id.uuidString, title: $0.name, fields: [
-                    "enabled": String($0.enabled), "evaluationEnabled": String(store.settingsStore.settings.alertsEnabled),
-                    "state": !store.settingsStore.settings.alertsEnabled ? "Disabled" : runtime[$0.id]?.state ?? ($0.enabled ? "Armed" : "Disabled"),
+                    "enabled": String($0.enabled), "evaluationEnabled": String(store.settingsStore.settings.automation.alertsEnabled),
+                    "state": !store.settingsStore.settings.automation.alertsEnabled ? "Disabled" : runtime[$0.id]?.state ?? ($0.enabled ? "Armed" : "Disabled"),
                     "lastFired": dispatcher.lastFired[$0.id]?.ISO8601Format() ?? "",
                     "deliverySnoozedUntil": (dispatcher.deliverySnoozes[$0.id] ?? $0.snoozedUntil)?.ISO8601Format() ?? "",
                     "pausedUntil": dispatcher.pausedUntil?.ISO8601Format() ?? ""])

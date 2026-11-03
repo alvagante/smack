@@ -18,7 +18,7 @@ private func makeTestTempDir() throws -> URL {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
-        settingsStore.update { $0.panelSound = .pop }
+        settingsStore.update { $0.panel.panelSound = .pop }
 
         let client = PrivilegedSamplingClient()
         let scheduler = CollectionScheduler(
@@ -64,7 +64,7 @@ private func makeTestTempDir() throws -> URL {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
-        settingsStore.update { $0.panelSound = .none }
+        settingsStore.update { $0.panel.panelSound = .none }
 
         let client = PrivilegedSamplingClient()
         let scheduler = CollectionScheduler(
@@ -147,25 +147,25 @@ private func makeTestTempDir() throws -> URL {
         controller.close()
 
         // 2. Change sound to .bottle
-        settingsStore.update { $0.panelSound = .bottle }
+        settingsStore.update { $0.panel.panelSound = .bottle }
         controller.open()
         #expect(sound.lastPlayedSound == .bottle)
         controller.close()
 
         // 3. Change sound to .none (mute)
-        settingsStore.update { $0.panelSound = .none }
+        settingsStore.update { $0.panel.panelSound = .none }
         controller.open()
         #expect(sound.lastPlayedSound == PanelSound.none)
         controller.close()
 
         // 4. Change sound to .submarine
-        settingsStore.update { $0.panelSound = .submarine }
+        settingsStore.update { $0.panel.panelSound = .submarine }
         controller.open()
         #expect(sound.lastPlayedSound == .submarine)
         controller.close()
 
         // 5. Change sound to .tink
-        settingsStore.update { $0.panelSound = .tink }
+        settingsStore.update { $0.panel.panelSound = .tink }
         controller.open()
         #expect(sound.lastPlayedSound == .tink)
         controller.close()
@@ -179,7 +179,7 @@ private func makeTestTempDir() throws -> URL {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
-        settingsStore.update { $0.panelSound = .none }
+        settingsStore.update { $0.panel.panelSound = .none }
         let client = PrivilegedSamplingClient()
         let scheduler = CollectionScheduler(
             systemCollector: SystemCollector(),
@@ -214,10 +214,10 @@ private func makeTestTempDir() throws -> URL {
 
         #expect(!panel.hidesOnDeactivate)
         for (appearance, expectedName) in [(PanelAppearance.light, NSAppearance.Name.aqua), (.dark, .darkAqua)] {
-            settingsStore.update { $0.appearance = appearance }
+            settingsStore.update { $0.panel.appearance = appearance }
             #expect(panel.appearance?.name == expectedName)
         }
-        settingsStore.update { $0.appearance = .system }
+        settingsStore.update { $0.panel.appearance = .system }
         #expect(panel.appearance == nil)
         #expect(try await waitForExpectedHeight() == expected)
         for route in [AppRoute.history, .resource(.thermal), .security, .systemDetails, .summary] {
@@ -244,7 +244,7 @@ private func makeTestTempDir() throws -> URL {
                     thermalCondition: .nominal, gpuName: "", temperatures: nil, fans: nil))
             }
             for appearance in [PanelAppearance.light, .dark] {
-                settingsStore.update { $0.appearance = appearance }
+                settingsStore.update { $0.panel.appearance = appearance }
                 for width in [CGFloat(720), 1200] {
                     panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.minY, width: width, height: 700), display: true)
                     for route in [AppRoute.settings, .resource(.memory)] {

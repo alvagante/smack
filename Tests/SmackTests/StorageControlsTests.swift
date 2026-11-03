@@ -23,13 +23,13 @@ private func process(_ pid: Int32, cpu: Double, memory: UInt64) -> ProcessMetric
 
 @Test func storageSettingsDefaultAndClamp() throws {
     var settings = CollectionSettings()
-    #expect(settings.recordProcessHistory && settings.processHistoryTopCount == 0 && settings.processMinuteRetentionDays == 7)
-    settings.processHistoryTopCount = 99_999
-    settings.processMinuteRetentionDays = 0
+    #expect(settings.history.recordProcessHistory && settings.history.processHistoryTopCount == 0 && settings.history.processMinuteRetentionDays == 7)
+    settings.history.processHistoryTopCount = 99_999
+    settings.history.processMinuteRetentionDays = 0
     settings.validate()
-    #expect(settings.processHistoryTopCount == 1_000 && settings.processMinuteRetentionDays == 1)
+    #expect(settings.history.processHistoryTopCount == 1_000 && settings.history.processMinuteRetentionDays == 1)
     let decoded = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
-    #expect(decoded.recordProcessHistory)
+    #expect(decoded.history.recordProcessHistory)
 }
 
 @Test func storageUsageReportsEachCollection() async throws {

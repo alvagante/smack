@@ -38,7 +38,7 @@ import Testing
         #expect(view.soundSelectionBinding.wrappedValue == .smack)
 
         view.soundSelectionBinding.wrappedValue = .pop
-        #expect(settingsStore.settings.panelSound == .pop)
+        #expect(settingsStore.settings.panel.panelSound == .pop)
     }
 
     @Test func settingsViewQuitActionTriggersCallback() throws {
