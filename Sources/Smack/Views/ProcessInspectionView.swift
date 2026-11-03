@@ -53,6 +53,7 @@ struct ProcessInspectionView: View {
                     }.labelsHidden().fixedSize()
                     Toggle("Live", isOn: $live).toggleStyle(.button)
                 }
+                if let inlineCaption { Text(inlineCaption).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if tab == .fileActivity {
                     Button("Capture \(traceSeconds) Seconds") { capture = true; refresh += 1 }.disabled(loading)
@@ -67,30 +68,62 @@ struct ProcessInspectionView: View {
     private var content: some View {
         switch tab {
         case .launchContext:
-            ForEach(fields) { InspectionValueRow(key: $0.label, value: $0.value) }
-            Text("Arguments").font(.headline)
-            Text("Credential options are masked; positional arguments may contain sensitive data.").font(.caption).foregroundStyle(.secondary)
-            ForEach(Array(arguments.enumerated()), id: \.offset) { index, value in
-                InspectionValueRow(key: "argv[\(index)]", value: value)
+            DetailFactGrid(facts: fields.map { field in
+                DetailFact(title: field.label, value: field.value, systemImage: field.label == "Executable" ? "terminal" : "folder",
+                           tone: field.label == "Executable" ? .blue : .teal, monospaced: true)
+            }, minimumWidth: 260)
+            MetricCard(title: "Arguments", systemImage: "chevron.left.forwardslash.chevron.right", color: .blue) {
+                Text("Credential options are masked; positional arguments may contain sensitive data.").font(.caption).foregroundStyle(.secondary)
+                ArgumentList(arguments: arguments)
             }
-            Text("Environment (values hidden)").font(.headline)
-            ForEach(environment) { InspectionValueRow(key: $0.label, value: $0.value) }
+            MetricCard(title: "Environment", systemImage: "list.bullet.indent", color: .teal) {
+                EnvironmentNames(variables: environment)
+            }
         case .security:
-            Text("Signature and entitlements describe the executable on disk.").font(.caption).foregroundStyle(.secondary)
-            ForEach(fields) { InspectionValueRow(key: $0.label, value: $0.value) }
+            SecurityFields(fields: fields)
         case .startup:
             ProcessStartupInspection(store: store, process: process, model: store.startupItemsModel)
         case .logs:
             Text("Unified logs from the last five minutes, limited to this process lifetime. Live refreshes every three seconds.").font(.caption).foregroundStyle(.secondary)
-            outputView
-            Text("Crash Reports").font(.headline)
-            if crashes.isEmpty { Text("No matching report filenames in accessible DiagnosticReports folders.").foregroundStyle(.secondary) }
-            ForEach(crashes, id: \.path) { url in
-                Button(url.lastPathComponent) { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(.link)
+            let lines = ProcessInspection.logLines(output, filter: filter)
+            logSummary(lines)
+            outputView(Array(lines.suffix(1_000)))
+            MetricCard(title: "Crash Reports", systemImage: "exclamationmark.triangle", color: crashes.isEmpty ? .gray : .red) {
+                if crashes.isEmpty { Text("No matching report filenames in accessible DiagnosticReports folders.").font(.callout).foregroundStyle(.secondary) }
+                ForEach(crashes, id: \.path) { url in
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
+                        Label(url.lastPathComponent, systemImage: url.pathExtension == "hang" ? "hourglass" : "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.link)
+                }
             }
         case .fileActivity:
             Text("Captures filesystem calls for this process using the superuser helper. Includes reads, writes, renames and deletions observed during the capture.").font(.caption).foregroundStyle(.secondary)
-            outputView
+            outputView(output.split(separator: "\n").filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }.map(String.init))
+        }
+    }
+
+    /// How many lines of each level the current output holds, so errors stand out before reading the log.
+    @ViewBuilder
+    private func logSummary(_ lines: [String]) -> some View {
+        if !lines.isEmpty {
+            let levels = LogLevel.counts(lines)
+            HStack(spacing: 6) {
+                DetailBadge(text: "\(lines.count.formatted()) lines", color: .secondary)
+                ForEach(LogLevel.allCases.filter { levels[$0, default: 0] > 0 }) { level in
+                    DetailBadge(text: "\(levels[level, default: 0].formatted()) \(level.rawValue.lowercased())", color: level.color)
+                }
+            }
+        }
+    }
+
+    /// Beside the refresh button, for tabs with no other controls on that row.
+    private var inlineCaption: String? {
+        switch tab {
+        case .security: "Signature and entitlements describe the executable on disk."
+        case .launchContext: "Read from the running process at inspection time."
+        case .startup: "Startup registrations that launch this executable."
+        case .logs, .fileActivity: nil
         }
     }
 
@@ -100,18 +133,19 @@ struct ProcessInspectionView: View {
             : "Capturing five seconds of file activity…"
     }
 
-    private var outputView: some View {
-        let text: String = {
-            if tab == .logs { return ProcessInspection.logLines(output, filter: filter).suffix(1_000).joined(separator: "\n") }
-            return output.split(separator: "\n").filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }.joined(separator: "\n")
-        }()
-        return Group {
-            if text.isEmpty {
+    private func outputView(_ lines: [String]) -> some View {
+        Group {
+            if lines.isEmpty {
                 Text(loading ? "Waiting for output…" : "No matching events captured.").foregroundStyle(.secondary)
             } else {
                 ScrollView([.horizontal, .vertical]) {
-                    Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(height: 320)
+                    Text(tab == .logs ? LogLevel.highlighted(lines) : AttributedString(lines.joined(separator: "\n")))
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .frame(height: 320)
+                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
@@ -193,10 +227,17 @@ private struct ProcessStartupInspection: View {
     @ObservedObject var model: StartupItemsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            InspectionValueRow(key: "Parent PID", value: process.parentPID.map(String.init) ?? "Unavailable")
-            if let parent = process.parentPID.flatMap({ store.process(pid: $0) }) {
-                Button("Inspect parent: \(parent.name)") { store.route = .process(parent.id) }.buttonStyle(.link)
+        VStack(alignment: .leading, spacing: 12) {
+            let parent = process.parentPID.flatMap { store.process(pid: $0) }
+            HStack(spacing: 10) {
+                ResourceIcon(systemImage: "arrow.up.left", color: .teal, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Parent process").font(.caption).foregroundStyle(.secondary)
+                    Text(parent.map { "\($0.name) (\($0.identity.pid))" } ?? process.parentPID.map { "PID \($0)" } ?? "Unavailable")
+                        .font(.callout.weight(.medium))
+                }
+                Spacer(minLength: 0)
+                if let parent { Button("Inspect parent") { store.route = .process(parent.id) }.buttonStyle(.link) }
             }
             if model.isLoading { ProgressView("Reading startup items…").controlSize(.small) }
             let items = (model.inventory?.items ?? []).filter { ProcessInspection.matches($0, process: process) }
@@ -204,12 +245,18 @@ private struct ProcessStartupInspection: View {
                 Text("No matching startup registration found in the current inventory.").foregroundStyle(.secondary)
             }
             ForEach(items) { item in
-                Text(item.name).font(.headline)
-                InspectionValueRow(key: "Registration", value: item.detail)
-                InspectionValueRow(key: "Category", value: item.category.rawValue)
-                InspectionValueRow(key: "Enabled", value: item.isEnabled ? "Yes" : "No")
-                InspectionValueRow(key: "Trigger / restart", value: item.trigger ?? "Unavailable")
-                if let path = item.path { InspectionValueRow(key: "Configuration", value: path) }
+                MetricCard(title: item.name, systemImage: "sunrise", color: .orange) {
+                    HStack(spacing: 6) {
+                        DetailBadge(text: item.isEnabled ? "Enabled" : "Disabled", systemImage: item.isEnabled ? "checkmark" : "pause",
+                                    color: item.isEnabled ? .green : .secondary)
+                        DetailBadge(text: item.category.rawValue, color: .orange)
+                    }
+                    DetailFactGrid(facts: [
+                        DetailFact(title: "Registration", value: item.detail, systemImage: "doc.badge.gearshape", monospaced: true),
+                        DetailFact(title: "Trigger / restart", value: item.trigger ?? "Unavailable", systemImage: "arrow.clockwise"),
+                    ] + (item.path.map { [DetailFact(title: "Configuration", value: $0, systemImage: "doc.text", monospaced: true)] } ?? []),
+                    minimumWidth: 220)
+                }
             }
             if let inventory = model.inventory {
                 ForEach(inventory.warnings, id: \.self) { Text($0).foregroundStyle(.orange) }
@@ -243,15 +290,184 @@ struct ApplicationInspectionTab: View {
 }
 
 
-private struct InspectionValueRow: View {
-    let key: String
-    let value: String
+/// argv as a numbered listing: options in the accent color, masked values in orange.
+private struct ArgumentList: View {
+    let arguments: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(key).font(.caption).foregroundStyle(.secondary)
-            Text(value).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        if arguments.isEmpty {
+            Text("No arguments available.").font(.callout).foregroundStyle(.secondary)
+        } else {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
+                ForEach(Array(arguments.enumerated()), id: \.offset) { index, value in
+                    GridRow {
+                        Text(String(index)).foregroundStyle(.tertiary).monospacedDigit().gridColumnAlignment(.trailing)
+                        Text(value)
+                            .foregroundStyle(color(value, index: index))
+                            .fontWeight(index == 0 ? .semibold : .regular)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .font(.caption.monospaced())
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func color(_ value: String, index: Int) -> Color {
+        if value.contains("••••") { return .orange }
+        if index > 0, value.hasPrefix("-") { return .accentColor }
+        return .primary
+    }
+}
+
+/// Variable names only, since values are never shown; names that can inject code or look like credentials are flagged.
+private struct EnvironmentNames: View {
+    let variables: [InspectionField]
+
+    var body: some View {
+        let injection = variables.filter { DetailReadings.risk(ofVariable: $0.label) == .injection }
+        let sensitive = variables.filter { DetailReadings.risk(ofVariable: $0.label) == .sensitive }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                DetailBadge(text: "\(variables.count) variables", color: .teal)
+                Text("Values hidden").font(.caption).foregroundStyle(.secondary)
+                if !injection.isEmpty {
+                    DetailBadge(text: "\(injection.count) code injection", systemImage: "exclamationmark.triangle.fill", color: .red)
+                        .help("DYLD_ variables can load extra code into the process.")
+                }
+                if !sensitive.isEmpty {
+                    DetailBadge(text: "\(sensitive.count) credential-like", systemImage: "key.fill", color: .orange)
+                }
+            }
+            if variables.isEmpty {
+                Text("No environment available.").font(.callout).foregroundStyle(.secondary)
+            }
+            FlowLayout(spacing: 4, lineSpacing: 4) {
+                ForEach(variables) { variable in
+                    let risk = DetailReadings.risk(ofVariable: variable.label)
+                    let color: Color = risk == .injection ? .red : risk == .sensitive ? .orange : .primary
+                    Text(variable.label)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(color)
+                        .strikethrough(variable.value == "(empty)", color: .secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background((risk == .normal ? Color.primary : color).opacity(risk == .normal ? 0.05 : 0.14),
+                                    in: RoundedRectangle(cornerRadius: 5))
+                        .help(variable.value == "(empty)" ? "\(variable.label) is set but empty" : variable.label)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+}
+
+/// Identity and signing facts as tiles, then entitlements with booleans drawn as marks and risky ones flagged.
+private struct SecurityFields: View {
+    private static let known: Set<String> = ["Effective UID / GID", "Real UID / GID", "Executable signature", "Signing identifier",
+                                             "Team", "Certificate", "Hardened runtime", "Sandbox entitlement"]
+    let fields: [InspectionField]
+
+    var body: some View {
+        let facts = fields.filter { Self.known.contains($0.label) }
+        let entitlements = fields.filter { !Self.known.contains($0.label) }
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            if !facts.isEmpty { DetailFactGrid(facts: facts.map(fact)) }
+            if !entitlements.isEmpty {
+                MetricCard(title: "Entitlements (\(entitlements.count))", systemImage: "checkmark.seal", color: .indigo) {
+                    ForEach(entitlements) { field in
+                        let risky = DetailReadings.isRiskyEntitlement(field.label)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: risky ? "exclamationmark.triangle.fill" : "seal")
+                                .foregroundStyle(risky ? .orange : .secondary).frame(width: 16)
+                            Text(field.label).font(.caption.monospaced()).foregroundStyle(risky ? .orange : .primary)
+                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            value(field.value)
+                        }
+                        .help(risky ? "Weakens code-signing protection or allows attaching a debugger." : field.label)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func value(_ text: String) -> some View {
+        switch DetailReadings.entitlementFlag(text) {
+        case true?: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case false?: Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+        case nil:
+            Text(text).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(4).multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func fact(_ field: InspectionField) -> DetailFact {
+        let value = field.value
+        switch field.label {
+        case "Effective UID / GID", "Real UID / GID":
+            let root = value.hasPrefix("0 ")
+            return DetailFact(title: field.label, value: root ? "\(value) (root)" : value, systemImage: root ? "person.badge.key.fill" : "person",
+                              tone: root ? .orange : .blue, monospaced: true)
+        case "Executable signature":
+            let tone: Color = value == "Signed" ? .green : value == "Ad-hoc" ? .orange : value == "Unsigned" ? .red : .gray
+            return DetailFact(title: field.label, value: value, systemImage: value == "Signed" ? "checkmark.seal.fill" : "exclamationmark.shield.fill", tone: tone)
+        case "Hardened runtime":
+            return DetailFact(title: field.label, value: value, systemImage: value == "Yes" ? "lock.shield" : "lock.open",
+                              tone: value == "Yes" ? .green : value == "No" ? .orange : nil)
+        case "Sandbox entitlement":
+            return DetailFact(title: "App Sandbox", value: value, systemImage: "square.dashed.inset.filled", tone: value == "Yes" ? .green : nil)
+        default:
+            return DetailFact(title: field.label, value: value, systemImage: field.label == "Team" ? "person.2" : field.label == "Certificate" ? "rosette" : "number",
+                              tone: value == "Unavailable" ? nil : .indigo, monospaced: true)
+        }
+    }
+}
+
+/// Levels of `log show` messages as `ProcessInspection.logLines` prints them: "<timestamp> [<level>] <message>".
+enum LogLevel: String, CaseIterable, Identifiable {
+    case fault = "Fault", error = "Error", `default` = "Default", info = "Info", debug = "Debug"
+    var id: Self { self }
+
+    var color: Color {
+        switch self {
+        case .fault: .purple
+        case .error: .red
+        case .default: .secondary
+        case .info: .blue
+        case .debug: .gray
+        }
+    }
+
+    static func level(of line: String) -> LogLevel? {
+        guard let open = line.firstIndex(of: "["), let close = line[open...].firstIndex(of: "]") else { return nil }
+        return LogLevel(rawValue: String(line[line.index(after: open)..<close]))
+    }
+
+    static func counts(_ lines: [String]) -> [LogLevel: Int] {
+        lines.reduce(into: [:]) { result, line in if let level = level(of: line) { result[level, default: 0] += 1 } }
+    }
+
+    /// Timestamps dimmed, the level tag colored, and error and fault lines colored throughout.
+    static func highlighted(_ lines: [String]) -> AttributedString {
+        var result = AttributedString()
+        for (index, line) in lines.enumerated() {
+            if index > 0 { result += AttributedString("\n") }
+            guard let level = level(of: line), let open = line.firstIndex(of: "["), let close = line[open...].firstIndex(of: "]") else {
+                result += AttributedString(line)
+                continue
+            }
+            var stamp = AttributedString(String(line[..<open]))
+            stamp.foregroundColor = .secondary
+            var tag = AttributedString(String(line[open...close]))
+            tag.foregroundColor = level.color
+            var message = AttributedString(String(line[line.index(after: close)...]))
+            if level == .error || level == .fault { message.foregroundColor = level.color }
+            result += stamp + tag + message
+        }
+        return result
     }
 }

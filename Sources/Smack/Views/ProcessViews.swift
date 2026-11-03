@@ -48,9 +48,45 @@ final class ApplicationListViewModel: ObservableObject {
     }
 }
 
+enum ProcessSection: Hashable, Identifiable {
+    case overview
+    case inspection(ProcessInspectionTab)
+    case provenance, files, connections, threads, libraries
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .overview: "Overview"
+        case .inspection(let tab): tab.rawValue
+        case .provenance: "Provenance"
+        case .files: "Open Files"
+        case .connections: "Network Connections"
+        case .threads: "Threads"
+        case .libraries: "Loaded Libraries"
+        }
+    }
+
+    var style: (systemImage: String, color: Color) {
+        switch self {
+        case .overview: ("gauge.with.dots.needle.67percent", .blue)
+        case .inspection(let tab): (tab.systemImage, tab.color)
+        case .provenance: (DetailSectionStyle.provenance.systemImage, DetailSectionStyle.provenance.color)
+        case .files: (DetailSectionStyle.files.systemImage, DetailSectionStyle.files.color)
+        case .connections: (DetailSectionStyle.connections.systemImage, DetailSectionStyle.connections.color)
+        case .threads: (DetailSectionStyle.threads.systemImage, DetailSectionStyle.threads.color)
+        case .libraries: (DetailSectionStyle.libraries.systemImage, DetailSectionStyle.libraries.color)
+        }
+    }
+}
+
 @MainActor
 final class ProcessDetailViewModel: ObservableObject {
     @Published var filter = ""
+    @Published var section = ProcessSection.overview
+    /// The process `section` was chosen on; another process starts at Overview, returning to this one keeps it.
+    var sectionProcessID: String?
+    @Published var origin: PathOrigin?
+    @Published var connectionTone: ConnectionTone?
 }
 
 struct ApplicationListView: View {
@@ -233,7 +269,7 @@ struct ApplicationListView: View {
                 HStack(spacing: 4) {
                     Text(entry.name).lineLimit(1)
                     if let badge = ApplicationListReadings.signer(entry.signature) {
-                        Image(systemName: badge.systemImage).font(.caption2).foregroundStyle(color(badge.tone))
+                        Image(systemName: badge.systemImage).font(.caption2).foregroundStyle(badge.tone.color)
                             .hoverHint("\(badge.title): \(badge.detail)")
                             .accessibilityLabel(badge.title)
                     }
@@ -260,15 +296,6 @@ struct ApplicationListView: View {
         return Text(parts.joined(separator: " · "))
             .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
             .hoverHint(hint.isEmpty ? parts.joined(separator: " · ") : hint)
-    }
-
-    private func color(_ tone: SignerBadge.Tone) -> Color {
-        switch tone {
-        case .apple: .secondary
-        case .trusted: .green
-        case .caution: .orange
-        case .danger: .red
-        }
     }
 
     /// CPU over the live window, from the points the CPU page already keeps; nothing extra is sampled.
@@ -310,7 +337,8 @@ struct ProcessDetailView: View {
     @ObservedObject var model: ProcessDetailViewModel
     @ObservedObject private var inspection: ProcessInspectionModel
     let id: String
-    @State private var inspectionTab: ProcessInspectionTab?
+    /// Rows drawn per list; the filter narrows the rest.
+    private static let rowLimit = 500
 
     init(store: MonitorStore, id: String) {
         self.store = store
@@ -318,105 +346,28 @@ struct ProcessDetailView: View {
         model = store.processDetailViewModel
         inspection = store.inspection
     }
+
     var body: some View {
-        ScrollView {
+        Group {
             if let process = store.process(id: id) {
-                LazyVStack(alignment: .leading, spacing: 12, pinnedViews: []) {
-                    if let app = store.application(containingProcess: process.id) {
-                        ApplicationHeader(app: app) { store.route = .application(app.id) }
-                    }
-                    Text(process.name).font(.title2.bold())
-                    KeyValueRow(key: "PID", value: String(process.identity.pid))
-                    KeyValueRow(key: "Started", value: process.identity.startTime.formatted())
-                    KeyValueRow(key: "Parent PID", value: process.parentPID.map(String.init) ?? "Unavailable")
-                    KeyValueRow(key: "User", value: process.userName ?? "Permission denied")
-                    KeyValueRow(key: "CPU", value: Formatting.percent(process.cpuUsage))
-                    KeyValueRow(
-                        key: "Physical Footprint",
-                        value: Capabilities.isSandboxed && process.memoryBytes == 0
-                            ? "Unavailable in App Sandbox"
-                            : Formatting.bytes(process.memoryBytes)
-                    )
-                    KeyValueRow(key: "Network In / Out", value: process.networkThroughput?.formatted ?? store.networkRateFallback)
-                    KeyValueRow(key: "Threads", value: String(process.threadCount))
-                    KeyValueRow(
-                        key: "Interrupt wakeups",
-                        value: Capabilities.isSandboxed && process.wakeupsPerSecond == 0
-                            ? "Unavailable in App Sandbox"
-                            : Formatting.wakeups(process.interruptWakeupsPerSecond)
-                    )
-                    KeyValueRow(
-                        key: "Package idle wakeups",
-                        value: Capabilities.isSandboxed && process.wakeupsPerSecond == 0
-                            ? "Unavailable in App Sandbox"
-                            : Formatting.wakeups(process.packageIdleWakeupsPerSecond)
-                    )
-                    KeyValueRow(
-                        key: "Disk Read / Write",
-                        value: Capabilities.isSandboxed && process.diskReadRate == 0 && process.diskWriteRate == 0
-                            ? "Unavailable in App Sandbox"
-                            : "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))"
-                    )
-                    if let path = process.executablePath { KeyValueRow(key: "Executable", value: path) }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            Button("Overview") { inspectionTab = nil }
-                                .tint(inspectionTab == nil ? .accentColor : .secondary)
-                            ForEach(ProcessInspectionTab.allCases) { tab in
-                                Button(tab.rawValue) { inspectionTab = tab }
-                                    .tint(inspectionTab == tab ? .accentColor : .secondary)
-                            }
-                        }.buttonStyle(.bordered).controlSize(.small)
-                    }
-                    if let inspectionTab {
-                        ProcessInspectionView(store: store, process: process, tab: inspectionTab)
-                            .id("\(process.id)#\(inspectionTab.rawValue)")
-                    } else {
-                        ProvenanceSection(store: store, process: process)
-                        RefreshButton(hint: "Refresh live inventory") { inspection.loadInventory(for: process) }
-                        if inspection.inventoryLoading { ProgressView("Inspecting process…") }
-                        if let inventory = inspection.inventory {
-                            if !inventory.warnings.isEmpty {
-                                ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
-                            }
-                            TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
-                            inventorySection("Open Files", count: inventory.files.count) {
-                                ForEach(filtered(inventory.files)) { file in
-                                    HStack {
-                                        FileLookupLinks(path: file.path, checksFileOnDisk: false)
-                                        Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                            inventorySection("Network Connections", count: inventory.connections.count) {
-                                ForEach(filtered(inventory.connections)) { connection in
-                                    HStack {
-                                        IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
-                                        VStack(alignment: .leading) {
-                                            Text("\(connection.protocolName) · \(connection.state)").font(.caption).foregroundStyle(.secondary)
-                                            Text("\(connection.localAddress) → \(connection.remoteAddress)").textSelection(.enabled)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                            inventorySection("Threads", count: inventory.threads.count) {
-                                ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
-                            }
-                            inventorySection("Loaded Libraries", count: inventory.libraries.count) {
-                                ForEach(filtered(inventory.libraries)) { library in
-                                    HStack {
-                                        FileLookupLinks(path: library.path)
-                                        Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }.padding()
-            } else { ContentUnavailableView("Process Exited", systemImage: "terminal", description: Text("Its historical metrics remain available until retention expires.")) }
-        }.task(id: id) {
-            inspectionTab = nil
+                DetailSectionLayout(groups: groups, selection: $model.section) {
+                    header(process)
+                } content: {
+                    content(process)
+                }
+            } else {
+                ContentUnavailableView("Process Exited", systemImage: "terminal", description: Text("Its historical metrics remain available until retention expires."))
+            }
+        }
+        .onChange(of: model.section) {
+            model.origin = nil
+            model.connectionTone = nil
+        }
+        .task(id: id) {
+            if model.sectionProcessID != id {
+                model.sectionProcessID = id
+                model.section = .overview
+            }
             if let process = store.process(id: id) {
                 store.loadProvenance(for: process)
                 inspection.loadInventory(for: process)
@@ -424,11 +375,251 @@ struct ProcessDetailView: View {
         }
     }
 
-    private func inventorySection<Content: View>(_ title: String, count: Int, @ViewBuilder content: () -> Content) -> some View {
-        Section { content() } header: { SectionHeader(title: "\(title) (\(count))") }
+    private var groups: [DetailSectionGroup<ProcessSection>] {
+        let inventory = inspection.inventory
+        func section(_ item: ProcessSection, _ count: Int? = nil) -> DetailSection<ProcessSection> {
+            DetailSection(id: item, title: item.title, systemImage: item.style.systemImage, color: item.style.color, count: count)
+        }
+        return [
+            DetailSectionGroup(title: "", sections: [section(.overview)]),
+            DetailSectionGroup(title: "Live inventory", sections: [
+                section(.files, inventory?.files.count), section(.connections, inventory?.connections.count),
+                section(.threads, inventory?.threads.count), section(.libraries, inventory?.libraries.count),
+            ]),
+            DetailSectionGroup(title: "Inspection", sections: [section(.provenance)] + ProcessInspectionTab.allCases.map { section(.inspection($0)) }),
+        ]
+    }
+
+    // MARK: Header
+
+    private func header(_ process: ProcessMetrics) -> some View {
+        DetailPageHeader {
+            HStack(spacing: 10) {
+                if let app = store.application(containingProcess: process.id) {
+                    ApplicationIcon(application: app, size: 44)
+                } else {
+                    ResourceIcon(systemImage: "terminal", color: .gray, size: 44)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(process.name).font(.title2.bold()).lineLimit(1)
+                    let subtitle = ["PID \(process.identity.pid)", process.userName, process.bundleIdentifier].compactMap { $0 }
+                    Text(subtitle.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1).textSelection(.enabled)
+                    Text("Running for \(CPUReadings.uptime(Date().timeIntervalSince(process.identity.startTime)))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .help("Since \(process.identity.startTime.formatted(date: .abbreviated, time: .standard))")
+                }
+            }
+        } actions: {
+            if let path = process.executablePath {
+                ToolbarIconButton(title: "Reveal in Finder", systemImage: "folder", color: .blue) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+                if let url = FileLookup.googleURL(for: path) {
+                    ToolbarIconButton(title: "Search Google", systemImage: "magnifyingglass", color: .gray,
+                                      hint: "Google: search for \"\(FileLookup.searchTerm(for: path))\" macOS") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                ToolbarIconButton(title: "VirusTotal", systemImage: "shield.lefthalf.filled", color: .green,
+                                  hint: "VirusTotal: security vendor verdicts for the executable's SHA-256 (the file is not uploaded)") {
+                    FileLookupLinks.lookUpHash(of: path)
+                }
+            }
+        } overview: {
+            ResourceStatsRow(stats: [
+                ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(process.cpuUsage), detail: "one core is 100%", color: .blue),
+                ResourceStat(title: "Memory", systemImage: "memorychip", value: unavailable(process.memoryBytes == 0, Formatting.bytes(process.memoryBytes)),
+                             detail: "physical footprint", color: .purple),
+                ResourceStat(title: "Threads", systemImage: DetailSectionStyle.threads.systemImage, value: process.threadCount.formatted(), color: .indigo),
+                ResourceStat(title: "Energy", systemImage: "bolt.fill", value: process.energyImpact.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "–",
+                             detail: "impact", color: .yellow),
+            ])
+        }
+    }
+
+    private func unavailable(_ hidden: Bool, _ value: String) -> String {
+        Capabilities.isSandboxed && hidden ? "Unavailable in App Sandbox" : value
+    }
+
+    // MARK: Sections
+
+    @ViewBuilder
+    private func content(_ process: ProcessMetrics) -> some View {
+        let section = model.section
+        if section == .overview {
+            overview(process)
+        } else {
+            switch section {
+            case .files, .connections, .threads, .libraries:
+                DetailContentTitle(title: section.title, systemImage: section.style.systemImage, color: section.style.color) {
+                    if inspection.inventoryLoading { ProgressView().controlSize(.small) }
+                    RefreshButton(hint: "Refresh live inventory") { inspection.loadInventory(for: process) }
+                }
+                inventory(section)
+            case .provenance:
+                DetailContentTitle(title: section.title, systemImage: section.style.systemImage, color: section.style.color,
+                                   caption: "Where the process came from and who signed it.")
+                ProvenanceSection(store: store, process: process)
+            case .inspection(let tab):
+                DetailContentTitle(title: section.title, systemImage: section.style.systemImage, color: section.style.color)
+                ProcessInspectionView(store: store, process: process, tab: tab)
+                    .id("\(process.id)#\(tab.rawValue)")
+            case .overview:
+                EmptyView()
+            }
+        }
+    }
+
+    private func overview(_ process: ProcessMetrics) -> some View {
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            if let app = store.application(containingProcess: process.id) {
+                ApplicationHeader(app: app) { store.route = .application(app.id) }
+            }
+            ProvenanceHighlights(store: store, process: process) { model.section = .provenance }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .monitorSurface()
+            DetailStatsGrid(stats: [
+                ResourceStat(title: "Disk read / write", systemImage: "internaldrive",
+                             value: unavailable(process.diskReadRate == 0 && process.diskWriteRate == 0,
+                                                "\(Formatting.rate(process.diskReadRate)) / \(Formatting.rate(process.diskWriteRate))"),
+                             color: .orange),
+                ResourceStat(title: "Network in / out", systemImage: "network", value: process.networkThroughput?.formatted ?? store.networkRateFallback, color: .cyan),
+                ResourceStat(title: "Interrupt wakeups", systemImage: "alarm", value: unavailable(process.wakeupsPerSecond == 0, Formatting.wakeups(process.interruptWakeupsPerSecond)),
+                             help: "Interrupt wakeups per second. Frequent wakeups keep the CPU out of low-power states.", color: .teal),
+                ResourceStat(title: "Idle wakeups", systemImage: "moon.zzz", value: unavailable(process.wakeupsPerSecond == 0, Formatting.wakeups(process.packageIdleWakeupsPerSecond)),
+                             help: "Package idle wakeups per second.", color: .mint),
+            ], color: .blue)
+            recentActivity(process)
+            MetricCard(title: "Identity", systemImage: "person.text.rectangle", color: .gray) {
+                DetailFactGrid(facts: identity(process), minimumWidth: 200)
+            }
+        }
+    }
+
+    /// Live CPU and memory, kept only for applications and background processes, not for an application's helpers.
+    @ViewBuilder
+    private func recentActivity(_ process: ProcessMetrics) -> some View {
+        let points = store.recentProcessPoints[process.id] ?? []
+        if points.count > 1 {
+            HStack(alignment: .top, spacing: 12) {
+                MetricCard(title: "CPU, live", systemImage: "cpu", color: .blue) {
+                    Sparkline(series: [SparklineSeries(values: points.map(\.cpuUsage), color: .blue)], minHeight: 44, maxHeight: 54)
+                }
+                MetricCard(title: "Memory, live", systemImage: "memorychip", color: .purple) {
+                    Sparkline(series: [SparklineSeries(values: points.map(\.memoryBytes), color: .purple)], minHeight: 44, maxHeight: 54)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func identity(_ process: ProcessMetrics) -> [DetailFact] {
+        let parent = process.parentPID.flatMap { store.process(pid: $0) }
+        let user = process.userName ?? "Permission denied"
+        var facts = [
+            DetailFact(title: "User", value: user, systemImage: user == "root" ? "person.badge.key.fill" : "person",
+                       tone: user == "root" ? .orange : user == NSUserName() ? .blue : .gray,
+                       help: user == "root" ? "Runs with superuser privileges." : nil),
+            DetailFact(title: "Parent", value: parent.map { "\($0.name) (\($0.identity.pid))" } ?? process.parentPID.map { "PID \($0)" } ?? "Unavailable",
+                       systemImage: "arrow.up.left", tone: .teal),
+            DetailFact(title: "Started", value: process.identity.startTime.formatted(date: .abbreviated, time: .standard), systemImage: "clock", tone: .indigo),
+        ]
+        if let bundle = process.bundleIdentifier {
+            facts.append(DetailFact(title: "Bundle ID", value: bundle, systemImage: "shippingbox", tone: .blue, monospaced: true))
+        }
+        if let path = process.executablePath {
+            facts.append(DetailFact(title: "Executable", value: path, systemImage: "terminal", tone: PathOrigin(path: path).color, monospaced: true))
+        }
+        return facts
+    }
+
+    // MARK: Inventory
+
+    @ViewBuilder
+    private func inventory(_ section: ProcessSection) -> some View {
+        if inspection.inventoryLoading, inspection.inventory == nil { ProgressView("Inspecting process…").controlSize(.small) }
+        if let inventory = inspection.inventory {
+            ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+            TextField("Filter", text: $model.filter).textFieldStyle(.roundedBorder)
+            switch section {
+            case .files: pathList(filtered(inventory.files).map { ($0.path, $0.descriptorType) }, checksFileOnDisk: false)
+            case .libraries: pathList(filtered(inventory.libraries).map { ($0.path, nil) }, checksFileOnDisk: true)
+            case .connections: connectionsList(filtered(inventory.connections))
+            case .threads:
+                let names = DetailReadings.threadNames(inventory.threads.map(\.name).filter {
+                    model.filter.isEmpty || ($0 ?? "").localizedCaseInsensitiveContains(model.filter)
+                })
+                HStack(spacing: 6) {
+                    DetailBadge(text: "\(inventory.threads.count) threads", color: DetailSectionStyle.threads.color)
+                    DetailBadge(text: "\(names.count) distinct names", color: .secondary)
+                }
+                ThreadChips(names: Array(names.prefix(Self.rowLimit)))
+            default: EmptyView()
+            }
+        } else if !inspection.inventoryLoading {
+            Text("No inventory available.").foregroundStyle(.secondary)
+        }
+    }
+
+    private func pathList(_ rows: [(path: String, kind: String?)], checksFileOnDisk: Bool) -> some View {
+        let origins = Dictionary(grouping: rows) { PathOrigin(path: $0.path) }
+        let shown = model.origin.map { origin in rows.filter { PathOrigin(path: $0.path) == origin } } ?? rows
+        return VStack(alignment: .leading, spacing: 10) {
+            FlowLayout {
+                ForEach(PathOrigin.allCases.filter { origins[$0] != nil }) { origin in
+                    DetailFilterChip(title: origin.title, count: origins[origin]?.count ?? 0, color: origin.color, selected: model.origin == origin) {
+                        model.origin = model.origin == origin ? nil : origin
+                    }
+                }
+            }
+            if !shown.isEmpty {
+                DetailRowGroup {
+                    ForEach(Array(shown.prefix(Self.rowLimit).enumerated()), id: \.offset) { _, row in
+                        InventoryPathRow(path: row.path, kind: row.kind, checksFileOnDisk: checksFileOnDisk) { EmptyView() }
+                    }
+                }
+            }
+            capNote(shown.count)
+        }
+    }
+
+    private func connectionsList(_ all: [NetworkConnection]) -> some View {
+        let unnamed: (NetworkConnection) -> Bool = { $0.protocolName == "UNIX" && $0.localAddress == "—" && $0.remoteAddress == "—" }
+        let rows = all.filter { !unnamed($0) }
+        let hidden = all.count - rows.count
+        let tones = Dictionary(grouping: rows) { ConnectionTone(state: $0.state) }
+        let shown = model.connectionTone.map { tone in rows.filter { ConnectionTone(state: $0.state) == tone } } ?? rows
+        return VStack(alignment: .leading, spacing: 10) {
+            FlowLayout {
+                ForEach([ConnectionTone.active, .listening, .closing, .idle].filter { tones[$0] != nil }, id: \.self) { tone in
+                    DetailFilterChip(title: tone.title, count: tones[tone]?.count ?? 0, color: tone.color, selected: model.connectionTone == tone) {
+                        model.connectionTone = model.connectionTone == tone ? nil : tone
+                    }
+                }
+            }
+            if !shown.isEmpty {
+                DetailRowGroup {
+                    ForEach(shown.prefix(Self.rowLimit)) { connection in
+                        InventoryConnectionRow(protocolName: connection.protocolName, localAddress: connection.localAddress,
+                                               remoteAddress: connection.remoteAddress, state: connection.state) { EmptyView() }
+                    }
+                }
+            }
+            capNote(shown.count)
+            if hidden > 0 { Text("\(hidden) unnamed UNIX sockets not shown.").font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    @ViewBuilder
+    private func capNote(_ total: Int) -> some View {
+        if total > Self.rowLimit {
+            Text("Showing the first \(Self.rowLimit) of \(total). Use the filter to narrow the list.").font(.caption).foregroundStyle(.secondary)
+        } else if total == 0 {
+            Text("Nothing to show.").foregroundStyle(.secondary)
+        }
     }
 
     private func filtered(_ values: [OpenFile]) -> [OpenFile] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
-    private func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] { model.filter.isEmpty ? values : values.filter { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)".localizedCaseInsensitiveContains(model.filter) } }
+    private func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] { model.filter.isEmpty ? values : values.filter { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName) \($0.state)".localizedCaseInsensitiveContains(model.filter) } }
     private func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
 }

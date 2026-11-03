@@ -15,6 +15,7 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 - Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
 - Consolidate page surfaces, headings, icons and action buttons across light and dark appearances. Settings uses a pane picker alongside the shared sidebar.
 - Give every page the same header: icon, title and one-line description, a large key figure that never wraps, secondary figures without card backgrounds, then page actions on the right. Chart pages put the legend with live values and the range picker in one right-aligned row above the chart.
+- Redesign the Application and Process detail pages around a second section sidebar (Overview, Live inventory, Inspection) that collapses to icons on a narrow panel; the titlebar shows the application or process name. Sections use tiles, badges and chips instead of key-value lists: a signature verdict and clickable ancestry chain in Provenance, origin filters (macOS, app bundle, Homebrew, user, temporary) for files and libraries, state filters for connections, thread chips, a numbered argument listing, environment names with `DYLD_` and credential-like variables flagged, root, risky entitlements and unsigned code highlighted, and log levels colored and counted.
 
 ### Fixed
 

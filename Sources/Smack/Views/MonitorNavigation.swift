@@ -128,6 +128,17 @@ extension AppRoute {
     }
 }
 
+extension MonitorStore {
+    /// What a Detail Page is about, shown after the page title; nil for other pages or once it has exited.
+    var routeSubject: String? {
+        switch route {
+        case .application(let id): application(id: id)?.name
+        case .process(let id): process(id: id)?.name
+        default: nil
+        }
+    }
+}
+
 struct MonitorSidebar: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var settingsStore: SettingsStore

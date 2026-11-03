@@ -123,6 +123,8 @@ struct MonitorRootView: View {
 /// Width the titlebar accessory may use without covering the window buttons and pin.
 @MainActor
 final class TitleBarLayout: ObservableObject {
+    /// Height of a unified toolbar window header.
+    nonisolated static let height: CGFloat = 52
     @Published var available: CGFloat = 560
     @Published var showsSidebar = true
     /// Window x where the accessory starts (after the traffic lights and pin button).
@@ -156,7 +158,12 @@ private struct MonitorTitleBarControls: View {
                 navigationButtons
                     .buttonStyle(.borderless)
                     .frame(width: layout.navigationWidth, alignment: .leading)
-                Text(store.route.title).font(.headline).lineLimit(1)
+                Text(store.route.title).font(.title3.bold()).lineLimit(1)
+                if let subject = store.routeSubject {
+                    Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary).padding(.horizontal, 6)
+                    Text(subject).font(.title3.bold()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        .help(subject)
+                }
             }
             .frame(minWidth: 120, alignment: .leading)
             .layoutPriority(1)
@@ -165,7 +172,7 @@ private struct MonitorTitleBarControls: View {
                 ForEach(0..<4) { content(shedding: $0) }
             }
         }
-            .frame(width: layout.available, height: 28)
+            .frame(width: layout.available, height: TitleBarLayout.height)
             .onChange(of: layout.available, initial: true) { _, width in onWidthChange(width) }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
                 exitControlsState.isExpanded = false
@@ -174,14 +181,14 @@ private struct MonitorTitleBarControls: View {
     }
 
     private var navigationButtons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             Button { layout.showsSidebar.toggle() } label: {
-                Image(systemName: "sidebar.left").frame(width: 28, height: 28)
+                Image(systemName: "sidebar.left").font(.system(size: 15)).frame(width: 32, height: 28)
             }
             .help(layout.showsSidebar ? "Hide sidebar" : "Show sidebar")
             .accessibilityLabel(layout.showsSidebar ? "Hide sidebar" : "Show sidebar")
             Button { store.goBack() } label: {
-                Image(systemName: "chevron.left").frame(width: 28, height: 28)
+                Image(systemName: "chevron.left").font(.system(size: 15)).frame(width: 32, height: 28)
             }
             .disabled(store.previousRoute == nil)
             .help("Previous page")
@@ -195,9 +202,8 @@ private struct MonitorTitleBarControls: View {
             info(shedding: shedding).fixedSize()
             exitControls.fixedSize()
         }
-        .font(.caption)
+        .font(.callout)
         .lineLimit(1)
-        .controlSize(.small)
         .padding(.horizontal, 16)
     }
 
