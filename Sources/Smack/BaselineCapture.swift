@@ -110,7 +110,7 @@ struct MachineBaselineCollector: BaselineSectionCollector {
                             "tap": components.count >= 3 ? components.dropLast().joined(separator: "/") : "homebrew/" + (package.kind == .formula ? "core" : "cask")]
                 })
             case "runtimes":
-                let discovery = DevEnvironmentCollector.discover(folders: settings.devProjectFolders, depth: settings.devScanDepth)
+                let discovery = DevEnvironmentCollector.discover(folders: settings.devTools.devProjectFolders, depth: settings.devTools.devScanDepth)
                 var items: [BaselineItem] = []
                 var failed = !discovery.warnings.isEmpty
                 for runtime in discovery.environments.prefix(512) {
@@ -129,8 +129,8 @@ struct MachineBaselineCollector: BaselineSectionCollector {
             case "agents":
                 var items: [BaselineItem] = []
                 var failed = false
-                let definitions = AgentDefinition.catalog.filter { !settings.excludedAgents.contains($0.id) }
-                    + settings.customAgentFolders.map { AgentDefinition.custom(folder: $0) }
+                let definitions = AgentDefinition.catalog.filter { !settings.devTools.excludedAgents.contains($0.id) }
+                    + settings.devTools.customAgentFolders.map { AgentDefinition.custom(folder: $0) }
                 for agent in AgentCollector().discover(definitions: definitions).agents {
                     for artifact in agent.artifacts where [.configuration, .mcp, .hooks].contains(artifact.category) {
                         var urls = [artifact.url]

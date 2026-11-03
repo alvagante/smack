@@ -62,7 +62,7 @@ private struct AgentSessionRow: View {
                     Text("\(log.path) · \(log.size) bytes · \(log.modifiedAt.formatted())").textSelection(.enabled)
                     Button("Reveal log") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: log.path)]) }
                 } else { Text("No log found").foregroundStyle(.secondary) }
-                if store.settingsStore.settings.showAgentCommandLines, session.endedAt == nil {
+                if store.settingsStore.settings.devTools.showAgentCommandLines, session.endedAt == nil {
                     Button(commandLine == nil ? "Show command line" : "Hide command line") {
                         if commandLine != nil { commandLine = nil; return }
                         let identity = session.root

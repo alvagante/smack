@@ -318,9 +318,9 @@ private struct UncooperativeSection: BaselineSectionCollector {
     let repository = BaselineRepository(directory: root.appendingPathComponent("baselines"))
     let golden = try await repository.save(BaselineDocument(sections: ["listeners": .init(items: [])]))
     var settings = CollectionSettings()
-    settings.scheduledDriftCheck = true
-    settings.goldenBaselineID = golden.lastPathComponent
-    settings.backgroundNetworkEnabled = true
+    settings.security.scheduledDriftCheck = true
+    settings.security.goldenBaselineID = golden.lastPathComponent
+    settings.sampling.backgroundNetworkEnabled = true
     let network = FreshBaselineNetwork()
     let scheduler = CollectionScheduler(systemCollector: SystemCollector(), processCollector: ProcessCollector(),
         inventoryCollector: InventoryCollector(), networkPortCollector: network, history: history,

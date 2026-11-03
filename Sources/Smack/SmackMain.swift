@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if !SMACK_APP_STORE
             observeControlSocket(settingsStore)
 #endif
-            privilegedController?.prepare(enabled: settingsStore.settings.privilegedSampling)
+            privilegedController?.prepare(enabled: settingsStore.settings.sampling.privilegedSampling)
             installActivityObservers(store: store)
             configureStatusItem()
             let nativeMenuBarStore = NativeMenuBarStore()
@@ -228,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pendingNavigationURL = url
             return
         }
-        guard store.settingsStore.settings.urlNavigationEnabled else { return }
+        guard store.settingsStore.settings.automation.urlNavigationEnabled else { return }
         store.navigate(to: url)
         panelController.showPinned()
     }
@@ -303,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if !SMACK_APP_STORE
     func observeControlSocket(_ settings: SettingsStore, paths: [String] = ControlSocket.paths()) {
-        controlSettingsObservation = settings.$settings.map(\.controlSocketEnabled).removeDuplicates()
+        controlSettingsObservation = settings.$settings.map(\.automation.controlSocketEnabled).removeDuplicates()
             .sink { [weak self] enabled in self?.setControlSocket(enabled: enabled, paths: paths) }
     }
 

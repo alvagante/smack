@@ -227,15 +227,15 @@ private final class EventBox: Sendable {
 
 @Test func activitySettingsClampAndDefault() throws {
     var settings = CollectionSettings()
-    #expect(settings.eventRetentionDays == 7)
-    #expect(!settings.recordConnectionEvents)
-    #expect(settings.showEventsOnCharts)
-    settings.eventRetentionDays = 999
+    #expect(settings.activity.eventRetentionDays == 7)
+    #expect(!settings.activity.recordConnectionEvents)
+    #expect(settings.activity.showEventsOnCharts)
+    settings.activity.eventRetentionDays = 999
     settings.validate()
-    #expect(settings.eventRetentionDays == 30)
-    settings.eventRetentionDays = 0
+    #expect(settings.activity.eventRetentionDays == 30)
+    settings.activity.eventRetentionDays = 0
     settings.validate()
-    #expect(settings.eventRetentionDays == 1)
+    #expect(settings.activity.eventRetentionDays == 1)
     let legacy = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
-    #expect(legacy.eventRetentionDays == 7)
+    #expect(legacy.activity.eventRetentionDays == 7)
 }

@@ -4,9 +4,9 @@ import Testing
 
 @Test func titleBarSettingsDefaultForLegacyAndInvalidValues() throws {
     let legacy = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
-    #expect(legacy.titleBar == TitleBarSettings())
-    #expect(legacy.titleBar.showSponsor && legacy.titleBar.showHostname && legacy.titleBar.showNetwork && legacy.titleBar.showClock)
-    #expect(!legacy.titleBar.showUptime && !legacy.titleBar.showBattery)
+    #expect(legacy.panel.titleBar == TitleBarSettings())
+    #expect(legacy.panel.titleBar.showSponsor && legacy.panel.titleBar.showHostname && legacy.panel.titleBar.showNetwork && legacy.panel.titleBar.showClock)
+    #expect(!legacy.panel.titleBar.showUptime && !legacy.panel.titleBar.showBattery)
 
     let partial = try JSONDecoder().decode(TitleBarSettings.self, from: Data(#"{"showSponsor":false,"clockStyle":"Bogus"}"#.utf8))
     #expect(!partial.showSponsor)
@@ -16,13 +16,13 @@ import Testing
 
 @Test func titleBarSettingsRoundTrip() throws {
     var settings = CollectionSettings()
-    settings.titleBar.showSponsor = false
-    settings.titleBar.hostnameStyle = .computerName
-    settings.titleBar.clockStyle = .custom
-    settings.titleBar.clockPattern = "HH:mm:ss"
-    settings.titleBar.showBattery = true
+    settings.panel.titleBar.showSponsor = false
+    settings.panel.titleBar.hostnameStyle = .computerName
+    settings.panel.titleBar.clockStyle = .custom
+    settings.panel.titleBar.clockPattern = "HH:mm:ss"
+    settings.panel.titleBar.showBattery = true
     let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
-    #expect(decoded.titleBar == settings.titleBar)
+    #expect(decoded.panel.titleBar == settings.panel.titleBar)
     #expect(PerformancePreset.matching(CollectionSettings()) == PerformancePreset.matching(settings))
 }
 

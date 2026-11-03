@@ -3,9 +3,11 @@ import SwiftUI
 struct SummaryView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settingsStore: SettingsStore
+    @ObservedObject private var devServers: DevServersModel
 
     init(store: MonitorStore) {
         self.store = store
+        devServers = store.devServersModel
         settingsStore = store.settingsStore
     }
 
@@ -168,7 +170,7 @@ struct SummaryView: View {
         let settings = settingsStore.settings
         return VStack(spacing: 0) {
             if settings.shows(.devServers) {
-                SummaryNavigationRow(route: .devServers, value: store.devServers.map { "\($0.count) servers" } ?? "Awaiting collection", detail: "Projects, listeners and containers") { store.route = .devServers }
+                SummaryNavigationRow(route: .devServers, value: devServers.devServers.map { "\($0.count) servers" } ?? "Awaiting collection", detail: "Projects, listeners and containers") { store.route = .devServers }
             }
             if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
             if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
@@ -242,9 +244,9 @@ struct BaselineSummaryTile: View {
 
     var body: some View {
         let settings = settingsStore.settings
-        let golden = settings.goldenBaselineID.flatMap { id in model.rows.first { $0.0.lastPathComponent == id }?.1 }
+        let golden = settings.security.goldenBaselineID.flatMap { id in model.rows.first { $0.0.lastPathComponent == id }?.1 }
         SummaryNavigationRow(route: .baseline, value: model.rows.isEmpty ? "None saved" : "\(model.rows.count) saved",
-                             detail: golden.map { "Golden: \($0.name.isEmpty ? "Unnamed" : $0.name)" + (settings.scheduledDriftCheck ? " · daily check" : "") } ?? "Capture configuration and detect drift", open: open)
+                             detail: golden.map { "Golden: \($0.name.isEmpty ? "Unnamed" : $0.name)" + (settings.security.scheduledDriftCheck ? " · daily check" : "") } ?? "Capture configuration and detect drift", open: open)
             .task { if model.rows.isEmpty { await model.refresh() } }
     }
 }

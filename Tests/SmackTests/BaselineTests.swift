@@ -139,9 +139,9 @@ private struct FixtureBaselineCollector: BaselineSectionCollector {
     r = ControlRequest(op: "status"); r.strict = true
     #expect(throws: ControlError.self) { try r.validate() }
     let defaults = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
-    #expect(defaults.baselineRetentionCount == 20)
-    #expect(!defaults.scheduledDriftCheck)
-    #expect(defaults.goldenBaselineID == nil)
+    #expect(defaults.security.baselineRetentionCount == 20)
+    #expect(!defaults.security.scheduledDriftCheck)
+    #expect(defaults.security.goldenBaselineID == nil)
     #expect(ActivityEventKind.driftDetected.group == .security)
     #expect(DeepLinkParser.parse(URL(string: "smack://baseline")!).route == .baseline)
 }
@@ -311,9 +311,9 @@ private struct DuplicateBaselineCollector: BaselineSectionCollector {
     ]))
     let history = try HistoryRepository(databaseURL: root.appendingPathComponent("history.sqlite"))
     var settings = CollectionSettings()
-    settings.scheduledDriftCheck = true
-    settings.goldenBaselineID = golden.lastPathComponent
-    settings.postureCheckInterval = nil
+    settings.security.scheduledDriftCheck = true
+    settings.security.goldenBaselineID = golden.lastPathComponent
+    settings.security.postureCheckInterval = nil
     let events = Mutex<[ActivityEvent]>([])
     let calls = Mutex(0)
     let scheduler = CollectionScheduler(systemCollector: SystemCollector(), processCollector: ProcessCollector(),
@@ -346,7 +346,7 @@ private struct DuplicateBaselineCollector: BaselineSectionCollector {
     #expect(calls.withLock { $0 } == 1)
     await scheduler.checkScheduledDrift(repository: repository, now: now.addingTimeInterval(86401), capture: collect)
     #expect(calls.withLock { $0 } == 2)
-    settings.scheduledDriftCheck = false
+    settings.security.scheduledDriftCheck = false
     await scheduler.updateFeatureSettings(settings)
     await scheduler.checkScheduledDrift(repository: repository, now: now.addingTimeInterval(172802), capture: collect)
     #expect(calls.withLock { $0 } == 2)
@@ -360,13 +360,13 @@ private struct DuplicateBaselineCollector: BaselineSectionCollector {
     ]))
     let history = try HistoryRepository(databaseURL: root.appendingPathComponent("history.sqlite"))
     var settings = CollectionSettings()
-    settings.scheduledDriftCheck = true
-    settings.goldenBaselineID = golden.lastPathComponent
-    settings.postureCheckInterval = nil
+    settings.security.scheduledDriftCheck = true
+    settings.security.goldenBaselineID = golden.lastPathComponent
+    settings.security.postureCheckInterval = nil
     let scheduler = CollectionScheduler(systemCollector: SystemCollector(), processCollector: ProcessCollector(),
         inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(),
         history: history, settings: settings, onSystem: { _ in }, onProcesses: { _ in })
-    settings.scheduledDriftCheck = false
+    settings.security.scheduledDriftCheck = false
     let disabled = settings
     await scheduler.checkScheduledDrift(repository: repository) { _ in
         await scheduler.updateFeatureSettings(disabled)

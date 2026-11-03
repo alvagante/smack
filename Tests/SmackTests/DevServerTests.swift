@@ -118,8 +118,8 @@ private func devProcess(_ pid: Int32, parent: Int32? = nil) -> ProcessMetrics {
     try ControlRequest(op: "who", port: 8080).validate()
     #expect(throws: (any Error).self) { try ControlRequest(op: "who").validate() }
     var settings = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
-    #expect(settings.terminalApp == "com.apple.Terminal" && settings.editorApp == nil && !settings.devServersShowSystem)
-    settings.editorApp = "dev.zed.Zed"; settings.devServersShowSystem = true; settings.backgroundDevServersEnabled = true
+    #expect(settings.devTools.terminalApp == "com.apple.Terminal" && settings.devTools.editorApp == nil && !settings.devTools.devServersShowSystem)
+    settings.devTools.editorApp = "dev.zed.Zed"; settings.devTools.devServersShowSystem = true; settings.devTools.backgroundDevServersEnabled = true
     #expect(try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings)) == settings)
 }
 

@@ -159,7 +159,7 @@ actor PersistenceScanner {
         return ["/.ssh/authorized_keys", "/.ssh/rc", "/.zshrc", "/.zprofile", "/.zshenv", "/.bash_profile", "/.bashrc", "/.profile", "/.config/fish/config.fish"].map { home + $0 } + ["/etc/hosts", "/Library/Preferences/com.apple.loginwindow.plist"]
     }
 
-    func profiles(_ text: String, metadata: HistoryRepository) async -> [ActivityEvent]? {
+    func profiles(_ text: String, metadata: any ActivityMetadataStoring) async -> [ActivityEvent]? {
         guard !busy, !Task.isCancelled else { return nil }
         busy = true
         defer { busy = false }
@@ -190,7 +190,7 @@ actor PersistenceScanner {
         return ["value", value] as [Any]
     }
 
-    func scan(metadata: HistoryRepository, enrich: Bool = true) async -> (StartupInventory?, [ActivityEvent]) {
+    func scan(metadata: any ActivityMetadataStoring, enrich: Bool = true) async -> (StartupInventory?, [ActivityEvent]) {
         guard !busy else { return (nil, []) }
         busy = true
         defer { busy = false }

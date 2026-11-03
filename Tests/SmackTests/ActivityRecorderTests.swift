@@ -64,9 +64,9 @@ import Testing
         NetworkPortSnapshot(timestamp: Date(timeIntervalSince1970: time), ports: [], connections: connections, warning: nil)
     }
     var off = CollectionSettings()
-    off.recordConnectionEvents = false
+    off.activity.recordConnectionEvents = false
     var on = CollectionSettings()
-    on.recordConnectionEvents = true
+    on.activity.recordConnectionEvents = true
     _ = await recorder.record(network: snapshot([], at: 1), settings: off)
     #expect(await recorder.record(network: snapshot([connection], at: 2), settings: off).isEmpty)
     // Enabling later seeds from the next sample instead of reporting what is already open.

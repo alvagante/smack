@@ -31,13 +31,14 @@ enum ProjectApplications {
 struct DevServersView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settings: SettingsStore
+    @ObservedObject private var model: DevServersModel
     @State private var stopping: DevServer?
     @State private var containerOperation: DockerContainerOperation?
 
-    init(store: MonitorStore) { self.store = store; settings = store.settingsStore }
+    init(store: MonitorStore) { self.store = store; settings = store.settingsStore; model = store.devServersModel }
 
     private var servers: [DevServer] {
-        (store.devServers ?? []).filter { row in
+        (model.devServers ?? []).filter { row in
             store.navigationFilters.port == nil || row.ports.contains { $0.port == store.navigationFilters.port }
         }
     }
@@ -48,12 +49,12 @@ struct DevServersView: View {
                 ResourceTitle(title: "Dev servers", systemImage: "server.rack", color: .cyan, subtitle: "Local development servers listening on ports")
             } actions: {
                 Toggle("Show system listeners", isOn: Binding(
-                    get: { settings.settings.devServersShowSystem },
-                    set: { value in settings.update { $0.devServersShowSystem = value }; store.refreshDevServers() }))
+                    get: { settings.settings.devTools.devServersShowSystem },
+                    set: { value in settings.update { $0.devTools.devServersShowSystem = value }; store.refreshDevServers() }))
                 RefreshButton(isLoading: store.networkPortsLoading) { store.loadNetworkPorts() }
             } overview: {
-                ResourceStatsRow(headline: store.devServers == nil ? "–" : String(servers.count), unit: "servers", stats: [
-                    ResourceStat(title: "Listeners", systemImage: "network", value: store.devServers == nil ? "Unavailable" : String(servers.reduce(0) { $0 + $1.ports.count }))
+                ResourceStatsRow(headline: model.devServers == nil ? "–" : String(servers.count), unit: "servers", stats: [
+                    ResourceStat(title: "Listeners", systemImage: "network", value: model.devServers == nil ? "Unavailable" : String(servers.reduce(0) { $0 + $1.ports.count }))
                 ], headlineWidth: 120)
             }
             Divider()
@@ -98,8 +99,8 @@ struct DevServersView: View {
                             HStack {
                                 if let path = row.project?.root ?? row.project?.directory {
                                     Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                                    Button("Terminal") { ProjectApplications.open(path, with: settings.settings.terminalApp, store: store) }
-                                    if let editor = settings.settings.editorApp {
+                                    Button("Terminal") { ProjectApplications.open(path, with: settings.settings.devTools.terminalApp, store: store) }
+                                    if let editor = settings.settings.devTools.editorApp {
                                         Button("Editor") { ProjectApplications.open(path, with: editor, store: store) }
                                     }
                                 }

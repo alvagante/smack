@@ -132,7 +132,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     #expect(raw.map { $0.timestamp.timeIntervalSince(minute) } == [0, 10, 50])
 
     var settings = CollectionSettings()
-    settings.fullResolutionHours = 1
+    settings.history.fullResolutionHours = 1
     try await repository.maintain(settings: settings)
     let minutes = try await repository.processSeries(processID: "42-1234.0", metric: .cpuUsage, from: .distantPast)
     #expect(minutes.count == 1)
@@ -231,7 +231,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     let raw = try await repository.processSeries(processID: "7-1.0", metric: .cpuUsage, from: .distantPast)
     #expect(raw.map(\.average) == [10, 6, 0])
     var settings = CollectionSettings()
-    settings.fullResolutionHours = 1
+    settings.history.fullResolutionHours = 1
     try await repository.maintain(settings: settings)
     let minutes = try await repository.processSeries(processID: "7-1.0", metric: .cpuUsage, from: .distantPast)
     #expect(minutes.map(\.average) == [10, 1])

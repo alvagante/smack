@@ -260,10 +260,10 @@ private final class PollingHelperFixture: OldHelperFixture, @unchecked Sendable 
     let root = try obsTemporaryDirectory()
     let history = try HistoryRepository(databaseURL: root.appendingPathComponent("history.sqlite"))
     var settings = CollectionSettings()
-    settings.watchPersistence = true
-    settings.persistenceEnrichmentEnabled = false
-    settings.persistencePollInterval = 3600
-    settings.privilegedSampling = true
+    settings.security.watchPersistence = true
+    settings.security.persistenceEnrichmentEnabled = false
+    settings.security.persistencePollInterval = 3600
+    settings.sampling.privilegedSampling = true
     let inventories = Mutex([StartupInventory]())
     let events = Mutex([ActivityEvent]())
     func scheduler(_ helper: PrivilegedSamplingClient?) -> CollectionScheduler {

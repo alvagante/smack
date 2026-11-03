@@ -48,9 +48,16 @@ struct ApplicationDetailView: View {
     private static let programLimit = 8
 
     @ObservedObject var store: MonitorStore
+    @ObservedObject private var inspection: ProcessInspectionModel
     let id: String
     @StateObject private var model = ApplicationDetailViewModel()
     @StateObject private var profile = ApplicationProfileModel()
+
+    init(store: MonitorStore, id: String) {
+        self.store = store
+        inspection = store.inspection
+        self.id = id
+    }
 
     var body: some View {
         ScrollView {
@@ -70,7 +77,7 @@ struct ApplicationDetailView: View {
         }
         .task(id: "\(id)#\(model.refreshCount)") {
             guard let app = store.application(id: id) else { return }
-            await store.loadApplicationInventory(for: app, refresh: model.refreshCount > 0)
+            await inspection.loadApplicationInventory(for: app, refresh: model.refreshCount > 0)
         }
         .task(id: "\(id)-\(model.range.rawValue)") { await loadHistory() }
         .task(id: id) {
@@ -299,7 +306,7 @@ struct ApplicationDetailView: View {
     }
 
     private func footnote(_ app: ApplicationMetrics) -> String {
-        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every \(Int(store.settingsStore.settings.processNetworkRateSeconds)) seconds and includes observable TCP and UDP traffic. GPU is driver-reported process time, live only." }
+        if model.range == .live { return "Live: the last minutes, summed over all \(app.processes.count) processes. Network refreshes every \(Int(store.settingsStore.settings.sampling.processNetworkRateSeconds)) seconds and includes observable TCP and UDP traffic. GPU is driver-reported process time, live only." }
         let names = Set(app.processes.map(\.name)).count
         let shown = min(names, Self.programLimit)
         return names > shown
@@ -351,7 +358,7 @@ struct ApplicationDetailView: View {
     // MARK: Tabs
 
     private func count(_ tab: ApplicationTab, _ app: ApplicationMetrics) -> Int? {
-        let inventory = store.applicationInventory
+        let inventory = inspection.applicationInventory
         switch tab {
         case .files: return inventory?.files.count
         case .connections: return inventory?.connections.count
@@ -409,10 +416,10 @@ struct ApplicationDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 TextField("Filter", text: $model.filter).textFieldStyle(.roundedBorder)
-                if store.applicationInventoryLoading { ProgressView().controlSize(.small) }
+                if inspection.applicationInventoryLoading { ProgressView().controlSize(.small) }
                 RefreshButton { model.refreshCount += 1 }.controlSize(.small)
             }
-            if let inventory = store.applicationInventory {
+            if let inventory = inspection.applicationInventory {
                 if inventory.isPartial {
                     Text("Inspected \(inventory.inspected) of \(inventory.total) processes (the largest by memory).")
                         .font(.caption).foregroundStyle(.secondary)
@@ -421,19 +428,19 @@ struct ApplicationDetailView: View {
                     Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
                 content()
-            } else if !store.applicationInventoryLoading {
+            } else if !inspection.applicationInventoryLoading {
                 Text("No inventory available.").foregroundStyle(.secondary)
             }
         }
     }
 
     private var filesList: some View {
-        let rows = (store.applicationInventory?.files ?? []).filter(matchesPath)
+        let rows = (inspection.applicationInventory?.files ?? []).filter(matchesPath)
         return pathList(rows, checksFileOnDisk: false)
     }
 
     private var librariesList: some View {
-        let rows = (store.applicationInventory?.libraries ?? []).filter(matchesPath)
+        let rows = (inspection.applicationInventory?.libraries ?? []).filter(matchesPath)
         return pathList(rows, checksFileOnDisk: true)
     }
 
@@ -457,7 +464,7 @@ struct ApplicationDetailView: View {
     }
 
     private var connectionsList: some View {
-        let rows = (store.applicationInventory?.connections ?? []).filter {
+        let rows = (inspection.applicationInventory?.connections ?? []).filter {
             model.filter.isEmpty || "\($0.localAddress) \($0.remoteAddress) \($0.protocolName) \($0.state) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
         return VStack(alignment: .leading, spacing: 0) {
@@ -475,14 +482,14 @@ struct ApplicationDetailView: View {
                 Divider()
             }
             capNote(rows.count)
-            if let hidden = store.applicationInventory?.unnamedSocketCount, hidden > 0 {
+            if let hidden = inspection.applicationInventory?.unnamedSocketCount, hidden > 0 {
                 Text("\(hidden) unnamed UNIX sockets not shown.").font(.caption).foregroundStyle(.secondary).padding(.top, 6)
             }
         }
     }
 
     private var threadsList: some View {
-        let rows = (store.applicationInventory?.threads ?? []).filter {
+        let rows = (inspection.applicationInventory?.threads ?? []).filter {
             model.filter.isEmpty || "\($0.name) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
         return VStack(alignment: .leading, spacing: 0) {
@@ -515,7 +522,7 @@ struct ApplicationDetailView: View {
         if total > Self.rowLimit {
             Text("Showing the first \(Self.rowLimit) of \(total). Use the filter to narrow the list.")
                 .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
-        } else if total == 0, store.applicationInventory != nil, !store.applicationInventoryLoading {
+        } else if total == 0, inspection.applicationInventory != nil, !inspection.applicationInventoryLoading {
             Text("Nothing to show.").foregroundStyle(.secondary)
         }
     }
@@ -639,8 +646,15 @@ private struct ApplicationTimelineTab: View {
     private static let rowLimit = 300
 
     @ObservedObject var store: MonitorStore
+    @ObservedObject private var activity: ActivityFeedModel
     let app: ApplicationMetrics
     @StateObject private var model = ApplicationTimelineModel()
+
+    init(store: MonitorStore, app: ApplicationMetrics) {
+        self.store = store
+        activity = store.activityFeed
+        self.app = app
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -675,14 +689,14 @@ private struct ApplicationTimelineTab: View {
                 Text("Showing latest \(Self.rowLimit) of \(model.events.count) events.").font(.caption).foregroundStyle(.secondary)
             }
         }
-        .task(id: "\(app.id)-\(model.range.rawValue)-\(store.recentEvents.first?.id ?? "")") { await load() }
+        .task(id: "\(app.id)-\(model.range.rawValue)-\(activity.recentEvents.first?.id ?? "")") { await load() }
     }
 
     private func load() async {
         model.loading = true
         defer { model.loading = false }
         let end = Date()
-        guard let loaded = try? await store.loadEvents(from: end.addingTimeInterval(-model.range.interval), to: end, kinds: nil, search: "", limit: Self.fetchLimit),
+        guard let loaded = try? await activity.loadEvents(from: end.addingTimeInterval(-model.range.interval), to: end, kinds: nil, search: "", limit: Self.fetchLimit),
               !Task.isCancelled else { return }
         let ids = Set(app.processes.map(\.id))
         let names = Set(app.processes.map(\.name))

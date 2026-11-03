@@ -37,7 +37,7 @@ struct MonitorRootView: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleBarLayout.sidebarWidth = $0 }
                 }
                 VStack(spacing: 0) {
-                    if Capabilities.supportsNativeMenuBarIcons, settingsStore.settings.showTopBarIcons {
+                    if Capabilities.supportsNativeMenuBarIcons, settingsStore.settings.panel.showTopBarIcons {
                         HStack {
                             Spacer(minLength: 0)
                             NativeMenuBarView(menuBarStore: nativeMenuBarStore, settingsStore: settingsStore)
@@ -49,18 +49,18 @@ struct MonitorRootView: View {
                     pageContent
                 }
                     .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
-                    .background { if !settingsStore.settings.glassMode { MonitorStyle.page } }
+                    .background { if !settingsStore.settings.panel.glassMode { MonitorStyle.page } }
             }
         }
         .frame(minWidth: 720, minHeight: 340)
         .background {
-            if settingsStore.settings.glassMode {
-                GlassBackground(opacity: settingsStore.settings.glassOpacity).ignoresSafeArea()
+            if settingsStore.settings.panel.glassMode {
+                GlassBackground(opacity: settingsStore.settings.panel.glassOpacity).ignoresSafeArea()
             } else {
                 MonitorStyle.page.ignoresSafeArea()
             }
         }
-        .scrollContentBackground(settingsStore.settings.glassMode ? .hidden : .automatic)
+        .scrollContentBackground(settingsStore.settings.panel.glassMode ? .hidden : .automatic)
         .alert("Smack", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
@@ -148,7 +148,7 @@ private struct MonitorTitleBarControls: View {
     /// The accessory fills the titlebar space available beside the window controls.
     let onWidthChange: (CGFloat) -> Void
 
-    private var options: TitleBarSettings { settingsStore.settings.titleBar }
+    private var options: TitleBarSettings { settingsStore.settings.panel.titleBar }
 
     var body: some View {
         HStack(spacing: 16) {

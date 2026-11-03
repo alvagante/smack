@@ -4,6 +4,12 @@ import SwiftUI
 /// the Timeline.
 struct ActivityDiffCard: View {
     @ObservedObject var store: MonitorStore
+    @ObservedObject private var activity: ActivityFeedModel
+
+    init(store: MonitorStore) {
+        self.store = store
+        activity = store.activityFeed
+    }
 
     var body: some View {
         Button(action: open) {
@@ -15,10 +21,10 @@ struct ActivityDiffCard: View {
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    if store.activityDiffUnavailable {
+                    if activity.activityDiffUnavailable {
                         Label("Change summary unavailable", systemImage: "exclamationmark.triangle")
                             .font(.caption).foregroundStyle(.secondary)
-                    } else if let diff = store.activityDiff {
+                    } else if let diff = activity.activityDiff {
                         bullets(diff)
                         peaks(diff)
                     } else {
@@ -38,7 +44,7 @@ struct ActivityDiffCard: View {
     }
 
     private var subtitle: String {
-        guard let diff = store.activityDiff else { return "since you last looked" }
+        guard let diff = activity.activityDiff else { return "since you last looked" }
         let isFallback = abs(diff.window.duration - ActivityDiffBuilder.fallbackWindow) < 1
         return isFallback ? "in the last hour" : "since \(diff.window.start.formatted(date: .omitted, time: .shortened))"
     }
@@ -75,7 +81,7 @@ struct ActivityDiffCard: View {
     }
 
     private func open() {
-        if let window = store.activityDiff?.window { store.timelineViewModel.open(window: window) }
+        if let window = activity.activityDiff?.window { store.timelineViewModel.open(window: window) }
         store.route = .timeline
     }
 }

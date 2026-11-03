@@ -109,41 +109,41 @@ enum PerformancePreset: String, CaseIterable, Identifiable, Sendable {
     func apply(to settings: inout CollectionSettings) {
         switch self {
         case .standard:
-            settings.liveRefreshSeconds = 1
-            settings.processNetworkRateEnabled = true
-            settings.processNetworkRateSeconds = 5
-            settings.backgroundSystemInterval = 5
-            settings.backgroundProcessInterval = 10
-            settings.backgroundNetworkInterval = 60
-            settings.constrainedPowerMultiplier = 1
-            settings.recordProcessHistory = true
-            settings.processHistoryTopCount = 0
-            settings.memoryBudget = .standard
-            settings.dockerLiveStats = true
+            settings.sampling.liveRefreshSeconds = 1
+            settings.sampling.processNetworkRateEnabled = true
+            settings.sampling.processNetworkRateSeconds = 5
+            settings.sampling.backgroundSystemInterval = 5
+            settings.sampling.backgroundProcessInterval = 10
+            settings.sampling.backgroundNetworkInterval = 60
+            settings.sampling.constrainedPowerMultiplier = 1
+            settings.history.recordProcessHistory = true
+            settings.history.processHistoryTopCount = 0
+            settings.sampling.memoryBudget = .standard
+            settings.devTools.dockerLiveStats = true
         case .light:
-            settings.liveRefreshSeconds = 2
-            settings.processNetworkRateEnabled = true
-            settings.processNetworkRateSeconds = 10
-            settings.backgroundSystemInterval = 15
-            settings.backgroundProcessInterval = 30
-            settings.backgroundNetworkInterval = 300
-            settings.constrainedPowerMultiplier = 4
-            settings.recordProcessHistory = true
-            settings.processHistoryTopCount = 50
-            settings.memoryBudget = .small
-            settings.dockerLiveStats = false
+            settings.sampling.liveRefreshSeconds = 2
+            settings.sampling.processNetworkRateEnabled = true
+            settings.sampling.processNetworkRateSeconds = 10
+            settings.sampling.backgroundSystemInterval = 15
+            settings.sampling.backgroundProcessInterval = 30
+            settings.sampling.backgroundNetworkInterval = 300
+            settings.sampling.constrainedPowerMultiplier = 4
+            settings.history.recordProcessHistory = true
+            settings.history.processHistoryTopCount = 50
+            settings.sampling.memoryBudget = .small
+            settings.devTools.dockerLiveStats = false
         case .minimal:
-            settings.liveRefreshSeconds = 5
-            settings.processNetworkRateEnabled = false
-            settings.backgroundSystemInterval = 60
-            settings.backgroundProcessInterval = nil
-            settings.backgroundNetworkInterval = nil
-            settings.constrainedPowerMultiplier = 8
-            settings.recordProcessHistory = false
-            settings.memoryBudget = .small
-            settings.dockerLiveStats = false
+            settings.sampling.liveRefreshSeconds = 5
+            settings.sampling.processNetworkRateEnabled = false
+            settings.sampling.backgroundSystemInterval = 60
+            settings.sampling.backgroundProcessInterval = nil
+            settings.sampling.backgroundNetworkInterval = nil
+            settings.sampling.constrainedPowerMultiplier = 8
+            settings.history.recordProcessHistory = false
+            settings.sampling.memoryBudget = .small
+            settings.devTools.dockerLiveStats = false
         }
-        settings.backgroundInventoryInterval = nil
+        settings.sampling.backgroundInventoryInterval = nil
     }
 
     /// Settings a preset leaves untouched (such as the network rate interval while rates are off) do not count.
@@ -168,106 +168,20 @@ enum SummaryPage: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+/// Every user setting, grouped by the part of the app that reads it. Each group owns its defaults, clamping and
+/// decoding; ranges and choices shared with Settings stay here.
 struct CollectionSettings: Codable, Equatable, Sendable {
-    var devServersShowSystem = false
-    var backgroundDevServersEnabled = false
-    var terminalApp = "com.apple.Terminal"
-    var editorApp: String? = nil
-    var trigger: PanelTrigger = .hover
-    var hoverDelay: TimeInterval = 0.3
-    var hoverGracePeriod: TimeInterval = 0.5
-    /// Sound effect played when the panel is opened.
-    var panelSound: PanelSound = .smack
-    var backgroundSystemInterval: TimeInterval? = 5
-    var backgroundProcessInterval: TimeInterval? = 10
-    var backgroundInventoryInterval: TimeInterval?
-    /// Listening-port and connection sampling while the panel is closed. Stored as value plus flag because
-    /// JSONEncoder omits nil, which would be indistinguishable from "written before this setting existed".
-    var backgroundNetworkSeconds: TimeInterval = 60
-    var backgroundNetworkEnabled = true
-    var backgroundNetworkInterval: TimeInterval? {
-        get { backgroundNetworkEnabled ? backgroundNetworkSeconds : nil }
-        set {
-            backgroundNetworkEnabled = newValue != nil
-            if let newValue { backgroundNetworkSeconds = newValue }
-        }
-    }
-    var showBackgroundProcesses = false
-    var showMenuBarItems = false
-    var launchAtLogin = false
-    /// Translucent panel background: a behind-window blur shown at `glassOpacity`.
-    var glassMode = false
-    var glassOpacity = 0.5
-    var titleBar = TitleBarSettings()
-    var appearance: PanelAppearance = .system
-    var showTopBarIcons = CollectionSettings.defaultShowTopBarIcons(
-        majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+    var panel = PanelSettings()
+    var sampling = SamplingSettings()
+    var history = HistorySettings()
+    var activity = ActivitySettings()
+    var security = SecuritySettings()
+    var automation = AutomationSettings()
+    var devTools = DevToolsSettings()
+    var hiddenPages: [SummaryPage] = []
 
     static func defaultShowTopBarIcons(majorVersion: Int) -> Bool { majorVersion < 27 }
     static let glassOpacityRange: ClosedRange<Double> = 0.1...1
-    var fullResolutionHours = 24
-    var retentionDays = 7
-    var historyStorageLimitMB = 250
-    /// Master switch for per-process history. The largest storage consumer; system history is unaffected.
-    var recordProcessHistory = true
-    /// Keeps only the busiest N processes (by CPU or by memory) in each stored snapshot; 0 keeps all of them.
-    var processHistoryTopCount = 0
-    /// How long one-minute process rows are kept, capped by `retentionDays`.
-    var processMinuteRetentionDays = 7
-    var privilegedSampling = false
-    /// Days of Activity Events kept; clamped to `eventRetentionRange`.
-    var eventRetentionDays = 7
-    /// Outbound connection churn is noisy, so connection events are opt-in.
-    var recordConnectionEvents = false
-    var showEventsOnCharts = true
-    /// Master switch for the Activity Timeline: when off, no event is stored or shown.
-    var recordActivity = true
-    /// Per-group switches, applied only while `recordActivity` is on.
-    var recordProcessEvents = true
-    var recordNetworkEvents = true
-    var recordStartupEvents = true
-    var recordSystemEvents = true
-    var recordAlertEvents = true
-    var baselineRetentionCount = 20
-    var goldenBaselineID: String? = nil
-    var scheduledDriftCheck = false
-    var recordAgentEvents = true
-    var showAgentCommandLines = false
-    var recordSecurityEvents = true
-    var postureCheckInterval: TimeInterval? = 6 * 3600
-    var watchPersistence = true
-    var controlSocketEnabled = true
-    var alertsEnabled = true
-    var appIntentsEnabled = true
-    var urlNavigationEnabled = true
-    var persistenceEnrichmentEnabled = true
-    var persistencePollInterval: TimeInterval? = 3600
-    /// Sampling period for system and process metrics while the panel is visible.
-    var liveRefreshSeconds: TimeInterval = 1
-    /// Background intervals are multiplied by this on battery power or in Low Power Mode; 1 disables it.
-    var constrainedPowerMultiplier = 1
-    /// Per-process receive/send rates, sampled only while the panel is visible.
-    var processNetworkRateEnabled = true
-    var processNetworkRateSeconds: TimeInterval = 5
-    /// Newest Activity Events kept regardless of retention.
-    var maximumEventRows = 100_000
-    var memoryBudget = MemoryBudget.standard
-    /// Docker page auto-refresh period while it is open; 0 refreshes only on request.
-    var dockerRefreshSeconds = 15
-    /// `docker stats` is the most expensive Docker query; off shows container state only.
-    var dockerLiveStats = true
-    var inventoryCache = InventoryCachePreset.standard
-    /// Folders searched for project-local runtimes and virtual environments.
-    var devProjectFolders: [String] = []
-    var devScanDepth = 4
-    /// Catalog agent identifiers left out of discovery.
-    var excludedAgents: [String] = []
-    /// Extra folders browsed as custom AI agents.
-    var customAgentFolders: [String] = []
-    /// Total File Activity trace length, captured as consecutive five-second segments.
-    var fileActivitySeconds = 5
-    var hiddenPages: [SummaryPage] = []
-
     static let eventRetentionRange: ClosedRange<Int> = 1...30
     static let processTopCountRange: ClosedRange<Int> = 0...1_000
     static let processMinuteRetentionRange: ClosedRange<Int> = 1...365
@@ -284,6 +198,253 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     static let fileActivitySegmentSeconds = 5
 
     func shows(_ page: SummaryPage) -> Bool { !hiddenPages.contains(page) }
+    func records(_ group: ActivityEventKind.Group) -> Bool { activity.records(group) }
+
+    var warning: String? {
+        if let interval = sampling.backgroundSystemInterval, interval < 2 {
+            return "Frequent background collection may exceed the lightweight CPU budget."
+        }
+        if sampling.backgroundInventoryInterval != nil {
+            return "Per-process inventories can be expensive and reveal rapidly changing data."
+        }
+        return nil
+    }
+
+    mutating func validate() {
+        panel.validate()
+        sampling.validate()
+        history.validate()
+        activity.validate()
+        security.validate()
+        automation.validate()
+        devTools.validate()
+        hiddenPages = SummaryPage.allCases.filter(hiddenPages.contains)
+    }
+
+    init() {}
+
+    /// A missing or unreadable group (written by an older or newer build) falls back to its defaults alone.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        panel = container.value(.panel, or: PanelSettings())
+        sampling = container.value(.sampling, or: SamplingSettings())
+        history = container.value(.history, or: HistorySettings())
+        activity = container.value(.activity, or: ActivitySettings())
+        security = container.value(.security, or: SecuritySettings())
+        automation = container.value(.automation, or: AutomationSettings())
+        devTools = container.value(.devTools, or: DevToolsSettings())
+        // Unknown pages are dropped one by one instead of discarding the list.
+        hiddenPages = container.value(.hiddenPages, or: [String]()).compactMap(SummaryPage.init(rawValue:))
+    }
+
+    /// Settings saved before groups existed (up to 0.7.0): one flat object holding every key. Each group's decoder
+    /// reads only the keys it owns and defaults the rest, so the groups are decoded straight from that object.
+    /// `hiddenPages` already sits at the top level in both layouts.
+    static func migratingFlatLayout(_ data: Data) -> CollectionSettings? {
+        let decoder = JSONDecoder()
+        guard var settings = try? decoder.decode(CollectionSettings.self, from: data) else { return nil }
+        func group<T: Decodable>(_ fallback: T) -> T { (try? decoder.decode(T.self, from: data)) ?? fallback }
+        settings.panel = group(settings.panel)
+        settings.sampling = group(settings.sampling)
+        settings.history = group(settings.history)
+        settings.activity = group(settings.activity)
+        settings.security = group(settings.security)
+        settings.automation = group(settings.automation)
+        settings.devTools = group(settings.devTools)
+        return settings
+    }
+}
+
+/// Panel behavior and look.
+struct PanelSettings: Codable, Equatable, Sendable {
+    var trigger: PanelTrigger = .hover
+    var hoverDelay: TimeInterval = 0.3
+    var hoverGracePeriod: TimeInterval = 0.5
+    /// Sound effect played when the panel is opened.
+    var panelSound: PanelSound = .smack
+    /// Translucent panel background: a behind-window blur shown at `glassOpacity`.
+    var glassMode = false
+    var glassOpacity = 0.5
+    var titleBar = TitleBarSettings()
+    var appearance: PanelAppearance = .system
+    var showTopBarIcons = CollectionSettings.defaultShowTopBarIcons(
+        majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+    var showMenuBarItems = false
+    var showBackgroundProcesses = false
+    var launchAtLogin = false
+
+    mutating func validate() {
+        hoverDelay = min(max(hoverDelay, 0), 2)
+        hoverGracePeriod = min(max(hoverGracePeriod, 0), 5)
+        glassOpacity = min(max(glassOpacity, CollectionSettings.glassOpacityRange.lowerBound), CollectionSettings.glassOpacityRange.upperBound)
+        if !Capabilities.supportsNativeMenuBarIcons { showMenuBarItems = false }
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        trigger = c.value(.trigger, or: d.trigger)
+        hoverDelay = c.value(.hoverDelay, or: d.hoverDelay)
+        hoverGracePeriod = c.value(.hoverGracePeriod, or: d.hoverGracePeriod)
+        panelSound = c.value(.panelSound, or: d.panelSound)
+        glassMode = c.value(.glassMode, or: d.glassMode)
+        glassOpacity = c.value(.glassOpacity, or: d.glassOpacity)
+        titleBar = c.value(.titleBar, or: d.titleBar)
+        appearance = c.value(.appearance, or: d.appearance)
+        showTopBarIcons = c.value(.showTopBarIcons, or: d.showTopBarIcons)
+        showMenuBarItems = c.value(.showMenuBarItems, or: d.showMenuBarItems)
+        showBackgroundProcesses = c.value(.showBackgroundProcesses, or: d.showBackgroundProcesses)
+        launchAtLogin = c.value(.launchAtLogin, or: d.launchAtLogin)
+    }
+}
+
+/// How often and how deeply metrics are collected. A nil interval turns that background collection off.
+struct SamplingSettings: Codable, Equatable, Sendable {
+    var backgroundSystemInterval: TimeInterval? = 5
+    var backgroundProcessInterval: TimeInterval? = 10
+    var backgroundInventoryInterval: TimeInterval?
+    /// Listening-port and connection sampling while the panel is closed, kept as value plus flag so turning it off
+    /// remembers the interval.
+    var backgroundNetworkSeconds: TimeInterval = 60
+    var backgroundNetworkEnabled = true
+    var backgroundNetworkInterval: TimeInterval? {
+        get { backgroundNetworkEnabled ? backgroundNetworkSeconds : nil }
+        set {
+            backgroundNetworkEnabled = newValue != nil
+            if let newValue { backgroundNetworkSeconds = newValue }
+        }
+    }
+    /// Sampling period for system and process metrics while the panel is visible.
+    var liveRefreshSeconds: TimeInterval = 1
+    /// Background intervals are multiplied by this on battery power or in Low Power Mode; 1 disables it.
+    var constrainedPowerMultiplier = 1
+    /// Per-process receive/send rates, sampled only while the panel is visible.
+    var processNetworkRateEnabled = true
+    var processNetworkRateSeconds: TimeInterval = 5
+    var privilegedSampling = false
+    var memoryBudget = MemoryBudget.standard
+    /// Total File Activity trace length, captured as consecutive five-second segments.
+    var fileActivitySeconds = 5
+
+    mutating func validate() {
+        typealias S = CollectionSettings
+        if let value = backgroundSystemInterval {
+            backgroundSystemInterval = min(max(value, S.backgroundIntervalRange.lowerBound), S.backgroundIntervalRange.upperBound)
+        }
+        if let value = backgroundProcessInterval {
+            backgroundProcessInterval = min(max(value, S.backgroundIntervalRange.lowerBound), S.backgroundIntervalRange.upperBound)
+        }
+        backgroundNetworkSeconds = min(max(backgroundNetworkSeconds, S.networkIntervalRange.lowerBound), S.networkIntervalRange.upperBound)
+        if let value = backgroundInventoryInterval {
+            backgroundInventoryInterval = min(max(value, S.inventoryIntervalRange.lowerBound), S.inventoryIntervalRange.upperBound)
+        }
+        if !S.liveRefreshChoices.contains(liveRefreshSeconds) { liveRefreshSeconds = 1 }
+        if !S.constrainedPowerChoices.contains(constrainedPowerMultiplier) { constrainedPowerMultiplier = 1 }
+        processNetworkRateSeconds = min(max(processNetworkRateSeconds, S.processNetworkRateRange.lowerBound), S.processNetworkRateRange.upperBound)
+        if !S.fileActivityChoices.contains(fileActivitySeconds) { fileActivitySeconds = 5 }
+        if !Capabilities.supportsPrivilegedSampling { privilegedSampling = false }
+        if Capabilities.isSandboxed { backgroundInventoryInterval = nil }
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        backgroundSystemInterval = c.optional(.backgroundSystemInterval, or: d.backgroundSystemInterval)
+        backgroundProcessInterval = c.optional(.backgroundProcessInterval, or: d.backgroundProcessInterval)
+        backgroundInventoryInterval = c.optional(.backgroundInventoryInterval, or: d.backgroundInventoryInterval)
+        backgroundNetworkSeconds = c.value(.backgroundNetworkSeconds, or: d.backgroundNetworkSeconds)
+        backgroundNetworkEnabled = c.value(.backgroundNetworkEnabled, or: d.backgroundNetworkEnabled)
+        liveRefreshSeconds = c.value(.liveRefreshSeconds, or: d.liveRefreshSeconds)
+        constrainedPowerMultiplier = c.value(.constrainedPowerMultiplier, or: d.constrainedPowerMultiplier)
+        processNetworkRateEnabled = c.value(.processNetworkRateEnabled, or: d.processNetworkRateEnabled)
+        processNetworkRateSeconds = c.value(.processNetworkRateSeconds, or: d.processNetworkRateSeconds)
+        privilegedSampling = c.value(.privilegedSampling, or: d.privilegedSampling)
+        memoryBudget = c.value(.memoryBudget, or: d.memoryBudget)
+        fileActivitySeconds = c.value(.fileActivitySeconds, or: d.fileActivitySeconds)
+    }
+
+    /// Writes null for an interval that is off, so decoding can tell it from a key this build does not know yet.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(backgroundSystemInterval, forKey: .backgroundSystemInterval)
+        try c.encode(backgroundProcessInterval, forKey: .backgroundProcessInterval)
+        try c.encode(backgroundInventoryInterval, forKey: .backgroundInventoryInterval)
+        try c.encode(backgroundNetworkSeconds, forKey: .backgroundNetworkSeconds)
+        try c.encode(backgroundNetworkEnabled, forKey: .backgroundNetworkEnabled)
+        try c.encode(liveRefreshSeconds, forKey: .liveRefreshSeconds)
+        try c.encode(constrainedPowerMultiplier, forKey: .constrainedPowerMultiplier)
+        try c.encode(processNetworkRateEnabled, forKey: .processNetworkRateEnabled)
+        try c.encode(processNetworkRateSeconds, forKey: .processNetworkRateSeconds)
+        try c.encode(privilegedSampling, forKey: .privilegedSampling)
+        try c.encode(memoryBudget, forKey: .memoryBudget)
+        try c.encode(fileActivitySeconds, forKey: .fileActivitySeconds)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case backgroundSystemInterval, backgroundProcessInterval, backgroundInventoryInterval
+        case backgroundNetworkSeconds, backgroundNetworkEnabled, liveRefreshSeconds, constrainedPowerMultiplier
+        case processNetworkRateEnabled, processNetworkRateSeconds, privilegedSampling, memoryBudget, fileActivitySeconds
+    }
+}
+
+/// Historical Data retention and size.
+struct HistorySettings: Codable, Equatable, Sendable {
+    var fullResolutionHours = 24
+    var retentionDays = 7
+    var historyStorageLimitMB = 250
+    /// Master switch for per-process history. The largest storage consumer; system history is unaffected.
+    var recordProcessHistory = true
+    /// Keeps only the busiest N processes (by CPU or by memory) in each stored snapshot; 0 keeps all of them.
+    var processHistoryTopCount = 0
+    /// How long one-minute process rows are kept, capped by `retentionDays`.
+    var processMinuteRetentionDays = 7
+
+    mutating func validate() {
+        typealias S = CollectionSettings
+        fullResolutionHours = min(max(fullResolutionHours, 1), 168)
+        retentionDays = min(max(retentionDays, 1), 365)
+        historyStorageLimitMB = min(max(historyStorageLimitMB, 25), 10_000)
+        processHistoryTopCount = min(max(processHistoryTopCount, S.processTopCountRange.lowerBound), S.processTopCountRange.upperBound)
+        processMinuteRetentionDays = min(max(processMinuteRetentionDays, S.processMinuteRetentionRange.lowerBound), S.processMinuteRetentionRange.upperBound)
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        fullResolutionHours = c.value(.fullResolutionHours, or: d.fullResolutionHours)
+        retentionDays = c.value(.retentionDays, or: d.retentionDays)
+        historyStorageLimitMB = c.value(.historyStorageLimitMB, or: d.historyStorageLimitMB)
+        recordProcessHistory = c.value(.recordProcessHistory, or: d.recordProcessHistory)
+        processHistoryTopCount = c.value(.processHistoryTopCount, or: d.processHistoryTopCount)
+        processMinuteRetentionDays = c.value(.processMinuteRetentionDays, or: d.processMinuteRetentionDays)
+    }
+}
+
+/// Activity Timeline recording and retention.
+struct ActivitySettings: Codable, Equatable, Sendable {
+    /// Master switch for the Activity Timeline: when off, no event is stored or shown.
+    var recordActivity = true
+    /// Days of Activity Events kept; clamped to `eventRetentionRange`.
+    var eventRetentionDays = 7
+    /// Newest Activity Events kept regardless of retention.
+    var maximumEventRows = 100_000
+    /// Outbound connection churn is noisy, so connection events are opt-in.
+    var recordConnectionEvents = false
+    var showEventsOnCharts = true
+    /// Per-group switches, applied only while `recordActivity` is on.
+    var recordProcessEvents = true
+    var recordNetworkEvents = true
+    var recordStartupEvents = true
+    var recordSystemEvents = true
+    var recordAlertEvents = true
+    var recordAgentEvents = true
+    var recordSecurityEvents = true
 
     func records(_ group: ActivityEventKind.Group) -> Bool {
         guard recordActivity else { return false }
@@ -298,64 +459,135 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         }
     }
 
-    var warning: String? {
-        if let interval = backgroundSystemInterval, interval < 2 {
-            return "Frequent background collection may exceed the lightweight CPU budget."
-        }
-        if backgroundInventoryInterval != nil {
-            return "Per-process inventories can be expensive and reveal rapidly changing data."
-        }
-        return nil
+    mutating func validate() {
+        typealias S = CollectionSettings
+        eventRetentionDays = min(max(eventRetentionDays, S.eventRetentionRange.lowerBound), S.eventRetentionRange.upperBound)
+        maximumEventRows = min(max(maximumEventRows, S.maximumEventRowsRange.lowerBound), S.maximumEventRowsRange.upperBound)
     }
 
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        recordActivity = c.value(.recordActivity, or: d.recordActivity)
+        eventRetentionDays = c.value(.eventRetentionDays, or: d.eventRetentionDays)
+        maximumEventRows = c.value(.maximumEventRows, or: d.maximumEventRows)
+        recordConnectionEvents = c.value(.recordConnectionEvents, or: d.recordConnectionEvents)
+        showEventsOnCharts = c.value(.showEventsOnCharts, or: d.showEventsOnCharts)
+        recordProcessEvents = c.value(.recordProcessEvents, or: d.recordProcessEvents)
+        recordNetworkEvents = c.value(.recordNetworkEvents, or: d.recordNetworkEvents)
+        recordStartupEvents = c.value(.recordStartupEvents, or: d.recordStartupEvents)
+        recordSystemEvents = c.value(.recordSystemEvents, or: d.recordSystemEvents)
+        recordAlertEvents = c.value(.recordAlertEvents, or: d.recordAlertEvents)
+        recordAgentEvents = c.value(.recordAgentEvents, or: d.recordAgentEvents)
+        recordSecurityEvents = c.value(.recordSecurityEvents, or: d.recordSecurityEvents)
+    }
+}
+
+/// Posture checks, persistence watching and baselines. A nil interval turns that check off.
+struct SecuritySettings: Codable, Equatable, Sendable {
+    var postureCheckInterval: TimeInterval? = 6 * 3600
+    var watchPersistence = true
+    var persistenceEnrichmentEnabled = true
+    var persistencePollInterval: TimeInterval? = 3600
+    var baselineRetentionCount = 20
+    var goldenBaselineID: String? = nil
+    var scheduledDriftCheck = false
+
     mutating func validate() {
-        hoverDelay = min(max(hoverDelay, 0), 2)
-        hoverGracePeriod = min(max(hoverGracePeriod, 0), 5)
-        if let value = backgroundSystemInterval {
-            backgroundSystemInterval = min(max(value, Self.backgroundIntervalRange.lowerBound), Self.backgroundIntervalRange.upperBound)
+        if let interval = postureCheckInterval { postureCheckInterval = min(max(interval, 60), 86_400) }
+        if let interval = persistencePollInterval { persistencePollInterval = interval.isFinite ? min(max(interval, 3600), 86_400) : 3600 }
+        baselineRetentionCount = min(max(baselineRetentionCount, 1), 1000)
+        if !Capabilities.supportsPostureChecks { postureCheckInterval = nil }
+        if !Capabilities.supportsPersistenceWatching {
+            watchPersistence = false
+            persistencePollInterval = nil
+            persistenceEnrichmentEnabled = false
         }
-        if let value = backgroundProcessInterval {
-            backgroundProcessInterval = min(max(value, Self.backgroundIntervalRange.lowerBound), Self.backgroundIntervalRange.upperBound)
-        }
-        backgroundNetworkSeconds = min(max(backgroundNetworkSeconds, Self.networkIntervalRange.lowerBound), Self.networkIntervalRange.upperBound)
-        if let value = backgroundInventoryInterval {
-            backgroundInventoryInterval = min(max(value, Self.inventoryIntervalRange.lowerBound), Self.inventoryIntervalRange.upperBound)
-        }
-        fullResolutionHours = min(max(fullResolutionHours, 1), 168)
-        retentionDays = min(max(retentionDays, 1), 365)
-        processHistoryTopCount = min(max(processHistoryTopCount, Self.processTopCountRange.lowerBound), Self.processTopCountRange.upperBound)
-        processMinuteRetentionDays = min(max(processMinuteRetentionDays, Self.processMinuteRetentionRange.lowerBound), Self.processMinuteRetentionRange.upperBound)
-        glassOpacity = min(max(glassOpacity, Self.glassOpacityRange.lowerBound), Self.glassOpacityRange.upperBound)
-        historyStorageLimitMB = min(max(historyStorageLimitMB, 25), 10_000)
-        eventRetentionDays = min(max(eventRetentionDays, Self.eventRetentionRange.lowerBound), Self.eventRetentionRange.upperBound)
-        if !Self.liveRefreshChoices.contains(liveRefreshSeconds) { liveRefreshSeconds = 1 }
-        if !Self.constrainedPowerChoices.contains(constrainedPowerMultiplier) { constrainedPowerMultiplier = 1 }
-        processNetworkRateSeconds = min(max(processNetworkRateSeconds, Self.processNetworkRateRange.lowerBound), Self.processNetworkRateRange.upperBound)
-        maximumEventRows = min(max(maximumEventRows, Self.maximumEventRowsRange.lowerBound), Self.maximumEventRowsRange.upperBound)
-        if !Self.dockerRefreshChoices.contains(dockerRefreshSeconds) { dockerRefreshSeconds = 15 }
-        devScanDepth = min(max(devScanDepth, Self.devScanDepthRange.lowerBound), Self.devScanDepthRange.upperBound)
-        if !Self.fileActivityChoices.contains(fileActivitySeconds) { fileActivitySeconds = 5 }
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        postureCheckInterval = c.optional(.postureCheckInterval, or: d.postureCheckInterval)
+        watchPersistence = c.value(.watchPersistence, or: d.watchPersistence)
+        persistenceEnrichmentEnabled = c.value(.persistenceEnrichmentEnabled, or: d.persistenceEnrichmentEnabled)
+        persistencePollInterval = c.optional(.persistencePollInterval, or: d.persistencePollInterval)
+        baselineRetentionCount = c.value(.baselineRetentionCount, or: d.baselineRetentionCount)
+        goldenBaselineID = c.optional(.goldenBaselineID, or: d.goldenBaselineID)
+        scheduledDriftCheck = c.value(.scheduledDriftCheck, or: d.scheduledDriftCheck)
+    }
+
+    /// Writes null for a check that is off, so decoding can tell it from a key this build does not know yet.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(postureCheckInterval, forKey: .postureCheckInterval)
+        try c.encode(watchPersistence, forKey: .watchPersistence)
+        try c.encode(persistenceEnrichmentEnabled, forKey: .persistenceEnrichmentEnabled)
+        try c.encode(persistencePollInterval, forKey: .persistencePollInterval)
+        try c.encode(baselineRetentionCount, forKey: .baselineRetentionCount)
+        try c.encodeIfPresent(goldenBaselineID, forKey: .goldenBaselineID)
+        try c.encode(scheduledDriftCheck, forKey: .scheduledDriftCheck)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case postureCheckInterval, watchPersistence, persistenceEnrichmentEnabled, persistencePollInterval
+        case baselineRetentionCount, goldenBaselineID, scheduledDriftCheck
+    }
+}
+
+/// Alerts and the ways other tools reach Smack.
+struct AutomationSettings: Codable, Equatable, Sendable {
+    var alertsEnabled = true
+    var controlSocketEnabled = true
+    var appIntentsEnabled = true
+    var urlNavigationEnabled = true
+
+    mutating func validate() {
+        if !Capabilities.supportsControlSocket { controlSocketEnabled = false }
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        alertsEnabled = c.value(.alertsEnabled, or: d.alertsEnabled)
+        controlSocketEnabled = c.value(.controlSocketEnabled, or: d.controlSocketEnabled)
+        appIntentsEnabled = c.value(.appIntentsEnabled, or: d.appIntentsEnabled)
+        urlNavigationEnabled = c.value(.urlNavigationEnabled, or: d.urlNavigationEnabled)
+    }
+}
+
+/// Developer pages: dev servers, Docker, environments, AI agents and the apps they open.
+struct DevToolsSettings: Codable, Equatable, Sendable {
+    var devServersShowSystem = false
+    var backgroundDevServersEnabled = false
+    var terminalApp = "com.apple.Terminal"
+    var editorApp: String? = nil
+    /// Docker page auto-refresh period while it is open; 0 refreshes only on request.
+    var dockerRefreshSeconds = 15
+    /// `docker stats` is the most expensive Docker query; off shows container state only.
+    var dockerLiveStats = true
+    var inventoryCache = InventoryCachePreset.standard
+    /// Folders searched for project-local runtimes and virtual environments.
+    var devProjectFolders: [String] = []
+    var devScanDepth = 4
+    /// Catalog agent identifiers left out of discovery.
+    var excludedAgents: [String] = []
+    /// Extra folders browsed as custom AI agents.
+    var customAgentFolders: [String] = []
+    var showAgentCommandLines = false
+
+    mutating func validate() {
+        if !CollectionSettings.dockerRefreshChoices.contains(dockerRefreshSeconds) { dockerRefreshSeconds = 15 }
+        devScanDepth = min(max(devScanDepth, CollectionSettings.devScanDepthRange.lowerBound), CollectionSettings.devScanDepthRange.upperBound)
         devProjectFolders = Self.uniqueAbsolutePaths(devProjectFolders)
         customAgentFolders = Self.uniqueAbsolutePaths(customAgentFolders)
         excludedAgents = Array(Set(excludedAgents)).sorted()
-        hiddenPages = SummaryPage.allCases.filter(hiddenPages.contains)
-        if let interval = postureCheckInterval {
-            postureCheckInterval = min(max(interval, 60), 86_400)
-        }
-        if let interval = persistencePollInterval { persistencePollInterval = interval.isFinite ? min(max(interval, 3600), 86_400) : 3600 }
-        if !Capabilities.supportsControlSocket { controlSocketEnabled = false }
-        if !Capabilities.supportsPostureChecks { postureCheckInterval = nil }
-        if !Capabilities.supportsPersistenceWatching { watchPersistence = false }
-        if !Capabilities.supportsPersistenceWatching { persistencePollInterval = nil; persistenceEnrichmentEnabled = false }
-        if !Capabilities.supportsPrivilegedSampling {
-            privilegedSampling = false
-        }
-        if !Capabilities.supportsNativeMenuBarIcons {
-            showMenuBarItems = false
-        }
-        if Capabilities.isSandboxed {
-            backgroundInventoryInterval = nil
-        }
     }
 
     private static func uniqueAbsolutePaths(_ paths: [String]) -> [String] {
@@ -363,214 +595,38 @@ struct CollectionSettings: Codable, Equatable, Sendable {
         return paths.filter { $0.hasPrefix("/") && seen.insert($0).inserted }
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case devServersShowSystem, backgroundDevServersEnabled, terminalApp, editorApp
-        case trigger
-        case hoverDelay
-        case hoverGracePeriod
-        case backgroundSystemInterval
-        case backgroundProcessInterval
-        case backgroundInventoryInterval
-        case backgroundNetworkSeconds
-        case backgroundNetworkEnabled
-        case showBackgroundProcesses
-        case showMenuBarItems
-        case launchAtLogin
-        case glassMode
-        case glassOpacity
-        case titleBar
-        case appearance, showTopBarIcons
-        case fullResolutionHours
-        case retentionDays
-        case historyStorageLimitMB
-        case recordProcessHistory
-        case processHistoryTopCount
-        case processMinuteRetentionDays
-        case privilegedSampling
-        case panelSound
-        case eventRetentionDays
-        case recordConnectionEvents
-        case showEventsOnCharts
-        case recordActivity
-        case recordProcessEvents
-        case recordNetworkEvents
-        case recordStartupEvents
-        case recordSystemEvents
-        case recordAlertEvents
-        case baselineRetentionCount, goldenBaselineID, scheduledDriftCheck
-        case recordAgentEvents, showAgentCommandLines
-        case recordSecurityEvents
-        case postureCheckInterval
-        case watchPersistence
-        case controlSocketEnabled
-        case alertsEnabled, appIntentsEnabled, urlNavigationEnabled, persistenceEnrichmentEnabled, persistencePollInterval
-        case liveRefreshSeconds
-        case constrainedPowerMultiplier
-        case processNetworkRateEnabled
-        case processNetworkRateSeconds
-        case maximumEventRows
-        case memoryBudget
-        case dockerRefreshSeconds
-        case dockerLiveStats
-        case inventoryCache
-        case devProjectFolders
-        case devScanDepth
-        case excludedAgents
-        case customAgentFolders
-        case fileActivitySeconds
-        case hiddenPages
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(devServersShowSystem, forKey: .devServersShowSystem)
-        try container.encode(backgroundDevServersEnabled, forKey: .backgroundDevServersEnabled)
-        try container.encode(terminalApp, forKey: .terminalApp)
-        try container.encodeIfPresent(editorApp, forKey: .editorApp)
-        try container.encode(trigger, forKey: .trigger)
-        try container.encode(hoverDelay, forKey: .hoverDelay)
-        try container.encode(hoverGracePeriod, forKey: .hoverGracePeriod)
-        try container.encode(backgroundSystemInterval, forKey: .backgroundSystemInterval)
-        try container.encode(backgroundProcessInterval, forKey: .backgroundProcessInterval)
-        try container.encode(backgroundInventoryInterval, forKey: .backgroundInventoryInterval)
-        try container.encode(backgroundNetworkSeconds, forKey: .backgroundNetworkSeconds)
-        try container.encode(backgroundNetworkEnabled, forKey: .backgroundNetworkEnabled)
-        try container.encode(showBackgroundProcesses, forKey: .showBackgroundProcesses)
-        try container.encode(showMenuBarItems, forKey: .showMenuBarItems)
-        try container.encode(launchAtLogin, forKey: .launchAtLogin)
-        try container.encode(glassMode, forKey: .glassMode)
-        try container.encode(glassOpacity, forKey: .glassOpacity)
-        try container.encode(titleBar, forKey: .titleBar)
-        try container.encode(appearance, forKey: .appearance)
-        try container.encode(showTopBarIcons, forKey: .showTopBarIcons)
-        try container.encode(fullResolutionHours, forKey: .fullResolutionHours)
-        try container.encode(retentionDays, forKey: .retentionDays)
-        try container.encode(historyStorageLimitMB, forKey: .historyStorageLimitMB)
-        try container.encode(recordProcessHistory, forKey: .recordProcessHistory)
-        try container.encode(processHistoryTopCount, forKey: .processHistoryTopCount)
-        try container.encode(processMinuteRetentionDays, forKey: .processMinuteRetentionDays)
-        try container.encode(privilegedSampling, forKey: .privilegedSampling)
-        try container.encode(panelSound, forKey: .panelSound)
-        try container.encode(eventRetentionDays, forKey: .eventRetentionDays)
-        try container.encode(recordConnectionEvents, forKey: .recordConnectionEvents)
-        try container.encode(showEventsOnCharts, forKey: .showEventsOnCharts)
-        try container.encode(recordActivity, forKey: .recordActivity)
-        try container.encode(recordProcessEvents, forKey: .recordProcessEvents)
-        try container.encode(recordNetworkEvents, forKey: .recordNetworkEvents)
-        try container.encode(recordStartupEvents, forKey: .recordStartupEvents)
-        try container.encode(recordSystemEvents, forKey: .recordSystemEvents)
-        try container.encode(recordAlertEvents, forKey: .recordAlertEvents)
-        try container.encode(baselineRetentionCount, forKey: .baselineRetentionCount)
-        try container.encodeIfPresent(goldenBaselineID, forKey: .goldenBaselineID)
-        try container.encode(scheduledDriftCheck, forKey: .scheduledDriftCheck)
-        try container.encode(recordAgentEvents, forKey: .recordAgentEvents)
-        try container.encode(showAgentCommandLines, forKey: .showAgentCommandLines)
-        try container.encode(recordSecurityEvents, forKey: .recordSecurityEvents)
-        try container.encode(postureCheckInterval, forKey: .postureCheckInterval)
-        try container.encode(watchPersistence, forKey: .watchPersistence)
-        try container.encode(controlSocketEnabled, forKey: .controlSocketEnabled)
-        try container.encode(alertsEnabled, forKey: .alertsEnabled)
-        try container.encode(appIntentsEnabled, forKey: .appIntentsEnabled)
-        try container.encode(urlNavigationEnabled, forKey: .urlNavigationEnabled)
-        try container.encode(persistenceEnrichmentEnabled, forKey: .persistenceEnrichmentEnabled)
-        try container.encode(persistencePollInterval, forKey: .persistencePollInterval)
-        try container.encode(liveRefreshSeconds, forKey: .liveRefreshSeconds)
-        try container.encode(constrainedPowerMultiplier, forKey: .constrainedPowerMultiplier)
-        try container.encode(processNetworkRateEnabled, forKey: .processNetworkRateEnabled)
-        try container.encode(processNetworkRateSeconds, forKey: .processNetworkRateSeconds)
-        try container.encode(maximumEventRows, forKey: .maximumEventRows)
-        try container.encode(memoryBudget, forKey: .memoryBudget)
-        try container.encode(dockerRefreshSeconds, forKey: .dockerRefreshSeconds)
-        try container.encode(dockerLiveStats, forKey: .dockerLiveStats)
-        try container.encode(inventoryCache, forKey: .inventoryCache)
-        try container.encode(devProjectFolders, forKey: .devProjectFolders)
-        try container.encode(devScanDepth, forKey: .devScanDepth)
-        try container.encode(excludedAgents, forKey: .excludedAgents)
-        try container.encode(customAgentFolders, forKey: .customAgentFolders)
-        try container.encode(fileActivitySeconds, forKey: .fileActivitySeconds)
-        try container.encode(hiddenPages, forKey: .hiddenPages)
-    }
-
-    /// Settings written before superuser sampling existed must keep their values instead of
-    /// falling back to defaults because one key is missing.
     init() {}
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let defaults = CollectionSettings()
-        devServersShowSystem = try container.decodeIfPresent(Bool.self, forKey: .devServersShowSystem) ?? defaults.devServersShowSystem
-        backgroundDevServersEnabled = try container.decodeIfPresent(Bool.self, forKey: .backgroundDevServersEnabled) ?? defaults.backgroundDevServersEnabled
-        terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp) ?? defaults.terminalApp
-        editorApp = try container.decodeIfPresent(String.self, forKey: .editorApp)
-        trigger = try container.decodeIfPresent(PanelTrigger.self, forKey: .trigger) ?? defaults.trigger
-        hoverDelay = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverDelay) ?? defaults.hoverDelay
-        hoverGracePeriod = try container.decodeIfPresent(TimeInterval.self, forKey: .hoverGracePeriod) ?? defaults.hoverGracePeriod
-        if let soundString = try? container.decodeIfPresent(String.self, forKey: .panelSound),
-           let sound = PanelSound(rawValue: soundString) {
-            panelSound = sound
-        } else {
-            panelSound = defaults.panelSound
-        }
-        // JSONEncoder omits nil optionals, so a missing interval key means the user disabled it.
-        backgroundSystemInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundSystemInterval)
-        backgroundProcessInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundProcessInterval)
-        backgroundInventoryInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundInventoryInterval)
-        backgroundNetworkSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .backgroundNetworkSeconds) ?? defaults.backgroundNetworkSeconds
-        backgroundNetworkEnabled = try container.decodeIfPresent(Bool.self, forKey: .backgroundNetworkEnabled) ?? defaults.backgroundNetworkEnabled
-        showBackgroundProcesses = try container.decodeIfPresent(Bool.self, forKey: .showBackgroundProcesses) ?? defaults.showBackgroundProcesses
-        showMenuBarItems = try container.decodeIfPresent(Bool.self, forKey: .showMenuBarItems) ?? defaults.showMenuBarItems
-        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
-        glassMode = try container.decodeIfPresent(Bool.self, forKey: .glassMode) ?? defaults.glassMode
-        glassOpacity = try container.decodeIfPresent(Double.self, forKey: .glassOpacity) ?? defaults.glassOpacity
-        titleBar = (try? container.decodeIfPresent(TitleBarSettings.self, forKey: .titleBar)) ?? defaults.titleBar
-        appearance = (try? container.decodeIfPresent(PanelAppearance.self, forKey: .appearance)) ?? defaults.appearance
-        showTopBarIcons = try container.decodeIfPresent(Bool.self, forKey: .showTopBarIcons) ?? defaults.showTopBarIcons
-        fullResolutionHours = try container.decodeIfPresent(Int.self, forKey: .fullResolutionHours) ?? defaults.fullResolutionHours
-        retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? defaults.retentionDays
-        historyStorageLimitMB = try container.decodeIfPresent(Int.self, forKey: .historyStorageLimitMB) ?? defaults.historyStorageLimitMB
-        recordProcessHistory = try container.decodeIfPresent(Bool.self, forKey: .recordProcessHistory) ?? defaults.recordProcessHistory
-        processHistoryTopCount = try container.decodeIfPresent(Int.self, forKey: .processHistoryTopCount) ?? defaults.processHistoryTopCount
-        processMinuteRetentionDays = try container.decodeIfPresent(Int.self, forKey: .processMinuteRetentionDays) ?? defaults.processMinuteRetentionDays
-        privilegedSampling = try container.decodeIfPresent(Bool.self, forKey: .privilegedSampling) ?? defaults.privilegedSampling
-        eventRetentionDays = try container.decodeIfPresent(Int.self, forKey: .eventRetentionDays) ?? defaults.eventRetentionDays
-        recordConnectionEvents = try container.decodeIfPresent(Bool.self, forKey: .recordConnectionEvents) ?? defaults.recordConnectionEvents
-        showEventsOnCharts = try container.decodeIfPresent(Bool.self, forKey: .showEventsOnCharts) ?? defaults.showEventsOnCharts
-        recordActivity = try container.decodeIfPresent(Bool.self, forKey: .recordActivity) ?? defaults.recordActivity
-        recordProcessEvents = try container.decodeIfPresent(Bool.self, forKey: .recordProcessEvents) ?? defaults.recordProcessEvents
-        recordNetworkEvents = try container.decodeIfPresent(Bool.self, forKey: .recordNetworkEvents) ?? defaults.recordNetworkEvents
-        recordStartupEvents = try container.decodeIfPresent(Bool.self, forKey: .recordStartupEvents) ?? defaults.recordStartupEvents
-        recordSystemEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSystemEvents) ?? defaults.recordSystemEvents
-        recordAlertEvents = try container.decodeIfPresent(Bool.self, forKey: .recordAlertEvents) ?? defaults.recordAlertEvents
-        baselineRetentionCount = max(1, min(1000, try container.decodeIfPresent(Int.self, forKey: .baselineRetentionCount) ?? 20))
-        goldenBaselineID = try container.decodeIfPresent(String.self, forKey: .goldenBaselineID)
-        scheduledDriftCheck = try container.decodeIfPresent(Bool.self, forKey: .scheduledDriftCheck) ?? false
-        recordAgentEvents = try container.decodeIfPresent(Bool.self, forKey: .recordAgentEvents) ?? defaults.recordAgentEvents
-        showAgentCommandLines = try container.decodeIfPresent(Bool.self, forKey: .showAgentCommandLines) ?? defaults.showAgentCommandLines
-        recordSecurityEvents = try container.decodeIfPresent(Bool.self, forKey: .recordSecurityEvents) ?? defaults.recordSecurityEvents
-        watchPersistence = try container.decodeIfPresent(Bool.self, forKey: .watchPersistence) ?? defaults.watchPersistence
-        controlSocketEnabled = try container.decodeIfPresent(Bool.self, forKey: .controlSocketEnabled) ?? defaults.controlSocketEnabled
-        alertsEnabled = try container.decodeIfPresent(Bool.self, forKey: .alertsEnabled) ?? defaults.alertsEnabled
-        appIntentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .appIntentsEnabled) ?? defaults.appIntentsEnabled
-        urlNavigationEnabled = try container.decodeIfPresent(Bool.self, forKey: .urlNavigationEnabled) ?? defaults.urlNavigationEnabled
-        persistenceEnrichmentEnabled = try container.decodeIfPresent(Bool.self, forKey: .persistenceEnrichmentEnabled) ?? defaults.persistenceEnrichmentEnabled
-        persistencePollInterval = container.contains(.persistencePollInterval) ? try container.decodeIfPresent(TimeInterval.self, forKey: .persistencePollInterval) : defaults.persistencePollInterval
-        postureCheckInterval = container.contains(.postureCheckInterval) ? try container.decodeIfPresent(TimeInterval.self, forKey: .postureCheckInterval) : defaults.postureCheckInterval
-        // Unknown enum values (written by a newer build) fall back to defaults instead of discarding every setting.
-        liveRefreshSeconds = (try? container.decodeIfPresent(TimeInterval.self, forKey: .liveRefreshSeconds)) ?? defaults.liveRefreshSeconds
-        constrainedPowerMultiplier = (try? container.decodeIfPresent(Int.self, forKey: .constrainedPowerMultiplier)) ?? defaults.constrainedPowerMultiplier
-        processNetworkRateEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .processNetworkRateEnabled)) ?? defaults.processNetworkRateEnabled
-        processNetworkRateSeconds = (try? container.decodeIfPresent(TimeInterval.self, forKey: .processNetworkRateSeconds)) ?? defaults.processNetworkRateSeconds
-        maximumEventRows = (try? container.decodeIfPresent(Int.self, forKey: .maximumEventRows)) ?? defaults.maximumEventRows
-        memoryBudget = (try? container.decodeIfPresent(MemoryBudget.self, forKey: .memoryBudget)) ?? defaults.memoryBudget
-        dockerRefreshSeconds = (try? container.decodeIfPresent(Int.self, forKey: .dockerRefreshSeconds)) ?? defaults.dockerRefreshSeconds
-        dockerLiveStats = (try? container.decodeIfPresent(Bool.self, forKey: .dockerLiveStats)) ?? defaults.dockerLiveStats
-        inventoryCache = (try? container.decodeIfPresent(InventoryCachePreset.self, forKey: .inventoryCache)) ?? defaults.inventoryCache
-        devProjectFolders = (try? container.decodeIfPresent([String].self, forKey: .devProjectFolders)) ?? defaults.devProjectFolders
-        devScanDepth = (try? container.decodeIfPresent(Int.self, forKey: .devScanDepth)) ?? defaults.devScanDepth
-        excludedAgents = (try? container.decodeIfPresent([String].self, forKey: .excludedAgents)) ?? defaults.excludedAgents
-        customAgentFolders = (try? container.decodeIfPresent([String].self, forKey: .customAgentFolders)) ?? defaults.customAgentFolders
-        fileActivitySeconds = (try? container.decodeIfPresent(Int.self, forKey: .fileActivitySeconds)) ?? defaults.fileActivitySeconds
-        hiddenPages = ((try? container.decodeIfPresent([String].self, forKey: .hiddenPages)) ?? []).compactMap(SummaryPage.init(rawValue:))
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        devServersShowSystem = c.value(.devServersShowSystem, or: d.devServersShowSystem)
+        backgroundDevServersEnabled = c.value(.backgroundDevServersEnabled, or: d.backgroundDevServersEnabled)
+        terminalApp = c.value(.terminalApp, or: d.terminalApp)
+        editorApp = c.optional(.editorApp, or: d.editorApp)
+        dockerRefreshSeconds = c.value(.dockerRefreshSeconds, or: d.dockerRefreshSeconds)
+        dockerLiveStats = c.value(.dockerLiveStats, or: d.dockerLiveStats)
+        inventoryCache = c.value(.inventoryCache, or: d.inventoryCache)
+        devProjectFolders = c.value(.devProjectFolders, or: d.devProjectFolders)
+        devScanDepth = c.value(.devScanDepth, or: d.devScanDepth)
+        excludedAgents = c.value(.excludedAgents, or: d.excludedAgents)
+        customAgentFolders = c.value(.customAgentFolders, or: d.customAgentFolders)
+        showAgentCommandLines = c.value(.showAgentCommandLines, or: d.showAgentCommandLines)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// The stored value, or `fallback` when the key is missing or unreadable (such as an enum case from a newer
+    /// build), so one bad value never discards the rest.
+    func value<T: Decodable>(_ key: Key, or fallback: T) -> T {
+        (try? decodeIfPresent(T.self, forKey: key)) ?? fallback
+    }
+
+    /// For settings where null means off: a missing or unreadable key gives `fallback`, an explicit null gives nil.
+    func optional<T: Decodable>(_ key: Key, or fallback: T?) -> T? {
+        guard contains(key) else { return fallback }
+        if (try? decodeNil(forKey: key)) == true { return nil }
+        return (try? decode(T.self, forKey: key)) ?? fallback
     }
 }
 

@@ -3,10 +3,17 @@ import SwiftUI
 /// Where a process came from: ancestry, origin, signature, architecture and a knowledge base entry.
 struct ProvenanceSection: View {
     @ObservedObject var store: MonitorStore
+    @ObservedObject private var inspection: ProcessInspectionModel
     let process: ProcessMetrics
 
+    init(store: MonitorStore, process: ProcessMetrics) {
+        self.store = store
+        inspection = store.inspection
+        self.process = process
+    }
+
     var body: some View {
-        if let provenance = store.provenance, provenance.processID == process.id {
+        if let provenance = inspection.provenance, provenance.processID == process.id {
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Provenance")
                 breadcrumb(provenance)
@@ -90,11 +97,11 @@ struct ProvenanceSection: View {
     private var gatekeeper: some View {
         if Capabilities.supportsGatekeeperCheck, let path = process.executablePath {
             HStack {
-                Button("Check with Gatekeeper") { store.checkGatekeeper(path: path) }
-                    .disabled(store.gatekeeperRunning)
-                if store.gatekeeperRunning { ProgressView().controlSize(.small) }
+                Button("Check with Gatekeeper") { inspection.checkGatekeeper(path: path) }
+                    .disabled(inspection.gatekeeperRunning)
+                if inspection.gatekeeperRunning { ProgressView().controlSize(.small) }
             }
-            if let result = store.gatekeeperResult {
+            if let result = inspection.gatekeeperResult {
                 Text(result).font(.caption.monospaced()).textSelection(.enabled).foregroundStyle(.secondary)
             }
         }
@@ -104,7 +111,14 @@ struct ProvenanceSection: View {
 /// One-line provenance for an application's main process, linking to the process page.
 struct ProvenanceSummaryRow: View {
     @ObservedObject var store: MonitorStore
+    @ObservedObject private var inspection: ProcessInspectionModel
     let process: ProcessMetrics
+
+    init(store: MonitorStore, process: ProcessMetrics) {
+        self.store = store
+        inspection = store.inspection
+        self.process = process
+    }
 
     var body: some View {
         Button { store.route = .process(process.id) } label: {
@@ -121,7 +135,7 @@ struct ProvenanceSummaryRow: View {
     }
 
     private var summary: String {
-        guard let provenance = store.provenance, provenance.processID == process.id else { return "Loading…" }
+        guard let provenance = inspection.provenance, provenance.processID == process.id else { return "Loading…" }
         var parts = [provenance.signature.trustDescription]
         if let architecture = provenance.architecture { parts.append(architecture) }
         if let knowledge = provenance.knowledge { parts.append(knowledge.safeToQuitDescription) }

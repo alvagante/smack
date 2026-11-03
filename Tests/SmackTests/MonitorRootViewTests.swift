@@ -94,15 +94,15 @@ import Testing
         )
         store.receive(ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: [process]))
         store.receive(ProcessInventory(warnings: ["cached"]), for: process.id)
-        store.loadInventory(for: process)
-        #expect(store.inventory?.warnings == ["cached"])
+        store.inspection.loadInventory(for: process)
+        #expect(store.inspection.inventory?.warnings == ["cached"])
         store.receive(ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: []))
         let latest = try #require(store.processes?.timestamp)
         store.receive(ProcessSnapshot(timestamp: latest.addingTimeInterval(-1), applications: [], backgroundProcesses: [process]))
         #expect(store.processes?.backgroundProcesses.isEmpty == true)
         store.receive(ProcessInventory(warnings: ["late"]), for: process.id)
-        store.loadInventory(for: process)
-        #expect(store.inventory == nil)
+        store.inspection.loadInventory(for: process)
+        #expect(store.inspection.inventory == nil)
 
     }
 

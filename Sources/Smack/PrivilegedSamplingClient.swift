@@ -7,7 +7,8 @@ import SmackIPC
 /// unprivileged collectors instead of showing an error.
 /// `@unchecked`: `NSXPCConnection` is not Sendable, so the connection lives behind `lock`, which guards every
 /// access to the mutable state below.
-final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Sendable {
+final class PrivilegedSamplingClient: PrivilegedSamplingProviding, PrivilegedSecurityQuerying, PrivilegedStorageScanning,
+    @unchecked Sendable {
     // NSXPCConnection supports concurrent invalidation; this reference is immutable.
     private struct ConnectionReference: @unchecked Sendable { let value: NSXPCConnection }
     private let lock = NSLock()

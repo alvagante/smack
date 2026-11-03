@@ -95,21 +95,21 @@ import Testing
 }
 
 @Test func alertSecuritySettingsMigrateAndPersistDisabledSchedule() throws {
-    let old = try JSONDecoder().decode(CollectionSettings.self, from: Data(#"{"retentionDays":12}"#.utf8))
-    #expect(old.retentionDays == 12)
-    #expect(old.recordAlertEvents && old.recordSecurityEvents)
-    #expect(old.postureCheckInterval == 21_600)
-    #expect(old.watchPersistence && old.controlSocketEnabled)
+    let old = try JSONDecoder().decode(CollectionSettings.self, from: Data(#"{"history":{"retentionDays":12}}"#.utf8))
+    #expect(old.history.retentionDays == 12)
+    #expect(old.activity.recordAlertEvents && old.activity.recordSecurityEvents)
+    #expect(old.security.postureCheckInterval == 21_600)
+    #expect(old.security.watchPersistence && old.automation.controlSocketEnabled)
     var settings = old
-    settings.postureCheckInterval = nil
-    settings.recordAlertEvents = false
-    settings.recordSecurityEvents = false
-    settings.watchPersistence = false
-    settings.controlSocketEnabled = false
+    settings.security.postureCheckInterval = nil
+    settings.activity.recordAlertEvents = false
+    settings.activity.recordSecurityEvents = false
+    settings.security.watchPersistence = false
+    settings.automation.controlSocketEnabled = false
     let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
     #expect(decoded == settings)
     #expect(!decoded.records(.alerts) && !decoded.records(.security))
-    settings.recordActivity = false
+    settings.activity.recordActivity = false
     #expect(ActivityEventKind.Group.allCases.allSatisfy { !settings.records($0) })
 }
 

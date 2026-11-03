@@ -82,11 +82,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         self.titleBarView = titleBarView
         panel.addTitlebarAccessoryViewController(titleBarControls)
         glassModeSubscription = store.settingsStore.$settings
-            .map(\.glassMode)
+            .map(\.panel.glassMode)
             .removeDuplicates()
             .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
         appearanceSubscription = store.settingsStore.$settings
-            .map(\.appearance)
+            .map(\.panel.appearance)
             .removeDuplicates()
             .sink { [weak self] appearance in
                 self?.panel.appearance = switch appearance {
@@ -96,7 +96,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                 }
             }
         iconsSubscription = store.settingsStore.$settings
-            .map { $0.showTopBarIcons && $0.showMenuBarItems }
+            .map { $0.panel.showTopBarIcons && $0.panel.showMenuBarItems }
             .removeDuplicates()
             .sink { [weak nativeMenuBarStore] enabled in
                 nativeMenuBarStore?.setFeatureEnabled(enabled)
@@ -185,7 +185,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
         store.setVisible(true)
-        smackSound.play(sound: store.settingsStore.settings.panelSound)
+        smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
         guard !reduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.28
@@ -249,10 +249,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     private func mouseMoved() {
         let location = NSEvent.mouseLocation
         let inHotZone = cameraHotZone()?.contains(location) == true
-        if inHotZone, store.settingsStore.settings.trigger == .hover, !panel.isVisible {
+        if inHotZone, store.settingsStore.settings.panel.trigger == .hover, !panel.isVisible {
             hoverTask?.cancel()
             hoverTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.hoverDelay ?? 0.3))
+                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.panel.hoverDelay ?? 0.3))
                 guard let self, !Task.isCancelled, self.cameraHotZone()?.contains(NSEvent.mouseLocation) == true else { return }
                 self.pinned = false
                 self.open()
@@ -264,7 +264,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func mouseClicked() {
         let location = NSEvent.mouseLocation
-        if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.trigger == .click {
+        if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.panel.trigger == .click {
             pinned = true
             panel.isVisible ? close() : open()
         } else if panel.isVisible, pinned, !stuck, !panel.frame.contains(location), statusItem.button?.window?.frame.contains(location) != true {

@@ -27,7 +27,7 @@ final class BaselineModel: ObservableObject {
         } catch { message = error.localizedDescription }
     }
     func save(_ document: BaselineDocument, settings: CollectionSettings) async throws -> URL {
-        let path = try await repository.save(document, retention: settings.baselineRetentionCount, golden: settings.goldenBaselineID)
+        let path = try await repository.save(document, retention: settings.security.baselineRetentionCount, golden: settings.security.goldenBaselineID)
         await refresh()
         return path
     }
@@ -88,7 +88,7 @@ struct BaselineView: View {
             RefreshButton(hint: "Reload saved baselines") { Task { await model.refresh() } }
         } overview: {
             ResourceStatsRow(headline: String(model.rows.count), unit: "saved", stats: stats, headlineWidth: 96,
-                             headlineHelp: "Saved baselines, keeping \(settingsStore.settings.baselineRetentionCount). Pinned ones are never pruned.")
+                             headlineHelp: "Saved baselines, keeping \(settingsStore.settings.security.baselineRetentionCount). Pinned ones are never pruned.")
         }
     }
 
@@ -98,14 +98,14 @@ struct BaselineView: View {
                 ? ResourceStatus(title: "Drift", color: .orange, help: "The last comparison found differences.")
                 : ResourceStatus(title: "No drift", color: .green, help: "The last comparison found no differences.")
         }
-        if settingsStore.settings.scheduledDriftCheck, goldenName != nil {
+        if settingsStore.settings.security.scheduledDriftCheck, goldenName != nil {
             return ResourceStatus(title: "Watching", color: .blue, help: "Daily drift check against the golden baseline is on.")
         }
         return nil
     }
 
     private var goldenName: String? {
-        guard let id = settingsStore.settings.goldenBaselineID else { return nil }
+        guard let id = settingsStore.settings.security.goldenBaselineID else { return nil }
         return model.rows.first { $0.0.lastPathComponent == id }?.1.name ?? id
     }
 
@@ -114,7 +114,7 @@ struct BaselineView: View {
             ResourceStat(title: "Golden", systemImage: "star.fill", value: goldenName.map { $0.isEmpty ? "Unnamed" : $0 } ?? "None",
                          help: "Baseline used for the daily drift check.", color: .yellow),
             ResourceStat(title: "Drift check", systemImage: "clock.arrow.circlepath",
-                         value: settingsStore.settings.scheduledDriftCheck ? "Daily" : "Off", color: .blue),
+                         value: settingsStore.settings.security.scheduledDriftCheck ? "Daily" : "Off", color: .blue),
         ]
     }
 
@@ -169,17 +169,17 @@ struct BaselineView: View {
                     let doc = try await model.repository.load(model.baseID)
                     try export(doc.encoded(), name: model.baseID, type: .json)
                 } } label: { Label("Export", systemImage: "square.and.arrow.up") }
-                Button { settingsStore.update { $0.goldenBaselineID = model.baseID } } label: {
+                Button { settingsStore.update { $0.security.goldenBaselineID = model.baseID } } label: {
                     Label("Use as golden", systemImage: "star")
-                }.disabled(settingsStore.settings.goldenBaselineID == model.baseID)
+                }.disabled(settingsStore.settings.security.goldenBaselineID == model.baseID)
             }.disabled(model.baseID.isEmpty)
             Divider()
             Toggle("Daily drift check against golden", isOn: Binding(
-                get: { settingsStore.settings.scheduledDriftCheck },
-                set: { value in settingsStore.update { $0.scheduledDriftCheck = value } }))
-            Stepper("Keep \(settingsStore.settings.baselineRetentionCount) unpinned baselines", value: Binding(
-                get: { settingsStore.settings.baselineRetentionCount },
-                set: { value in settingsStore.update { $0.baselineRetentionCount = value } }), in: 1...1000)
+                get: { settingsStore.settings.security.scheduledDriftCheck },
+                set: { value in settingsStore.update { $0.security.scheduledDriftCheck = value } }))
+            Stepper("Keep \(settingsStore.settings.security.baselineRetentionCount) unpinned baselines", value: Binding(
+                get: { settingsStore.settings.security.baselineRetentionCount },
+                set: { value in settingsStore.update { $0.security.baselineRetentionCount = value } }), in: 1...1000)
         }
     }
 

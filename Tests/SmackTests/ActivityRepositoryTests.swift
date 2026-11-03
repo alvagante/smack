@@ -35,7 +35,7 @@ import Testing
     for index in 0..<10 { events.append(obsEvent(.processStarted, at: now.timeIntervalSince1970 - Double(index), subject: "n\(index)")) }
     try await repository.save(events: events)
     var settings = CollectionSettings()
-    settings.eventRetentionDays = 7
+    settings.activity.eventRetentionDays = 7
     try await repository.pruneEvents(settings: settings, now: now, rowCap: 100)
     #expect(try await repository.eventCount() == 10)
     try await repository.pruneEvents(settings: settings, now: now, rowCap: 4)
@@ -156,7 +156,7 @@ import Testing
     let now = Date(timeIntervalSince1970: 10_000_000)
     try await repository.save(events: (0..<6).map { obsEvent(.processStarted, at: now.timeIntervalSince1970 - Double($0), subject: "n\($0)") })
     var settings = CollectionSettings()
-    settings.maximumEventRows = 3
+    settings.activity.maximumEventRows = 3
     try await repository.pruneEvents(settings: settings, now: now)
     #expect(try await repository.eventCount() == 3)
 }

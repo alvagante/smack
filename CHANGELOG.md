@@ -10,6 +10,7 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Changed
 
+- Store settings grouped by feature (panel, sampling, history, activity, security, automation, developer tools). Settings saved by earlier builds are migrated on first launch; nothing changes for the user.
 - Redesign the panel around a shared, resizable sidebar and compact navigation bar. Pages are grouped by Performance, Health, Activity and Environment; hidden environment pages are omitted from navigation.
 - Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
 - Consolidate page surfaces, headings, icons and action buttons across light and dark appearances. Settings uses a pane picker alongside the shared sidebar.

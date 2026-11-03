@@ -31,7 +31,7 @@ struct SmackSnapshotEntity: AppEntity {
 struct SmackSnapshotQuery: EntityQuery {
     @MainActor
     func entities(for identifiers: [String]) async throws -> [SmackSnapshotEntity] {
-        guard AutomationSnapshot.store?.settingsStore.settings.appIntentsEnabled == true else { throw ControlError.unavailable }
+        guard AutomationSnapshot.store?.settingsStore.settings.automation.appIntentsEnabled == true else { throw ControlError.unavailable }
         return ["status", "ps", "ports", "events"].flatMap { kind in
             let response = AutomationSnapshot.response(ControlRequest(op: kind, limit: 1000))
             return response.records.map { SmackSnapshotEntity(record: $0, kind: kind) }
@@ -56,7 +56,7 @@ enum SmackPage: String, AppEnum {
 
 @MainActor
 private func intentRecords(_ request: ControlRequest) async throws -> [SmackSnapshotEntity] {
-    guard AutomationSnapshot.store?.settingsStore.settings.appIntentsEnabled == true else { throw ControlError.unavailable }
+    guard AutomationSnapshot.store?.settingsStore.settings.automation.appIntentsEnabled == true else { throw ControlError.unavailable }
     let response = await AutomationSnapshot.query(request)
     if let error = response.error { throw error }
     return response.records.map { SmackSnapshotEntity(record: $0, kind: request.op) }
@@ -122,7 +122,7 @@ struct OpenSmackPageIntent: AppIntent {
     @Parameter(title: "Page", default: .summary) var page: SmackPage
     @MainActor
     func perform() async throws -> some IntentResult {
-        guard AutomationSnapshot.store?.settingsStore.settings.appIntentsEnabled == true else { throw ControlError.unavailable }
+        guard AutomationSnapshot.store?.settingsStore.settings.automation.appIntentsEnabled == true else { throw ControlError.unavailable }
         let response = AutomationSnapshot.response(ControlRequest(op: "open", url: "smack://" + page.rawValue))
         if let error = response.error { throw error }
         return .result()

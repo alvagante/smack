@@ -100,9 +100,9 @@ extension HistoryRepository {
     /// Applies the retention window (clamped to the valid range), then keeps the newest `rowCap` rows
     /// (the Maximum events setting unless a test overrides it).
     func pruneEvents(settings: CollectionSettings, now: Date = Date(), rowCap: Int? = nil) throws {
-        let rowCap = rowCap ?? settings.maximumEventRows
+        let rowCap = rowCap ?? settings.activity.maximumEventRows
         let range = CollectionSettings.eventRetentionRange
-        let days = min(max(settings.eventRetentionDays, range.lowerBound), range.upperBound)
+        let days = min(max(settings.activity.eventRetentionDays, range.lowerBound), range.upperBound)
         try deleteEvents(before: now.addingTimeInterval(-TimeInterval(days) * 86_400))
         var excess = try eventCount() - max(0, rowCap)
         while excess > 0 {
