@@ -56,10 +56,10 @@ struct DevEnvironmentDetailView: View {
             Divider()
             HStack(alignment: .top, spacing: 0) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                         languageButton(nil)
                         ForEach(DevLanguage.allCases) { language in languageButton(language) }
-                    }.padding(12)
+                    }.padding(SidebarStyle.padding)
                 }.frame(width: 184)
                 Divider()
                 ScrollView {

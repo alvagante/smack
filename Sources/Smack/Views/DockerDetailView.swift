@@ -135,7 +135,7 @@ struct DockerDetailView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
             ForEach(DockerSection.allCases, id: \.self) { item in
                 Button { section = item } label: {
                     HStack {
@@ -148,7 +148,7 @@ struct DockerDetailView: View {
             }
             Spacer()
         }
-        .padding(12).frame(width: 184)
+        .padding(SidebarStyle.padding).frame(width: 184)
     }
 
     private func count(_ section: DockerSection) -> Int? {

@@ -49,7 +49,7 @@ struct HomebrewDetailView: View {
             header
             Divider()
             HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                     ForEach(BrewSection.allCases, id: \.self) { item in
                         Button { section = item } label: {
                             HStack {
@@ -62,7 +62,7 @@ struct HomebrewDetailView: View {
                     }
                     Spacer()
                 }
-                .padding(12).frame(width: 184)
+                .padding(SidebarStyle.padding).frame(width: 184)
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: MonitorStyle.spacing) {

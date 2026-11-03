@@ -67,7 +67,7 @@ struct AgentDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField("Filter agents", text: $query).textFieldStyle(.roundedBorder).padding(.horizontal, 10)
                     ScrollView {
-                        VStack(spacing: 5) {
+                        VStack(spacing: SidebarStyle.rowSpacing) {
                             ForEach(agents) { agent in
                                 Button {
                                     selectedAgent = agent.id
@@ -79,7 +79,7 @@ struct AgentDetailView: View {
                                     }
                                 }.buttonStyle(DetailNavigationStyle(selected: current?.id == agent.id))
                             }
-                        }.padding(12)
+                        }.padding(SidebarStyle.padding)
                     }
                 }.padding(.top, 10).frame(width: 184)
                 Divider()

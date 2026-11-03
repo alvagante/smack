@@ -146,36 +146,24 @@ struct MonitorSidebar: View {
     var body: some View {
         // The selection is drawn here rather than by `List(selection:)`: the panel is non-activating, so at launch the
         // window is not key and the system highlight is the inactive gray behind white text.
-        List {
-            ForEach(MonitorNavigation.sections(settings: settingsStore.settings, hasBattery: store.system?.battery?.isPresent == true)) { section in
-                Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
+                ForEach(MonitorNavigation.sections(settings: settingsStore.settings, hasBattery: store.system?.battery?.isPresent == true)) { section in
+                    if !section.title.isEmpty { SidebarHeader(title: section.title) }
                     ForEach(section.routes, id: \.self) { route in
-                        let selected = store.route.sidebarRoute == route
                         Button { store.route = route } label: {
-                            Label {
+                            HStack(spacing: SidebarStyle.iconSpacing) {
+                                ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 22)
                                 Text(route.title).lineLimit(1)
-                                    .foregroundStyle(selected ? Color.white : Color.primary)
-                            } icon: {
-                                ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 24)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 6)
-                            .background(selected ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4))
-                        .accessibilityAddTraits(selected ? .isSelected : [])
+                        .buttonStyle(DetailNavigationStyle(selected: store.route.sidebarRoute == route, prominent: true))
                         .help(route.title)
                     }
-                } header: {
-                    if !section.title.isEmpty { Text(section.title) }
                 }
             }
+            .padding(SidebarStyle.padding)
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         // Rows scroll out of sight at the titlebar's lower edge instead of passing under the window controls.
         .clipped()
         .background(MonitorStyle.sidebar)

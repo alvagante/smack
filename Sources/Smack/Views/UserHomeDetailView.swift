@@ -62,7 +62,7 @@ struct UserHomeDetailView: View {
             HStack(spacing: 0) {
                 if rootDirectory == nil {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                             ForEach(HomeCategory.allCases) { item in
                                 Button {
                                     selected = nil
@@ -73,7 +73,7 @@ struct UserHomeDetailView: View {
                                     Text(item.rawValue)
                                 }.buttonStyle(DetailNavigationStyle(selected: category == item))
                             }
-                        }.padding(12)
+                        }.padding(SidebarStyle.padding)
                     }.frame(width: 184, alignment: .top)
                     Divider()
                 }

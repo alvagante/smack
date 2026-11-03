@@ -34,19 +34,25 @@ struct DetailPageHeader<Title: View, Actions: View, Overview: View>: View {
     }
 }
 
+/// Sidebar row. Prominent rows (the panel sidebar) fill the selection with the accent color; section sidebars tint it.
 struct DetailNavigationStyle: ButtonStyle {
     var selected: Bool
+    var prominent = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.callout.weight(selected ? .semibold : .regular))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-            .background(selected ? Color.accentColor.opacity(0.12) :
-                configuration.isPressed ? Color.primary.opacity(0.06) : .clear,
-                in: RoundedRectangle(cornerRadius: 6))
+            .font(prominent ? .body : .callout.weight(selected ? .semibold : .regular))
+            .foregroundStyle(prominent && selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, SidebarStyle.rowInset)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: SidebarStyle.rowHeight, alignment: .leading)
+            .background(background(pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: SidebarStyle.cornerRadius, style: .continuous))
             .contentShape(Rectangle())
             .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func background(pressed: Bool) -> Color {
+        if selected { return prominent ? .accentColor : .accentColor.opacity(0.12) }
+        return pressed ? .primary.opacity(0.06) : .clear
     }
 }
