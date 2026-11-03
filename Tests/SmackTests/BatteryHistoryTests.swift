@@ -104,10 +104,17 @@ private func makeFixture(_ statements: [String]) throws -> String {
             let percent = 100 - (minutes.truncatingRemainder(dividingBy: 600)) / 8
             return level(minutes - 30 * 24 * 60, percent, minutes.truncatingRemainder(dividingBy: 600) > 480, start: now)
         }
-        history.screenOn = (0..<(14 * 24)).map { .init(date: now.addingTimeInterval(Double(-$0) * 3600), seconds: Double($0 % 4) * 900) }
-        history.daily = (0..<14).map { .init(date: now.addingTimeInterval(Double(-$0) * 86_400), cycleCount: 100 - $0 / 2,
-                                             minimumCharge: Double(20 + $0 * 3), maximumCharge: 100, maximumCapacityPercent: 98) }
-        history.telemetry = (0..<120).map { .init(date: now.addingTimeInterval(Double(-$0) * 1200), temperature: 30 + Double($0 % 5), systemPowerWatts: 8 + Double($0 % 7)) }
+        history.screenOn = (0..<(14 * 24)).map { (hour: Int) -> BatteryHistory.ScreenOnHour in
+            .init(date: now.addingTimeInterval(Double(-hour) * 3600), seconds: Double(hour % 4) * 900)
+        }
+        history.daily = (0..<14).map { (day: Int) -> BatteryHistory.Daily in
+            .init(date: now.addingTimeInterval(Double(-day) * 86_400), cycleCount: 100 - day / 2,
+                  minimumCharge: Double(20 + day * 3), maximumCharge: 100, maximumCapacityPercent: 98)
+        }
+        history.telemetry = (0..<120).map { (index: Int) -> BatteryHistory.Telemetry in
+            .init(date: now.addingTimeInterval(Double(-index) * 1200), temperature: 30 + Double(index % 5),
+                  systemPowerWatts: 8 + Double(index % 7))
+        }
     }
     for range in BatteryRange.allCases {
         for width in [500.0, 1200.0] {
