@@ -40,10 +40,15 @@ func phase0AlertBenchmark() async throws {
         for i in 0..<(system ? 1010 : 110) {
             let time = 1000 + Double(i)
             let sample = obsSystem(at: time)
-            let snapshot = churn
-                ? obsSnapshot((1...1000).compactMap { pid in
-                    pid % 10 == i % 10 ? nil : obsProcess(Int32(pid), cpu: Double((pid * 7 + i * 13) % 100)) }, at: time)
-                : obsSnapshot(processes, at: time)
+            var current = processes
+            if churn {
+                current = []
+                for pid in 1...1000 where pid % 10 != i % 10 {
+                    let cpu = Double((pid * 7 + i * 13) % 100)
+                    current.append(obsProcess(Int32(pid), cpu: cpu))
+                }
+            }
+            let snapshot = obsSnapshot(current, at: time)
             let start = DispatchTime.now().uptimeNanoseconds
             let alerts = system
                 ? await engine.evaluate(system: sample, expectedInterval: 1)

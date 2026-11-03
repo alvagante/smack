@@ -100,7 +100,9 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
 
 @Test func downsamplingAveragesBucketsAndKeepsPeaks() {
     let start = Date(timeIntervalSince1970: 1_760_000_000)
-    let points = (0..<100).map { HistoricalPoint(timestamp: start.addingTimeInterval(Double($0)), average: Double($0 % 10), peak: Double($0 % 10) + 1) }
+    let points = (0..<100).map { (index: Int) -> HistoricalPoint in
+        HistoricalPoint(timestamp: start.addingTimeInterval(Double(index)), average: Double(index % 10), peak: Double(index % 10) + 1)
+    }
     let reduced = HistoricalPoint.downsampled(points, limit: 10)
     #expect(reduced.count <= 10)
     #expect(reduced.map(\.peak).max() == 10)
