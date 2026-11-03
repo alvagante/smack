@@ -10,6 +10,15 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Changed
 
+- Summary Timeline and Last 24 hours cards grow with the panel width, use the Timeline and Insights icons, and show more of each line.
+- Show the application or process icon beside each event in the Timeline log.
+- Put the Timeline read limit stepper in the Timeline header. It is the same limit as Settings.
+- Match Settings panes that configure a sidebar page to that page's name, icon and color.
+- Cut history disk writes by more than an order of magnitude. Process samples are appended in timestamp order, and the per-process index that turned every stored row into a random page write is gone. History is committed in batches every 30 seconds and before sleep or quit instead of once per sample, so a crash loses at most the last batch. A process's name and last-seen time are written once a minute instead of on every sample.
+- While the panel is open, process history keeps the background process interval: faster refreshes are averaged into one stored sample per interval instead of each being stored, so short spikes still count.
+- The process identity string is stored once in `processes` and replaced by an integer key in both sample tables, which roughly halves stored process history. The database is migrated on the first launch of this build (schema version 5), after a pre-migration copy is taken next to it.
+- Reaching the storage limit no longer rewrites the whole database file: new history reuses the freed space, and the file is compacted only once it grows a quarter past the limit.
+- Hold footprint changes below 256 KiB on idle processes to the next heartbeat instead of storing a row for every sample. Footprint jitter was breaking the idle run on about a quarter of the rows idle processes stored ahead of the heartbeat; with the floor it is about one in twenty-five, and a larger change still appears as soon as it happens.
 - Store settings grouped by feature (panel, sampling, history, activity, security, automation, developer tools). Settings saved by earlier builds are migrated on first launch; nothing changes for the user.
 - Redesign the panel around a shared, resizable sidebar and compact navigation bar. Pages are grouped by Performance, Health, Activity and Environment; hidden environment pages are omitted from navigation.
 - Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
@@ -19,6 +28,7 @@ Release artifacts target 1.0.0 (build 10); publication remains pending approval.
 
 ### Fixed
 
+- Open a running program from Insights in its application or process detail instead of Historical Data. A program that is not running is not a link.
 - Draw the selected sidebar page in the accent color at launch (it was white text on the inactive gray highlight until the panel became key), clip sidebar rows at the titlebar and start the titlebar page name past the sidebar edge.
 - Keep one streaming `nettop` process while the panel is visible instead of launching it for each network-rate sample.
 - Stop the streaming `nettop` process when Smack exits abruptly (crash, force quit, SIGKILL); previously it was orphaned and kept running.

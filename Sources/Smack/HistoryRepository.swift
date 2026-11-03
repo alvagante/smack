@@ -4,11 +4,21 @@ import SQLite3
 /// SQLite store for metric history and activity events. Writing and the SQL helpers live here; reads, events,
 /// maintenance, schema and export are extensions in the `HistoryRepository+*.swift` files.
 actor HistoryRepository {
-    static let schemaVersion = 4
+    static let schemaVersion = 5
     static let lastCompactedKey = "history.lastCompactedAt"
     static let eventPruneBatch = 10_000
     /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
     static let processHeartbeatInterval: TimeInterval = 60
+    /// The `processes` table only carries names and a coarse last-seen time, so it is written once a minute instead
+    /// of on every sample; rewriting a row per process per second was a third of the database's write volume.
+    static let processMetadataInterval: TimeInterval = 60
+    /// How long the app keeps sample writes in one open transaction. Every commit appends the tables' tail pages to
+    /// the WAL again, so one commit per interval writes far fewer bytes than one per sample. A crash loses at most
+    /// this much history; reads on this connection see uncommitted rows, so charts never lag.
+    static let appCommitInterval: TimeInterval = 30
+    /// Share of the storage limit the file may exceed before it is compacted. Compaction rewrites the whole
+    /// database, twice counting the WAL, so it runs only when free pages would otherwise stay unused for long.
+    static let compactionSlack = 0.25
     /// Charts break a process line only after this long without rows.
     static let processMinimumGap = processHeartbeatInterval * 2.5
     static let idleCPUThreshold = 0.05
@@ -16,6 +26,10 @@ actor HistoryRepository {
     /// process wakes a little, so a threshold of zero would defeat idle-row skipping and grow the database.
     static let idleWakeupThreshold = 10.0
     static let idleMemoryTolerance = 0.005
+    /// A footprint moves by more than half a percent between two samples on almost any idle process, which stored a
+    /// row for every sample: 27% of idle rows in a measured window were jitter, not change. Changes below this floor
+    /// are held back to the next heartbeat at most, so they are delayed, never lost.
+    static let idleMemoryFloor: Double = 256 * 1_024
 
     struct ProcessRow {
         var timestamp: Double
@@ -30,25 +44,44 @@ actor HistoryRepository {
                 && wakeups < HistoryRepository.idleWakeupThreshold
         }
 
-        /// True when `next` is idle with the same memory, so storing it would only repeat this row.
+        /// True when `next` is idle with the same memory, so storing it would only repeat this row. The floor absorbs
+        /// footprint jitter on small processes; the relative part keeps large footprints sensitive.
         func isRepeated(by next: ProcessRow) -> Bool {
-            isIdle && next.isIdle && abs(next.memory - memory) <= memory * HistoryRepository.idleMemoryTolerance
+            isIdle && next.isIdle
+                && abs(next.memory - memory) <= max(HistoryRepository.idleMemoryFloor, memory * HistoryRepository.idleMemoryTolerance)
         }
     }
 
     /// Last stored row per process and the idle run skipped since. Skipped samples are added to the stored row's
     /// weight; the last skipped one is stored when the run ends with a change, so lines stay flat up to the change.
     struct IdleRun {
+        var key: Int64
         var stored: ProcessRow
+        var storedRowID: Int64
         var skipped = 0
         var lastSkipped: ProcessRow?
     }
 
+    /// Write state kept in memory. A failed write restores it as a whole, so nothing can be left out of a rollback.
+    struct WriterState {
+        /// One run per live process; its key also spares a database lookup per sample.
+        var idleRuns: [String: IdleRun] = [:]
+        /// Names seen since the last metadata write, by process key.
+        var pendingProcessMetadata: [Int64: String] = [:]
+        var lastProcessMetadataWrite: TimeInterval = 0
+        var lastProcessSnapshot: Double?
+    }
+
     /// Used only from the actor; `nonisolated(unsafe)` lets the nonisolated `deinit` close it.
     nonisolated(unsafe) let database: OpaquePointer
-    private var idleRuns: [String: IdleRun] = [:]
+    private var state = WriterState()
+    /// Zero commits every write on its own.
+    private let commitInterval: TimeInterval
+    /// Uptime at which the open batch transaction began, or nil when none is open.
+    private var batchStartedAt: TimeInterval?
 
-    init(databaseURL: URL) throws {
+    init(databaseURL: URL, commitInterval: TimeInterval = 0) throws {
+        self.commitInterval = commitInterval
         try FileManager.default.createDirectory(at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         var connection: OpaquePointer?
         let result = sqlite3_open_v2(
@@ -73,11 +106,13 @@ actor HistoryRepository {
     }
 
     deinit {
+        // Closing with a batch open would roll it back.
+        if sqlite3_get_autocommit(database) == 0 { sqlite3_exec(database, "COMMIT", nil, nil, nil) }
         sqlite3_close_v2(database)
     }
 
     func save(system sample: SystemSample) throws {
-        try transaction {
+        try batched {
             try withStatement("""
                 INSERT INTO system_samples (
                     timestamp, cpu, memory_used, network_receive, network_send, disk_read, disk_write,
@@ -114,81 +149,108 @@ actor HistoryRepository {
     func save(processes snapshot: ProcessSnapshot) throws {
         let samples = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         let timestamp = snapshot.timestamp.timeIntervalSince1970
-        try transaction {
-            try withStatement("""
-                INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen
-                """) { statement in
-                var seen = Set<String>()
-                for sample in samples {
-                    seen.insert(sample.id)
-                    sqlite3_reset(statement)
-                    sqlite3_clear_bindings(statement)
-                    bind(sample.id, at: 1, to: statement)
-                    bind(sample.name, at: 2, to: statement)
-                    bind(timestamp, at: 3, to: statement)
-                    try step(statement)
-                    let row = ProcessRow(
-                        timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
-                        diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate, wakeups: sample.wakeupsPerSecond
-                    )
-                    if let run = idleRuns[sample.id], run.stored.isRepeated(by: row) {
-                        if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
-                            idleRuns[sample.id]?.skipped += 1
-                            idleRuns[sample.id]?.lastSkipped = row
-                            continue
-                        }
-                        // Heartbeat: values are unchanged, so the skipped run needs no closing row.
-                        try addWeight(run.skipped, toRowOf: sample.id, at: run.stored.timestamp)
-                    } else {
-                        try closeIdleRun(processID: sample.id)
+        // No unique index guards process_samples, so the same snapshot saved twice would store every row twice.
+        guard timestamp != state.lastProcessSnapshot else { return }
+        try batched {
+            var seen = Set<String>()
+            for sample in samples {
+                seen.insert(sample.id)
+                let key = try processKey(for: sample.id, name: sample.name, at: timestamp)
+                state.pendingProcessMetadata[key] = sample.name
+                let row = ProcessRow(
+                    timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
+                    diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate, wakeups: sample.wakeupsPerSecond
+                )
+                if let run = state.idleRuns[sample.id], run.stored.isRepeated(by: row) {
+                    if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
+                        state.idleRuns[sample.id]?.skipped += 1
+                        state.idleRuns[sample.id]?.lastSkipped = row
+                        continue
                     }
-                    try insert(row, processID: sample.id)
-                    idleRuns[sample.id] = IdleRun(stored: row)
+                    // Heartbeat: values are unchanged, so the skipped run needs no closing row.
+                    try addWeight(run.skipped, toRow: run.storedRowID)
+                } else {
+                    try closeIdleRun(processID: sample.id)
                 }
-                for id in idleRuns.keys where !seen.contains(id) {
-                    try closeIdleRun(processID: id)
-                    idleRuns[id] = nil
-                }
+                let rowID = try insert(row, key: key)
+                state.idleRuns[sample.id] = IdleRun(key: key, stored: row, storedRowID: rowID)
+            }
+            for id in state.idleRuns.keys where !seen.contains(id) {
+                try closeIdleRun(processID: id)
+                state.idleRuns[id] = nil
+            }
+            try writeProcessMetadataIfDue(at: timestamp)
+            state.lastProcessSnapshot = timestamp
+        }
+    }
+
+    /// Resolves the integer key of a process identity, inserting the row on its first sighting. A process with an
+    /// idle run already carries its key, so the per-sample path does no database work for processes it tracks.
+    func processKey(for id: String, name: String, at timestamp: Double) throws -> Int64 {
+        if let key = state.idleRuns[id]?.key { return key }
+        var existing: Int64?
+        try withStatement("SELECT key FROM processes WHERE id = ?") { statement in
+            bind(id, at: 1, to: statement)
+            if sqlite3_step(statement) == SQLITE_ROW { existing = sqlite3_column_int64(statement, 0) }
+        }
+        if let existing { return existing }
+        try withStatement("INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)") { statement in
+            bind(id, at: 1, to: statement)
+            bind(name, at: 2, to: statement)
+            bind(timestamp, at: 3, to: statement)
+            try step(statement)
+        }
+        return sqlite3_last_insert_rowid(database)
+    }
+
+    /// Names and `last_seen` move at minute resolution, so the row is updated at most once per interval instead of
+    /// on every sample. A new process is still visible immediately, through `processKey(for:name:at:)`.
+    func writeProcessMetadataIfDue(at timestamp: TimeInterval) throws {
+        let elapsed = timestamp - state.lastProcessMetadataWrite
+        // A backwards clock step writes immediately rather than waiting for the clock to catch up.
+        guard elapsed >= Self.processMetadataInterval || elapsed < 0 else { return }
+        state.lastProcessMetadataWrite = timestamp
+        guard !state.pendingProcessMetadata.isEmpty else { return }
+        let pending = state.pendingProcessMetadata
+        try withStatement("UPDATE processes SET name = ?, last_seen = ? WHERE key = ?") { statement in
+            for (key, name) in pending {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+                bind(name, at: 1, to: statement)
+                bind(timestamp, at: 2, to: statement)
+                sqlite3_bind_int64(statement, 3, key)
+                try step(statement)
             }
         }
+        state.pendingProcessMetadata.removeAll()
     }
 
     /// Ends an idle run before a changed row or a process exit: stores its last skipped sample and weights the rest
     /// onto the row that started the run.
     func closeIdleRun(processID: String) throws {
-        guard let run = idleRuns[processID] else { return }
-        if let lastSkipped = run.lastSkipped {
-            try addWeight(run.skipped - 1, toRowOf: processID, at: run.stored.timestamp)
-            try insert(lastSkipped, processID: processID)
-        }
-        idleRuns[processID] = IdleRun(stored: run.lastSkipped ?? run.stored)
+        guard let run = state.idleRuns[processID], let lastSkipped = run.lastSkipped else { return }
+        try addWeight(run.skipped - 1, toRow: run.storedRowID)
+        let rowID = try insert(lastSkipped, key: run.key)
+        state.idleRuns[processID] = IdleRun(key: run.key, stored: lastSkipped, storedRowID: rowID)
     }
 
-    func addWeight(_ weight: Int, toRowOf processID: String, at timestamp: Double) throws {
+    func addWeight(_ weight: Int, toRow rowID: Int64) throws {
         guard weight > 0 else { return }
-        try withStatement("UPDATE process_samples SET weight = weight + ? WHERE process_id = ? AND timestamp = ?") { statement in
+        try withStatement("UPDATE process_samples SET weight = weight + ? WHERE id = ?") { statement in
             sqlite3_bind_int64(statement, 1, Int64(weight))
-            bind(processID, at: 2, to: statement)
-            bind(timestamp, at: 3, to: statement)
+            sqlite3_bind_int64(statement, 2, rowID)
             try step(statement)
         }
     }
 
-    func insert(_ row: ProcessRow, processID: String) throws {
+    /// Returns the rowid, which later weight updates address directly.
+    func insert(_ row: ProcessRow, key: Int64) throws -> Int64 {
         try withStatement("""
             INSERT INTO process_samples (
-                process_id, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
+                process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-            ON CONFLICT(process_id, timestamp) DO UPDATE SET
-                cpu = excluded.cpu,
-                memory = excluded.memory,
-                disk_read = excluded.disk_read,
-                disk_write = excluded.disk_write,
-                wakeups = excluded.wakeups,
-                weight = 1
             """) { statement in
-            bind(processID, at: 1, to: statement)
+            sqlite3_bind_int64(statement, 1, key)
             bind(row.timestamp, at: 2, to: statement)
             bind(row.cpu, at: 3, to: statement)
             bind(row.memory, at: 4, to: statement)
@@ -196,10 +258,21 @@ actor HistoryRepository {
             bind(row.diskWrite, at: 6, to: statement)
             bind(row.wakeups, at: 7, to: statement)
             try step(statement)
+            return sqlite3_last_insert_rowid(database)
+        }
+    }
+
+    /// Drops the write state of processes whose rows maintenance deleted, so a later sample inserts a new row
+    /// instead of writing under a key that no longer resolves. Other idle runs keep their unwritten weight.
+    func forget(removedProcesses removed: [(key: Int64, id: String)]) {
+        for process in removed {
+            state.idleRuns[process.id] = nil
+            state.pendingProcessMetadata[process.key] = nil
         }
     }
 
     func deleteAll() throws {
+        try flush()
         try transaction {
             try execute("DELETE FROM system_samples")
             try execute("DELETE FROM system_minutes")
@@ -208,7 +281,7 @@ actor HistoryRepository {
             try execute("DELETE FROM processes")
             try execute("DELETE FROM events")
         }
-        idleRuns = [:]
+        state = WriterState()
         try compactFile()
     }
 
@@ -225,15 +298,46 @@ actor HistoryRepository {
         }
     }
 
+    /// Runs `body` atomically. Inside an open batch it is a savepoint, so a failure undoes only this write and the
+    /// batch carries on.
     func transaction(_ body: () throws -> Void) throws {
-        let savedIdleRuns = idleRuns
-        try execute("BEGIN IMMEDIATE")
+        let saved = state
+        let nested = batchStartedAt != nil
+        try execute(nested ? "SAVEPOINT history_write" : "BEGIN IMMEDIATE")
         do {
             try body()
+            try execute(nested ? "RELEASE history_write" : "COMMIT")
+        } catch {
+            try? execute(nested ? "ROLLBACK TO history_write" : "ROLLBACK")
+            if nested { try? execute("RELEASE history_write") }
+            state = saved
+            throw error
+        }
+    }
+
+    /// Writes `body` into the open batch, starting one when needed, and commits the batch once it is
+    /// `commitInterval` old. Events and metadata written meanwhile join the batch through `transaction`.
+    func batched(_ body: () throws -> Void) throws {
+        guard commitInterval > 0 else { return try transaction(body) }
+        let now = ProcessInfo.processInfo.systemUptime
+        if batchStartedAt == nil {
+            try execute("BEGIN IMMEDIATE")
+            batchStartedAt = now
+        }
+        try transaction(body)
+        if let started = batchStartedAt, now - started >= commitInterval { try flush() }
+    }
+
+    /// Commits the open batch. A failed commit loses the batch, and with it the rows the write state points at, so
+    /// the state starts over.
+    func flush() throws {
+        guard batchStartedAt != nil else { return }
+        batchStartedAt = nil
+        do {
             try execute("COMMIT")
         } catch {
-            try? execute("ROLLBACK")
-            idleRuns = savedIdleRuns
+            if sqlite3_get_autocommit(database) == 0 { try? execute("ROLLBACK") }
+            state = WriterState()
             throw error
         }
     }

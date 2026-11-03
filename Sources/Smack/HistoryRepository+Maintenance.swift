@@ -11,6 +11,7 @@ extension HistoryRepository {
         let expirationCutoff = now.addingTimeInterval(-TimeInterval(settings.history.retentionDays * 86_400))
         let processMinuteCutoff = now.addingTimeInterval(-TimeInterval(settings.history.processMinuteRetentionDays * 86_400))
 
+        try flush()
         try transaction {
             try execute("DELETE FROM system_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
             try execute("DELETE FROM system_minutes WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
@@ -122,19 +123,19 @@ extension HistoryRepository {
     func downsampleProcessSamples(olderThan cutoff: Date) throws {
         try withStatement("""
             INSERT INTO process_minutes (
-                process_id, timestamp, sample_count,
+                process_key, timestamp, sample_count,
                 cpu_total, cpu_peak, memory_total, memory_peak,
                 disk_read_total, disk_read_peak, disk_write_total, disk_write_peak,
                 wakeups_total, wakeups_peak
             )
             SELECT
-                process_id, CAST(timestamp / 60 AS INTEGER) * 60, SUM(weight),
+                process_key, CAST(timestamp / 60 AS INTEGER) * 60, SUM(weight),
                 SUM(cpu * weight), MAX(cpu), SUM(memory * weight), MAX(memory),
                 SUM(disk_read * weight), MAX(disk_read), SUM(disk_write * weight), MAX(disk_write),
                 SUM(wakeups * weight), MAX(wakeups)
             FROM process_samples WHERE timestamp < ?
-            GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
-            ON CONFLICT(process_id, timestamp) DO UPDATE SET
+            GROUP BY process_key, CAST(timestamp / 60 AS INTEGER)
+            ON CONFLICT(process_key, timestamp) DO UPDATE SET
                 sample_count = process_minutes.sample_count + excluded.sample_count,
                 cpu_total = process_minutes.cpu_total + excluded.cpu_total,
                 cpu_peak = MAX(process_minutes.cpu_peak, excluded.cpu_peak),
@@ -158,10 +159,12 @@ extension HistoryRepository {
 
     /// Over the limit, frees space in order of least loss: compact process samples older than an hour into
     /// one-minute rows, delete the oldest process history, and only then the oldest system history, which is tiny.
-    /// Prunes to 85% of the limit so the next maintenance pass does not immediately run again.
+    /// Prunes to 85% of the limit so the next maintenance pass does not immediately run again. New rows reuse the
+    /// freed pages, so the file is rewritten only when it outgrows the limit by `compactionSlack`.
     func enforceStorageLimit(bytes limit: Int, now: Date = Date(), batchRows: Int = 10_000) throws {
+        let fileLimit = limit + Int(Double(limit) * Self.compactionSlack)
         guard try usedStorageBytes() > limit else {
-            if try databaseSize() > limit { try compactFile() }
+            if try databaseSize() > fileLimit { try compactFile() }
             return
         }
         let target = limit / 100 * 85
@@ -178,7 +181,7 @@ extension HistoryRepository {
                 }
             }
         }
-        try compactFile()
+        if try databaseSize() > fileLimit { try compactFile() }
     }
 
     /// Bytes held by live pages; unlike the file size it drops as soon as rows are deleted.
@@ -187,6 +190,7 @@ extension HistoryRepository {
     }
 
     func compactFile() throws {
+        try flush()
         try execute("PRAGMA wal_checkpoint(TRUNCATE)")
         try execute("VACUUM")
     }
@@ -203,11 +207,23 @@ extension HistoryRepository {
         }
     }
 
+    /// process_samples has no per-process index, so the keys still in use are collected in one scan rather than
+    /// probed once per process.
     func removeProcessesWithoutSamples() throws {
-        try execute("""
+        let removed = try withStatement("""
             DELETE FROM processes
-            WHERE NOT EXISTS (SELECT 1 FROM process_samples WHERE process_id = processes.id)
-              AND NOT EXISTS (SELECT 1 FROM process_minutes WHERE process_id = processes.id)
-            """)
+            WHERE key NOT IN (SELECT process_key FROM process_samples)
+              AND key NOT IN (SELECT process_key FROM process_minutes)
+            RETURNING key, id
+            """) { statement in
+            var removed: [(key: Int64, id: String)] = []
+            while true {
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { return removed }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
+                removed.append((sqlite3_column_int64(statement, 0), stringColumn(statement, index: 1)))
+            }
+        }
+        forget(removedProcesses: removed)
     }
 }

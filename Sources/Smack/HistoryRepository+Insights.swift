@@ -10,14 +10,14 @@ extension HistoryRepository {
         try withStatement("""
             SELECT p.name, CAST((u.timestamp + ?) / ? AS INTEGER), SUM(u.bytes)
             FROM (
-                SELECT process_id, MIN(timestamp) AS timestamp, SUM(disk_write * weight) / SUM(weight) * 60 AS bytes
+                SELECT process_key, MIN(timestamp) AS timestamp, SUM(disk_write * weight) / SUM(weight) * 60 AS bytes
                 FROM process_samples WHERE timestamp >= ? AND timestamp <= ?
-                GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
+                GROUP BY process_key, CAST(timestamp / 60 AS INTEGER)
                 UNION ALL
-                SELECT process_id, timestamp, disk_write_total / sample_count * 60
+                SELECT process_key, timestamp, disk_write_total / sample_count * 60
                 FROM process_minutes WHERE timestamp >= ? AND timestamp <= ? AND disk_write_total > 0
             ) u
-            JOIN processes p ON p.id = u.process_id
+            JOIN processes p ON p.key = u.process_key
             WHERE u.bytes > 0
             GROUP BY p.name, 2
             """) { statement in

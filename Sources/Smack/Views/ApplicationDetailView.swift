@@ -5,6 +5,7 @@ enum ApplicationTab: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case processes = "Processes"
     case timeline = "Timeline"
+    case history = "Historical Data"
     case files = "Open Files"
     case connections = "Connections"
     case threads = "Threads"
@@ -36,6 +37,7 @@ enum ApplicationTab: String, CaseIterable, Identifiable {
         case .overview: "gauge.with.dots.needle.67percent"
         case .processes: "square.stack.3d.up"
         case .timeline: "list.bullet.rectangle"
+        case .history: "clock.arrow.circlepath"
         case .files: DetailSectionStyle.files.systemImage
         case .connections: DetailSectionStyle.connections.systemImage
         case .threads: DetailSectionStyle.threads.systemImage
@@ -52,6 +54,7 @@ enum ApplicationTab: String, CaseIterable, Identifiable {
         case .overview: .blue
         case .processes: .green
         case .timeline: .teal
+        case .history: .teal
         case .files: DetailSectionStyle.files.color
         case .connections: DetailSectionStyle.connections.color
         case .threads: DetailSectionStyle.threads.color
@@ -108,7 +111,7 @@ struct ApplicationDetailView: View {
     var body: some View {
         Group {
             if let app = store.application(id: id) {
-                DetailSectionLayout(groups: groups(app), selection: $model.tab) {
+                DetailSectionLayout(groups: groups(app), selection: $model.tab, scrolls: model.tab != .history) {
                     header(app)
                 } content: {
                     tabContent(app)
@@ -421,7 +424,7 @@ struct ApplicationDetailView: View {
             DetailSection(id: tab, title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, count: count(tab, app))
         }
         return [
-            DetailSectionGroup(title: "", sections: [.overview, .processes, .timeline].map(section)),
+            DetailSectionGroup(title: "", sections: [.overview, .history, .processes, .timeline].map(section)),
             DetailSectionGroup(title: "Live inventory", sections: [.files, .connections, .threads, .libraries].map(section)),
             DetailSectionGroup(title: "Inspection", sections: [.provenance, .launchContext, .logs, .startup, .security, .fileActivity, .diagnostics].map(section)),
         ]
@@ -452,6 +455,8 @@ struct ApplicationDetailView: View {
             case .provenance:
                 DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color,
                                    caption: ApplicationReadings.mainProcess(app).map { "Of the main process, \($0.name) (\($0.identity.pid))." })
+            case .history:
+                DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, caption: historyCaption(app))
             default:
                 DetailContentTitle(title: tab.rawValue, systemImage: tab.systemImage, color: tab.color, caption: Self.captions[tab])
             }
@@ -462,12 +467,26 @@ struct ApplicationDetailView: View {
             case .libraries: inventoryTab(app) { librariesList }
             case .provenance: provenanceTab(app)
             case .timeline: ApplicationTimelineTab(store: store, app: app)
+            case .history:
+                SubjectHistoryChart(store: store, programs: historyPrograms(app), processIDs: Set(app.processes.map(\.id)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             case .processes: processesList(app)
             case .diagnostics: ApplicationDiagnosticsTab(app: app, model: profile)
             default:
                 if let inspected = tab.inspection { ApplicationInspectionTab(store: store, app: app, tab: inspected) }
             }
         }
+    }
+
+    /// One name charts every instance of it. Several names are summed; history is stored by process name.
+    private func historyPrograms(_ app: ApplicationMetrics) -> [String] {
+        Array(Set(app.processes.map(\.name))).sorted()
+    }
+
+    private func historyCaption(_ app: ApplicationMetrics) -> String {
+        let count = historyPrograms(app).count
+        if count > 1 { return "Summed over the \(count) process names running in this application." }
+        return "Every instance of this application's process name. Pick one instance to narrow it."
     }
 
     private func overview(_ app: ApplicationMetrics) -> some View {

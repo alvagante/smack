@@ -15,6 +15,7 @@ private actor DiscardingHistoryWriter: HistoryWriting {
     func save(processes: ProcessSnapshot) async throws {}
     func save(events: [ActivityEvent]) async throws {}
     func maintain(settings: CollectionSettings) async throws {}
+    func flush() async throws {}
 }
 
 private func monitor(helper: (any PrivilegedSecurityQuerying)?, metadata: MemoryMetadata = MemoryMetadata()) -> SecurityMonitor {

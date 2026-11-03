@@ -72,22 +72,16 @@ struct InsightsView: View {
             if let ledger = model.ledger, !ledger.rows.isEmpty {
                 let maximum = ledger.rows.flatMap(\.buckets).max() ?? 0
                 ForEach(ledger.rows) { row in
-                    Button { openHistory(row.name) } label: {
-                        HStack(spacing: 10) {
-                            Text(row.name).lineLimit(1).truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            BucketBars(values: row.buckets, maximum: maximum, color: .pink)
-                                .frame(width: 140, height: 18)
-                                .help(bucketHelp(row, ledger: ledger))
-                            Text(Formatting.bytes(UInt64(row.total))).monospacedDigit().frame(width: 80, alignment: .trailing)
-                            Text(share(row.total, of: ledger.attributedTotal)).foregroundStyle(.secondary).monospacedDigit()
-                                .lineLimit(1).fixedSize().frame(minWidth: 64, alignment: .trailing)
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                        }
-                        .contentShape(Rectangle())
+                    programLink(name: row.name) {
+                        Text(row.name).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        BucketBars(values: row.buckets, maximum: maximum, color: .pink)
+                            .frame(width: 140, height: 18)
+                            .help(bucketHelp(row, ledger: ledger))
+                        Text(Formatting.bytes(UInt64(row.total))).monospacedDigit().frame(width: 80, alignment: .trailing)
+                        Text(share(row.total, of: ledger.attributedTotal)).foregroundStyle(.secondary).monospacedDigit()
+                            .lineLimit(1).fixedSize().frame(minWidth: 64, alignment: .trailing)
                     }
-                    .buttonStyle(.plain)
-                    .help("Open \(row.name) in Historical Data")
                 }
             } else if !model.loading {
                 Text("No disk writes recorded in this range.").foregroundStyle(.secondary)
@@ -124,27 +118,22 @@ struct InsightsView: View {
                 Text("No process starts recorded in this range.").foregroundStyle(.secondary)
             }
             ForEach(model.churn) { row in
-                Button { openHistory(row.name) } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 6) {
-                                Text(row.name).lineLimit(1).truncationMode(.middle)
-                                if row.restartsOften { DetailBadge(text: "Restarts often", color: .orange) }
-                            }
-                            if let path = row.path { Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                programLink(name: row.name, path: row.path) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text(row.name).lineLimit(1).truncationMode(.middle)
+                            if row.restartsOften { DetailBadge(text: "Restarts often", color: .orange) }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(perHour(row.starts)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
-                            .help("Average starts per hour over the range")
-                        Text(row.starts.formatted()).monospacedDigit().frame(width: 60, alignment: .trailing)
-                            .help("\(row.starts) starts, \(row.launchdStarts) by launchd")
-                        Text(Formatting.duration(row.averageLifetime)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
-                            .help("Average lifetime of \(row.matchedExits) starts whose exit was recorded; \(row.shortLived) lived under \(Int(ProcessChurn.shortLivedThreshold)) s")
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        if let path = row.path { Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
                     }
-                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(perHour(row.starts)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
+                        .help("Average starts per hour over the range")
+                    Text(row.starts.formatted()).monospacedDigit().frame(width: 60, alignment: .trailing)
+                        .help("\(row.starts) starts, \(row.launchdStarts) by launchd")
+                    Text(Formatting.duration(row.averageLifetime)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
+                        .help("Average lifetime of \(row.matchedExits) starts whose exit was recorded; \(row.shortLived) lived under \(Int(ProcessChurn.shortLivedThreshold)) s")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -207,11 +196,38 @@ struct InsightsView: View {
         total > 0 ? Formatting.percent(value / total * 100) : "—"
     }
 
-    private func openHistory(_ program: String) {
-        let history = store.historyViewModel
-        history.hours = model.range.rawValue
-        history.select(program: program)
-        store.route = .history
+    /// Opens the running application, or the running process when the name is not an application.
+    /// A program that is not running has no detail page, so the row is not a link.
+    @ViewBuilder
+    private func programLink<Content: View>(name: String, path: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        let route = detailRoute(name: name, path: path)
+        let label = HStack(spacing: 10) {
+            content()
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                .opacity(route == nil ? 0 : 1)
+        }
+        if let route {
+            Button { store.route = route } label: { label.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .help("Open \(name)")
+        } else {
+            label
+        }
+    }
+
+    private func detailRoute(name: String, path: String? = nil) -> AppRoute? {
+        guard let snapshot = store.processes else { return nil }
+        if let application = snapshot.applications.first(where: { application in
+            if application.name == name { return true }
+            return path?.isEmpty == false && application.executablePath == path
+        }) {
+            return .application(application.id)
+        }
+        let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
+        if let path, !path.isEmpty, let process = processes.filter({ $0.executablePath == path }).max(by: { $0.cpuUsage < $1.cpuUsage }) {
+            return .process(process.id)
+        }
+        return processes.filter { $0.name == name }.max(by: { $0.cpuUsage < $1.cpuUsage }).map { .process($0.id) }
     }
 }
 
@@ -226,7 +242,7 @@ private struct SourceHint: View {
             Label(text, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button("Open \(pane.rawValue) Settings") {
+            Button("Open \(pane.title) Settings") {
                 store.settingsViewModel.pane = pane
                 store.route = .settings
             }
@@ -284,17 +300,18 @@ struct InsightsDigestCard: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("Last 24 hours", systemImage: AppRoute.insights.systemImage).font(.body.weight(.medium))
+                HStack(spacing: 12) {
+                    ResourceIcon(systemImage: AppRoute.insights.systemImage, color: AppRoute.insights.tint, size: 28)
+                    Text("Last 24 hours").font(.body.weight(.medium))
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     if let digest = model.digest {
-                        if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1) }
-                        if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1) }
+                        if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1...3) }
+                        if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1...3) }
                         ForEach(digest.highlights, id: \.self) { line in
-                            Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1...3)
                         }
                         if digest.usageLine.isEmpty, digest.diskLine == nil, digest.highlights.isEmpty {
                             Text("No history recorded yet").font(.caption).foregroundStyle(.secondary)
@@ -305,7 +322,7 @@ struct InsightsDigestCard: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: .infinity, alignment: .topLeading)
             .padding(16)
             .monitorSurface()
             .contentShape(Rectangle())

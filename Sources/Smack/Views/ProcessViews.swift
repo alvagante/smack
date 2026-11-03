@@ -49,7 +49,7 @@ final class ApplicationListViewModel: ObservableObject {
 }
 
 enum ProcessSection: Hashable, Identifiable {
-    case overview
+    case overview, history
     case inspection(ProcessInspectionTab)
     case provenance, files, connections, threads, libraries
     var id: Self { self }
@@ -57,6 +57,7 @@ enum ProcessSection: Hashable, Identifiable {
     var title: String {
         switch self {
         case .overview: "Overview"
+        case .history: "Historical Data"
         case .inspection(let tab): tab.rawValue
         case .provenance: "Provenance"
         case .files: "Open Files"
@@ -69,6 +70,7 @@ enum ProcessSection: Hashable, Identifiable {
     var style: (systemImage: String, color: Color) {
         switch self {
         case .overview: ("gauge.with.dots.needle.67percent", .blue)
+        case .history: ("clock.arrow.circlepath", .teal)
         case .inspection(let tab): (tab.systemImage, tab.color)
         case .provenance: (DetailSectionStyle.provenance.systemImage, DetailSectionStyle.provenance.color)
         case .files: (DetailSectionStyle.files.systemImage, DetailSectionStyle.files.color)
@@ -350,7 +352,7 @@ struct ProcessDetailView: View {
     var body: some View {
         Group {
             if let process = store.process(id: id) {
-                DetailSectionLayout(groups: groups, selection: $model.section) {
+                DetailSectionLayout(groups: groups, selection: $model.section, scrolls: model.section != .history) {
                     header(process)
                 } content: {
                     content(process)
@@ -381,7 +383,7 @@ struct ProcessDetailView: View {
             DetailSection(id: item, title: item.title, systemImage: item.style.systemImage, color: item.style.color, count: count)
         }
         return [
-            DetailSectionGroup(title: "", sections: [section(.overview)]),
+            DetailSectionGroup(title: "", sections: [section(.overview), section(.history)]),
             DetailSectionGroup(title: "Live inventory", sections: [
                 section(.files, inventory?.files.count), section(.connections, inventory?.connections.count),
                 section(.threads, inventory?.threads.count), section(.libraries, inventory?.libraries.count),
@@ -464,6 +466,11 @@ struct ProcessDetailView: View {
                 DetailContentTitle(title: section.title, systemImage: section.style.systemImage, color: section.style.color)
                 ProcessInspectionView(store: store, process: process, tab: tab)
                     .id("\(process.id)#\(tab.rawValue)")
+            case .history:
+                DetailContentTitle(title: section.title, systemImage: section.style.systemImage, color: section.style.color,
+                                   caption: "This process. All instances includes earlier runs of the same name.")
+                SubjectHistoryChart(store: store, programs: [process.name], instanceID: process.id, processIDs: [process.id])
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             case .overview:
                 EmptyView()
             }

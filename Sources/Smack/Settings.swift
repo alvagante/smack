@@ -646,7 +646,9 @@ extension KeyedDecodingContainer {
 /// indexes: about 87 B per system sample, 99 B per process sample, 335 B per event); quieter Macs use less.
 enum StorageEstimate {
     private static let systemBytesPerHourAtFiveSeconds = 60_000.0
-    private static let processBytesPerHourAtTenSeconds = 2_000_000.0
+    /// About 500 processes, 60 of them busy. The integer process key and the single timestamp index store a row in
+    /// about 54% of the space the identity string and its primary key took.
+    private static let processBytesPerHourAtTenSeconds = 1_100_000.0
 
     static func system(interval: TimeInterval) -> String {
         label(systemBytesPerHourAtFiveSeconds * 5 / max(interval, 1))

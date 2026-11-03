@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var panelController: PanelController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
+    private var history: HistoryRepository?
     private var activityObservers: ActivitySystemObservers?
     private let terminateApplication: () -> Void
     private(set) var didSynchronizeOnTeardown = false
@@ -130,7 +131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let directory = support.appendingPathComponent("Smack", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite3"))
+            let history = try HistoryRepository(
+                databaseURL: directory.appendingPathComponent("history.sqlite3"),
+                commitInterval: HistoryRepository.appCommitInterval
+            )
+            self.history = history
             let settingsStore = SettingsStore()
             let privilegedClient = PrivilegedSamplingClient()
             let privilegedController = Capabilities.supportsPrivilegedSampling
@@ -324,6 +329,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Commits batched history before the process exits. The reply waits at most a few seconds, so a database busy
+    /// with maintenance cannot hold up quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let history else { return .terminateNow }
+        let reply = TerminationReply(sender)
+        Task { try? await history.flush(); reply.send() }
+        Task { try? await Task.sleep(for: .seconds(3)); reply.send() }
+        return .terminateLater
+    }
+
     /// Handles application termination by hiding the monitor panel and ensuring that all pending
     /// preference updates in `UserDefaults` are synchronously committed to disk before process exit.
     /// - Parameter notification: The termination notification posted by `NSApplication`.
@@ -338,5 +353,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         store?.setVisible(false)
         _ = UserDefaults.standard.synchronize()
         didSynchronizeOnTeardown = true
+    }
+}
+
+/// Answers a deferred termination once, whichever of the history flush and its timeout finishes first.
+@MainActor
+private final class TerminationReply {
+    private let application: NSApplication
+    private var sent = false
+
+    init(_ application: NSApplication) {
+        self.application = application
+    }
+
+    func send() {
+        guard !sent else { return }
+        sent = true
+        application.reply(toApplicationShouldTerminate: true)
     }
 }

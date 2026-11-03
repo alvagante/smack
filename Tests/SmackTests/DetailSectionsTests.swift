@@ -82,7 +82,7 @@ import Testing
     store.route = .process(process.id)
     #expect(store.routeSubject == "SmackTests")
 
-    let sections: [ProcessSection] = [.overview, .files, .connections, .threads, .libraries, .provenance]
+    let sections: [ProcessSection] = [.overview, .history, .files, .connections, .threads, .libraries, .provenance]
         + ProcessInspectionTab.allCases.map { .inspection($0) }
     for width in [560.0, 1_000.0] {
         try await render(ApplicationDetailView(store: store, id: app.id), name: "application-overview", width: width)
