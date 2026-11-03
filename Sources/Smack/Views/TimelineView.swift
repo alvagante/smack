@@ -41,8 +41,9 @@ struct TimelineMinuteGroup: Identifiable, Equatable {
 final class TimelineViewModel: ObservableObject {
     /// Rows drawn; a 7-day range with many events stays responsive and says so.
     static let visibleLimit = 500
-    /// Rows read from the database. Filtering and search run on these in memory, so chips never hit the database.
-    static let fetchLimit = 2_000
+    /// Rows read from the database, set from `ActivitySettings.timelineReadLimit` at each load.
+    /// Filtering and search run on these in memory, so chips never hit the database.
+    @Published private(set) var fetchLimit = ActivitySettings().timelineReadLimit
 
     @Published var range = TimelineRange.hour1
     /// Set when the Summary strip opens the timeline at its own window; cleared when a range chip is chosen.
@@ -128,7 +129,7 @@ final class TimelineViewModel: ObservableObject {
 
     /// When the read limit cut older events off, the oldest loaded instant; the graph shades the window before it.
     var truncatedBefore: Date? {
-        loaded.count >= Self.fetchLimit ? loaded.map(\.timestamp).min() : nil
+        loaded.count >= fetchLimit ? loaded.map(\.timestamp).min() : nil
     }
 
     /// Events in `lane` within `tolerance` of `date`, closest first; the graph's hover hit test.
@@ -138,13 +139,15 @@ final class TimelineViewModel: ObservableObject {
             .sorted { abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date)) }
     }
 
-    func load(using loader: (_ start: Date, _ end: Date, _ limit: Int) async throws -> [ActivityEvent]) async {
+    func load(limit: Int = ActivitySettings().timelineReadLimit,
+              using loader: (_ start: Date, _ end: Date, _ limit: Int) async throws -> [ActivityEvent]) async {
         loading = true
         defer { loading = false }
         let window = window()
         do {
-            let events = try await loader(window.start, window.end, Self.fetchLimit)
+            let events = try await loader(window.start, window.end, limit)
             guard !Task.isCancelled else { return }
+            fetchLimit = limit
             loaded = events
             loadFailed = false
         } catch {
@@ -178,7 +181,7 @@ struct TimelineView: View {
         .task(id: "\(model.requestID)|\(activity.recentEvents.first?.id ?? "")") {
             if !model.loaded.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
-            await model.load { start, end, limit in
+            await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit) { start, end, limit in
                 try await activity.loadEvents(from: start, to: end, kinds: nil, search: "", limit: limit)
             }
         }
@@ -198,7 +201,7 @@ struct TimelineView: View {
                     ResourceStat(title: "Matching", systemImage: "line.3.horizontal.decrease.circle", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.filtered.count)),
                     ResourceStat(title: "Kinds", systemImage: "square.stack", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(Set(model.loaded.map(\.kind)).count))
                 ], headlineWidth: 150,
-                   headlineHelp: model.loaded.count == TimelineViewModel.fetchLimit ? "Read limit reached" : "Events in the selected window")
+                   headlineHelp: model.loaded.count >= model.fetchLimit ? "Read limit reached (\(model.fetchLimit.formatted()) events, set in Settings › Activity Timeline)" : "Events in the selected window")
             }
             HStack(spacing: 8) {
                 Picker("Layout", selection: $graphLayout) {

@@ -182,9 +182,6 @@ struct NetworkStatsRow: View {
                          detail: recent.map(\.receiveRate).max().map { "peak \(Formatting.rate($0))" }, help: "Received across all interfaces; peak over the live window."),
             ResourceStat(title: "Out", systemImage: "arrow.up", value: Formatting.rate(system.sendRate),
                          detail: recent.map(\.sendRate).max().map { "peak \(Formatting.rate($0))" }, help: "Sent across all interfaces; peak over the live window."),
-            ResourceStat(title: "Interfaces", systemImage: "network", value: "\(active.count)",
-                         detail: active.first.map { "busiest \($0.name)" },
-                         help: "Interfaces with a routable address or traffic now; link-local-only tunnels are not counted."),
             ResourceStat(title: "Address", systemImage: "number", value: active.first.flatMap { NetworkReadings.preferredAddresses($0).first } ?? "–",
                          detail: active.first?.name, help: "Main address of the busiest interface."),
         ]

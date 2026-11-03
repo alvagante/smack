@@ -24,7 +24,7 @@ import Testing
         let sections = MonitorNavigation.sections(settings: settings, hasBattery: false)
         let routes = sections.flatMap(\.routes)
         #expect(!routes.contains(.resource(.battery)))
-        #expect(!sections.contains { $0.title == "Environment" })
+        #expect(sections.first { $0.title == "Environment" }?.routes == [.systemDetails])
         #expect(routes.contains(.networkPorts) == Capabilities.supportsNetworkPortInspection)
         #expect(routes.contains(.startupItems) == Capabilities.supportsStartupItems)
         #expect(routes.contains(.security) == Capabilities.supportsPostureChecks)

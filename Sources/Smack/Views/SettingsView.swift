@@ -679,6 +679,8 @@ struct SettingsView: View {
                 StepperRow(title: "Event retention", help: "How long timeline events are kept. Events are also capped in number.", text: "\(settings.settings.activity.eventRetentionDays) days", value: binding(\.activity.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
                 StepperRow(title: "Maximum events", help: "The newest events kept regardless of retention; older ones are deleted first. About 335 bytes each on disk.",
                            text: settings.settings.activity.maximumEventRows.formatted(), value: binding(\.activity.maximumEventRows), range: CollectionSettings.maximumEventRowsRange, step: 10_000)
+                StepperRow(title: "Timeline read limit", help: "Newest events the Timeline loads for the selected window. Filters and search work on these; older events in the window are shaded as not loaded. Higher values use more memory and slow the page.",
+                           text: settings.settings.activity.timelineReadLimit.formatted(), value: binding(\.activity.timelineReadLimit), range: CollectionSettings.timelineReadLimitRange, step: 500)
             }
         }
     }
@@ -817,20 +819,16 @@ struct SettingsView: View {
     @ViewBuilder private var aboutPane: some View {
         Section {
             LabeledContent("Version", value: Self.appVersion)
-            LabeledContent("Author") {
-                HStack(spacing: 0) {
-                    Text("Alessandro Franceschi (")
-                    Link("Alvagante", destination: URL(string: "https://www.alvagante.com")!)
-                    Text(") / ")
-                    Link("Lab42", destination: URL(string: "https://www.lab42.it")!)
-                }
+            LabeledContent("AI engineering") {
+                Text("Alessandro Franceschi ([Alvagante](https://www.alvagante.com)) / [Lab42](https://www.lab42.it)")
             }
             LabeledContent("Source code") {
                 Link("github.com/alvagante/smack", destination: URL(string: "https://github.com/alvagante/smack")!)
             }
+            LabeledContent("Sponsor") {
+                Link("GitHub Sponsors", destination: TitleBarSettings.sponsorURL)
+            }
             LabeledContent("License", value: "MIT")
-        } footer: {
-            SettingsFooter("AI engineered by Alessandro Franceschi.")
         }
     }
 

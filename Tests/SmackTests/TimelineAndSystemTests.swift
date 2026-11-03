@@ -99,9 +99,9 @@ import Testing
     let model = TimelineViewModel()
     await model.load { _, _, _ in [obsEvent(at: 5), obsEvent(at: 2)] }
     #expect(model.truncatedBefore == nil)
-    let full = (0..<TimelineViewModel.fetchLimit).map { obsEvent(at: 10_000 - Double($0), subject: "e\($0)") }
+    let full = (0..<model.fetchLimit).map { obsEvent(at: 10_000 - Double($0), subject: "e\($0)") }
     await model.load { _, _, _ in full }
-    #expect(model.truncatedBefore == Date(timeIntervalSince1970: 10_000 - Double(TimelineViewModel.fetchLimit - 1)))
+    #expect(model.truncatedBefore == Date(timeIntervalSince1970: 10_000 - Double(model.fetchLimit - 1)))
 }
 
 // MARK: Wakeups

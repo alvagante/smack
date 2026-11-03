@@ -326,6 +326,7 @@ final class SpyUserDefaults: UserDefaults {
     #expect(decoded.sampling.processNetworkRateEnabled)
     #expect(decoded.sampling.processNetworkRateSeconds == 5)
     #expect(decoded.activity.maximumEventRows == 100_000)
+    #expect(decoded.activity.timelineReadLimit == 2_000)
     #expect(decoded.devTools.dockerRefreshSeconds == 15)
     #expect(decoded.devTools.dockerLiveStats)
     #expect(decoded.devTools.devProjectFolders.isEmpty)
@@ -555,4 +556,14 @@ final class SpyUserDefaults: UserDefaults {
     defaults.set(try JSONEncoder().encode(saved), forKey: SettingsStore.storageKey)
     #expect(!SettingsStore(defaults: defaults, legacyDefaults: nil, loginItemEnabled: { true }).settings.panel.launchAtLogin,
             "saved settings win over the system state")
+}
+
+@Test func timelineReadLimitIsClamped() {
+    var activity = ActivitySettings()
+    activity.timelineReadLimit = 1
+    activity.validate()
+    #expect(activity.timelineReadLimit == CollectionSettings.timelineReadLimitRange.lowerBound)
+    activity.timelineReadLimit = 1_000_000
+    activity.validate()
+    #expect(activity.timelineReadLimit == CollectionSettings.timelineReadLimitRange.upperBound)
 }
