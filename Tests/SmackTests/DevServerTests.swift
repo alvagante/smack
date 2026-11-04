@@ -123,6 +123,43 @@ private func devProcess(_ pid: Int32, parent: Int32? = nil) -> ProcessMetrics {
     #expect(try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings)) == settings)
 }
 
+private actor CountingDevProjectResolver: ProjectResolving {
+    var calls: [String: Int] = [:]
+
+    func context(forDirectory path: String, now: Date) -> ProjectContext? {
+        calls[path, default: 0] += 1
+        guard path != "/unavailable" else { return nil }
+        return ProjectContext(directory: path, root: path, name: String(now.timeIntervalSince1970))
+    }
+}
+
+@Test func devServerResolvesEachDirectoryOncePerCollection() async {
+    let resolver = CountingDevProjectResolver()
+    let paths = ["/project-a", "/project-b", "/unavailable"]
+    let collector = DevServerCollector(resolver: resolver, workingDirectory: { paths[Int($0.pid) % paths.count] })
+    let processes = (100..<200).map { devProcess(Int32($0)) }
+    let ports = NetworkPortCollector.snapshot(from: processes.enumerated().map { index, process in
+        SocketRecord(owner: .init(pid: process.identity.pid, name: "node", userName: "test"),
+            descriptor: 1, localAddress: "127.0.0.1:\(3000 + index)", remoteAddress: "", state: "LISTEN")
+    })
+    let snapshot = ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: processes)
+    for pass in 1...2 {
+        let now = Date(timeIntervalSince1970: Double(pass))
+        let rows = await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false, now: now)
+        #expect(rows.count == 100)
+        #expect(await resolver.calls == Dictionary(uniqueKeysWithValues: paths.map { ($0, pass) }))
+        for row in rows {
+            let path = paths[Int(row.process.pid) % paths.count]
+            if path == "/unavailable" {
+                #expect(row.project == nil)
+            } else {
+                #expect(row.project?.directory == path)
+                #expect(row.project?.name == String(now.timeIntervalSince1970))
+            }
+        }
+    }
+}
+
 @Test func devServerWarmCollectionMeasurementAndIdentityCache() async throws {
     let root = try projectFixture()
     defer { try? FileManager.default.removeItem(at: root) }
