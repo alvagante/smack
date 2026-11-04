@@ -31,11 +31,14 @@ struct NetworkPortsView: View {
         nonmutating set { model.expanded = newValue }
     }
 
-    private var ports: [ListeningPort] {
+    /// One row per process, port and scope: IPv4 and IPv6 listeners side by side, duplicate descriptors once.
+    private var ports: [ListeningPortPair] {
         let ports = (store.networkPorts?.ports ?? []).filter { model.port == nil || $0.port == model.port }
-        guard !query.isEmpty else { return ports }
-        return ports.filter {
-            "\($0.localAddress) \($0.port) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.scope.rawValue)"
+        let pairs = ListeningPortPair.pairs(ports, perProcess: true)
+        guard !query.isEmpty else { return pairs }
+        return pairs.filter { pair in
+            let port = pair.primary
+            return "\(pair.ipv4?.localAddress ?? "") \(pair.ipv6?.localAddress ?? "") \(port.port) \(port.processName) \(port.pid) \(port.userName ?? "") \(port.scope.rawValue)"
                 .localizedCaseInsensitiveContains(query)
         }
     }
@@ -134,19 +137,21 @@ struct NetworkPortsView: View {
             .frame(maxHeight: .infinity)
         } else {
             List {
-                ForEach(ports) { port in
-                    DisclosureGroup(isExpanded: expansion(for: port)) {
-                        if port.clients.isEmpty {
+                ForEach(ports) { pair in
+                    let port = pair.primary
+                    let clients = pair.clients
+                    DisclosureGroup(isExpanded: expansion(for: pair)) {
+                        if clients.isEmpty {
                             Label("No active client connections", systemImage: "person.crop.circle.badge.questionmark")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .padding(.vertical, 4)
                         } else {
-                            Text("Active client connections (\(port.clients.count))")
+                            Text("Active client connections (\(clients.count))")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .padding(.top, 4)
-                            ForEach(port.clients) { client in
+                            ForEach(clients) { client in
                                 HStack(alignment: .top, spacing: 12) {
                                     Image(systemName: "arrow.right.circle.fill")
                                         .foregroundStyle(.secondary)
@@ -171,16 +176,17 @@ struct NetworkPortsView: View {
                     } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(port.localAddress)
-                                    .font(.headline.monospaced())
-                                    .textSelection(.enabled)
+                                HStack(spacing: 16) {
+                                    addressColumn(pair.ipv4)
+                                    addressColumn(pair.ipv6)
+                                }
                                 HStack(spacing: 6) {
                                     Text(port.protocolName)
                                     Text("·")
                                     Text(port.scope.rawValue)
                                         .foregroundStyle(port.scope == .localhost ? .green : .orange)
                                     Text("·")
-                                    Text("\(port.clients.count) active client\(port.clients.count == 1 ? "" : "s")")
+                                    Text("\(clients.count) active client\(clients.count == 1 ? "" : "s")")
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -278,15 +284,24 @@ struct NetworkPortsView: View {
         }
     }
 
-    private func expansion(for port: ListeningPort) -> Binding<Bool> {
+    /// Fixed width so IPv4 and IPv6 addresses line up as two columns across rows; empty when the family is absent.
+    private func addressColumn(_ port: ListeningPort?) -> some View {
+        Text(port?.localAddress ?? "")
+            .font(.headline.monospaced())
+            .lineLimit(1).truncationMode(.middle)
+            .textSelection(.enabled)
+            .frame(width: 220, alignment: .leading)
+    }
+
+    private func expansion(for pair: ListeningPortPair) -> Binding<Bool> {
         Binding(
-            get: { expanded.contains(port.id) },
+            get: { expanded.contains(pair.id) },
             set: { isExpanded in
                 if isExpanded {
-                    expanded.insert(port.id)
+                    expanded.insert(pair.id)
                     store.loadNetworkPorts()
                 } else {
-                    expanded.remove(port.id)
+                    expanded.remove(pair.id)
                 }
             }
         )

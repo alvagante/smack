@@ -170,6 +170,7 @@ struct InsightsView: View {
                             if program.isNew { DetailBadge(text: "First connection", systemImage: "sparkle", color: .cyan) }
                             Spacer()
                             Text("\(program.newHosts.count) new · \(program.knownHostCount) known").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            historyLink(name: program.name, hours: InsightsRange.day.rawValue)
                         }
                     }
                 }
@@ -198,7 +199,7 @@ struct InsightsView: View {
 
     /// Opens the running application, or the running process when the name is not an application.
     /// A program that is not running has no detail page, so the row is not a link.
-    @ViewBuilder
+    /// Every row also gets a history icon, which works whether or not the program is running.
     private func programLink<Content: View>(name: String, path: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         let route = detailRoute(name: name, path: path)
         let label = HStack(spacing: 10) {
@@ -206,13 +207,31 @@ struct InsightsView: View {
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 .opacity(route == nil ? 0 : 1)
         }
-        if let route {
-            Button { store.route = route } label: { label.contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .help("Open \(name)")
-        } else {
-            label
+        return HStack(spacing: 8) {
+            if let route {
+                Button { store.route = route } label: { label.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .help("Open \(name)")
+            } else {
+                label
+            }
+            historyLink(name: name)
         }
+    }
+
+    /// Opens Historical Data on this program over the card's range.
+    private func historyLink(name: String, hours: Double? = nil) -> some View {
+        Button {
+            store.historyViewModel.hours = hours ?? model.range.rawValue
+            store.historyViewModel.select(program: name)
+            store.route = .history
+        } label: {
+            Image(systemName: AppRoute.history.systemImage).font(.caption).foregroundStyle(AppRoute.history.tint)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show \(name) in Historical Data")
+        .accessibilityLabel("Show \(name) in Historical Data")
     }
 
     private func detailRoute(name: String, path: String? = nil) -> AppRoute? {

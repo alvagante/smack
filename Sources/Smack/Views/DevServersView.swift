@@ -84,16 +84,13 @@ struct DevServersView: View {
                                 Text([container.name, container.composeProject, container.composeWorkingDirectory]
                                     .compactMap { $0 }.joined(separator: " · ")).font(.caption)
                             }
-                            ForEach(row.ports) { port in
-                                HStack {
-                                    Text("\(port.localAddress) · \(port.scope.rawValue)").monospaced()
-                                    if let url = port.browserURL { Link("Open", destination: url) }
-                                    Menu("Copy") {
-                                        if let url = port.browserURL { Button("URL") { copy(url.absoluteString) } }
-                                        Button("Host:port") { copy(port.localAddress) }
-                                        if let path = row.project?.root ?? row.project?.directory { Button("Project path") { copy(path) } }
-                                        Button("Summary") { copy("\(row.project?.name ?? row.processName): \(port.localAddress)") }
-                                    }.fixedSize()
+                            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
+                                ForEach(row.portPairs) { pair in
+                                    GridRow {
+                                        portCell(pair.ipv4, row: row)
+                                        portCell(pair.ipv6, row: row)
+                                        Text(pair.scope.rawValue).font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                             HStack {
@@ -110,7 +107,7 @@ struct DevServersView: View {
                                         Button(action.title) { containerOperation = DockerContainerOperation(action: action, container: container) }
                                     }
                                 } else if row.container == nil, Capabilities.supportsProcessTermination,
-                                          !row.listenerProcesses.isEmpty {
+                                          !row.stoppableProcesses.isEmpty {
                                     Button("Stop", role: .destructive) { stopping = row }
                                 }
                             }
@@ -136,14 +133,14 @@ struct DevServersView: View {
                 if let row = stopping {
                     Button("Stop", role: .destructive) {
                         let current = (store.processes?.applications.flatMap(\.processes) ?? []) + (store.processes?.backgroundProcesses ?? [])
-                        let result = ProcessTerminator.terminate(targets: row.listenerProcesses, current: current.map(\.identity),
+                        let result = ProcessTerminator.terminate(targets: row.stoppableProcesses, current: current.map(\.identity),
                             force: false, requestQuit: { _ in nil })
                         store.errorMessage = result.summary
                         stopping = nil
                     }
                 }
         } message: {
-            Text("Send SIGTERM to PIDs " + (stopping?.listenerProcesses.map { String($0.pid) }.joined(separator: ", ") ?? "") + ".")
+            Text("Send SIGTERM to PIDs " + (stopping?.stoppableProcesses.map { String($0.pid) }.joined(separator: ", ") ?? "") + ".")
         }
         .confirmationDialog(containerOperation?.title ?? "Container action", isPresented: Binding(
             get: { containerOperation != nil }, set: { if !$0 { containerOperation = nil } }), titleVisibility: .visible) {
@@ -157,6 +154,24 @@ struct DevServersView: View {
                         }
                     }
                 }
+        }
+    }
+
+    /// One listener: address, then Open and Copy. Empty when the port has no listener in this address family.
+    @ViewBuilder private func portCell(_ port: ListeningPort?, row: DevServer) -> some View {
+        if let port {
+            HStack {
+                Text(port.localAddress).monospaced().textSelection(.enabled)
+                if let url = port.browserURL { Link("Open", destination: url) }
+                Menu("Copy") {
+                    if let url = port.browserURL { Button("URL") { copy(url.absoluteString) } }
+                    Button("Host:port") { copy(port.localAddress) }
+                    if let path = row.project?.root ?? row.project?.directory { Button("Project path") { copy(path) } }
+                    Button("Summary") { copy("\(row.project?.name ?? row.processName): \(port.localAddress)") }
+                }.fixedSize()
+            }
+        } else {
+            Color.clear.frame(width: 1, height: 1)
         }
     }
 

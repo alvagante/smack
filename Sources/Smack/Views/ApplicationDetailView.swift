@@ -85,6 +85,8 @@ final class ApplicationDetailViewModel: ObservableObject {
 @MainActor
 private final class ApplicationTimelineModel: ObservableObject {
     @Published var range = TimelineRange.hours24
+    /// Opens on the graph each time; the picker switches to the event log.
+    @Published var graphLayout = true
     @Published var events: [ActivityEvent] = []
     @Published var loading = false
 }
@@ -307,38 +309,35 @@ struct ApplicationDetailView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            let count = chartCount(app)
-            // Every chart in one row when it fits, then three or two per row.
-            ViewThatFits(in: .horizontal) {
-                chartGrid(app, columns: count)
-                if count > 3 { chartGrid(app, columns: 3) }
-                chartGrid(app, columns: 2)
-            }
+            chartRows(app)
             Text(footnote(app)).font(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var showsLiveGPU: Bool { model.range == .live && store.system?.gpuProcessStatus == .available }
 
-    private func chartCount(_ app: ApplicationMetrics) -> Int {
-        3 + (model.range == .live ? (app.networkThroughput != nil ? 1 : 0) + (showsLiveGPU ? 1 : 0) : 1)
-    }
-
-    private func chartGrid(_ app: ApplicationMetrics, columns: Int) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 190), spacing: 12, alignment: .top), count: max(1, columns)), spacing: 12) {
-            AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
-            AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
-            AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
-            if model.range == .live, app.networkThroughput != nil {
-                AppMetricChart(title: "Network", lines: networkLines(app), format: Formatting.rate)
+    /// CPU and GPU (Wakeups for history, which has no GPU) on the first row; Disk, Memory and Network on the second.
+    /// Each row splits the full width between its charts.
+    private func chartRows(_ app: ApplicationMetrics) -> some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                AppMetricChart(title: "CPU", lines: [line("CPU", .blue, .cpuUsage, app)], format: Formatting.percent)
+                if showsLiveGPU {
+                    AppMetricChart(title: "GPU", lines: [AppChartLine(title: "GPU", color: .indigo, points: store.recentGPUPoints[app.id] ?? [])], format: Formatting.percent)
+                }
+                if model.range != .live {
+                    AppMetricChart(title: "Wakeups", lines: [line("Wakeups", .teal, .wakeups, app)], format: Formatting.wakeups)
+                }
             }
-            if showsLiveGPU {
-                AppMetricChart(title: "GPU", lines: [AppChartLine(title: "GPU", color: .indigo, points: store.recentGPUPoints[app.id] ?? [])], format: Formatting.percent)
-            }
-            if model.range != .live {
-                AppMetricChart(title: "Wakeups", lines: [line("Wakeups", .teal, .wakeups, app)], format: Formatting.wakeups)
+            HStack(alignment: .top, spacing: 12) {
+                AppMetricChart(title: "Disk", lines: [line("Read", .orange, .diskReadRate, app), line("Write", .pink, .diskWriteRate, app)], format: Formatting.rate)
+                AppMetricChart(title: "Memory", lines: [line("Memory", .purple, .memoryBytes, app)], format: { Formatting.bytes(UInt64(max(0, $0))) })
+                if model.range == .live, app.networkThroughput != nil {
+                    AppMetricChart(title: "Network", lines: networkLines(app), format: Formatting.rate)
+                }
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func networkLines(_ app: ApplicationMetrics) -> [AppChartLine] {
@@ -435,7 +434,7 @@ struct ApplicationDetailView: View {
         .timeline: "Activity events of any running process, or one seen earlier under the same name.",
         .files: "Files and sockets the application's processes hold open right now.",
         .connections: "Network and UNIX socket connections of the application's processes.",
-        .threads: "Threads by name, per process. The main thread is highlighted.",
+        .threads: "Threads by name and process, sortable by state, CPU time or priority. The main thread is highlighted.",
         .libraries: "Dynamic libraries and frameworks loaded into the processes. Anything not from macOS is labelled.",
         .diagnostics: "On-demand profiling with the macOS developer tools.",
     ]
@@ -598,31 +597,22 @@ struct ApplicationDetailView: View {
         }
     }
 
-    /// One chip cloud per process, the process with most threads first.
+    /// One table across the inspected processes, one row per thread name and process.
     private var threadsList: some View {
         let rows = (inspection.applicationInventory?.threads ?? []).filter {
-            model.filter.isEmpty || "\($0.name) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
+            model.filter.isEmpty || "\($0.group.name) \($0.process.name)".localizedCaseInsensitiveContains(model.filter)
         }
-        typealias ProcessThreads = (process: ProcessRef, threads: [AggregatedThread], total: Int)
-        let grouped = Dictionary(grouping: rows, by: \.process)
-        let byProcess: [ProcessThreads] = grouped.map { entry -> ProcessThreads in
-            let total: Int = entry.value.reduce(0) { $0 + $1.count }
-            return (process: entry.key, threads: entry.value, total: total)
-        }.sorted { (lhs: ProcessThreads, rhs: ProcessThreads) -> Bool in
-            lhs.total != rhs.total ? lhs.total > rhs.total : lhs.process.pid < rhs.process.pid
-        }
+        let total = rows.reduce(0) { $0 + $1.group.count }
+        let processes = Set(rows.map(\.process)).count
         return VStack(alignment: .leading, spacing: 10) {
-            ForEach(byProcess.prefix(Self.rowLimit), id: \.process) { group in
-                MetricCard(title: group.process.label, systemImage: "square.stack.3d.up", color: DetailSectionStyle.threads.color) {
-                    HStack {
-                        DetailBadge(text: "\(group.total) threads", color: DetailSectionStyle.threads.color)
-                        Spacer()
-                        Button("Open process") { store.route = .process(group.process.id) }.buttonStyle(.link).font(.caption)
-                    }
-                    ThreadChips(names: DetailReadings.threadNames(group.threads.flatMap { thread in
-                        Array(repeating: thread.name == "Unnamed thread" ? nil : thread.name, count: thread.count)
-                    }))
-                }
+            HStack(spacing: 6) {
+                DetailBadge(text: "\(total) threads", color: DetailSectionStyle.threads.color)
+                if processes > 1 { DetailBadge(text: "\(processes) processes", color: .secondary) }
+                RunningThreadsBadge(count: rows.reduce(0) { $0 + $1.group.running })
+            }
+            if !rows.isEmpty {
+                ThreadTable(rows: rows.map { ThreadTableRow(id: $0.id, group: $0.group, process: $0.process) },
+                            limit: Self.rowLimit) { store.route = .process($0.id) }
             }
             capNote(rows.count)
         }
@@ -793,6 +783,7 @@ private struct AppMetricChart: View {
             }
         }
         .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -818,6 +809,11 @@ private struct ApplicationTimelineTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
+                Picker("Layout", selection: $model.graphLayout) {
+                    Image(systemName: "list.bullet").help("Log").tag(false)
+                    Image(systemName: "chart.dots.scatter").help("Graph").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
                 Picker("Range", selection: $model.range) {
                     ForEach(TimelineRange.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -828,7 +824,20 @@ private struct ApplicationTimelineTab: View {
             }
             if model.events.isEmpty, !model.loading {
                 Text("No events for this application in \(model.range.phrase).").foregroundStyle(.secondary)
+            } else if model.graphLayout {
+                let end = Date()
+                TimelineGraph(store: store, events: model.events, lanes: ActivityEventKind.Group.allCases.filter { group in model.events.contains { $0.kind.group == group } },
+                              window: DateInterval(start: end.addingTimeInterval(-model.range.interval), end: end),
+                              truncatedBefore: model.events.count >= Self.fetchLimit ? model.events.map(\.timestamp).min() : nil)
+            } else {
+                log
             }
+        }
+        .task(id: "\(app.id)-\(model.range.rawValue)-\(activity.recentEvents.first?.id ?? "")") { await load() }
+    }
+
+    private var log: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(model.events.prefix(Self.rowLimit)) { event in
                 HStack(spacing: 10) {
                     Image(systemName: event.kind.systemImage).foregroundStyle(color(event.severity)).frame(width: 20)
@@ -848,7 +857,6 @@ private struct ApplicationTimelineTab: View {
                 Text("Showing latest \(Self.rowLimit) of \(model.events.count) events.").font(.caption).foregroundStyle(.secondary)
             }
         }
-        .task(id: "\(app.id)-\(model.range.rawValue)-\(activity.recentEvents.first?.id ?? "")") { await load() }
     }
 
     private func load() async {

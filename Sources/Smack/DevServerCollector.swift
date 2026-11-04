@@ -17,6 +17,50 @@ struct DevServer: Identifiable, Sendable, Equatable {
     var container: ContainerBinding?
     var agentSession: String?
     var listenerProcesses: [ProcessIdentity] = []
+
+    /// Ports for display: one row per protocol, port and scope, with the IPv4 and IPv6 listeners side by side.
+    /// The same address held through several descriptors (launchd socket activation, forked workers) shows once.
+    var portPairs: [ListeningPortPair] { ListeningPortPair.pairs(ports) }
+
+    /// Listener processes Smack may offer to stop: never launchd (PID 1), which holds socket-activated ports for others.
+    var stoppableProcesses: [ProcessIdentity] { listenerProcesses.filter { $0.pid > 1 } }
+}
+
+struct ListeningPortPair: Identifiable, Sendable, Equatable {
+    var ipv4: ListeningPort?
+    var ipv6: ListeningPort?
+
+    var id: String { [ipv4?.id, ipv6?.id].map { $0 ?? "-" }.joined(separator: "|") }
+    /// The IPv4 listener when there is one; process, port and scope are the same on both sides.
+    var primary: ListeningPort { (ipv4 ?? ipv6)! }
+    var scope: NetworkPortScope { primary.scope }
+    /// Clients of both listeners, each once.
+    var clients: [NetworkClient] {
+        var seen = Set<String>()
+        return ((ipv4?.clients ?? []) + (ipv6?.clients ?? [])).filter { seen.insert($0.id).inserted }
+    }
+
+    static func isIPv6(_ port: ListeningPort) -> Bool {
+        port.host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).contains(":")
+    }
+
+    /// `perProcess` keeps different processes on separate rows, for pages that list every listener on the Mac.
+    static func pairs(_ ports: [ListeningPort], perProcess: Bool = false) -> [ListeningPortPair] {
+        var seen = Set<String>()
+        let owner: (ListeningPort) -> String = { perProcess ? "\($0.pid)|" : "" }
+        let unique = ports.filter { seen.insert(owner($0) + "\($0.protocolName)|\($0.localAddress)").inserted }
+        let groups = Dictionary(grouping: unique) { owner($0) + "\($0.protocolName)|\($0.port)|\($0.scope.rawValue)" }
+        return groups.values.flatMap { group -> [ListeningPortPair] in
+            let v4 = group.filter { !isIPv6($0) }.sorted { $0.localAddress < $1.localAddress }
+            let v6 = group.filter(isIPv6).sorted { $0.localAddress < $1.localAddress }
+            return (0..<max(v4.count, v6.count)).map {
+                ListeningPortPair(ipv4: $0 < v4.count ? v4[$0] : nil, ipv6: $0 < v6.count ? v6[$0] : nil)
+            }
+        }.sorted {
+            let l = $0.primary, r = $1.primary
+            return (l.port, l.scope.rawValue, l.pid, $0.id) < (r.port, r.scope.rawValue, r.pid, $1.id)
+        }
+    }
 }
 
 actor DevServerCollector {

@@ -553,14 +553,17 @@ struct ProcessDetailView: View {
             case .libraries: pathList(filtered(inventory.libraries).map { ($0.path, nil) }, checksFileOnDisk: true)
             case .connections: connectionsList(filtered(inventory.connections))
             case .threads:
-                let names = DetailReadings.threadNames(inventory.threads.map(\.name).filter {
-                    model.filter.isEmpty || ($0 ?? "").localizedCaseInsensitiveContains(model.filter)
+                let groups = ThreadGroup.grouping(inventory.threads.filter {
+                    model.filter.isEmpty || ($0.name ?? "").localizedCaseInsensitiveContains(model.filter)
                 })
                 HStack(spacing: 6) {
                     DetailBadge(text: "\(inventory.threads.count) threads", color: DetailSectionStyle.threads.color)
-                    DetailBadge(text: "\(names.count) distinct names", color: .secondary)
+                    DetailBadge(text: "\(groups.count) distinct names", color: .secondary)
+                    RunningThreadsBadge(count: inventory.threads.filter { $0.state == .running }.count)
                 }
-                ThreadChips(names: Array(names.prefix(Self.rowLimit)))
+                if !groups.isEmpty {
+                    ThreadTable(rows: groups.map { ThreadTableRow(id: $0.id, group: $0) }, limit: Self.rowLimit)
+                }
             default: EmptyView()
             }
         } else if !inspection.inventoryLoading {

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import SmackIPC
 import Testing
 @testable import Smack
 
@@ -32,10 +33,38 @@ import Testing
     #expect(DetailReadings.hasRemote("17.253.144.10:443"))
 }
 
-@Test func threadNamesPutMainFirstAndUnnamedLast() {
-    let names = DetailReadings.threadNames([nil, "worker", "com.apple.main-thread", "worker", nil, "io"])
-    #expect(names.map(\.name) == ["com.apple.main-thread", "worker", "io", ""])
-    #expect(names.map(\.count) == [1, 2, 1, 2])
+@Test func threadGroupsPutMainFirstThenMostCPUTime() throws {
+    let groups = ThreadGroup.grouping([
+        ThreadInfo(id: 1, name: nil, state: .waiting, cpuTime: 0.1),
+        ThreadInfo(id: 2, name: "worker", state: .running, cpuTime: 2, recentCPU: 0.4, priority: 31),
+        ThreadInfo(id: 3, name: "com.apple.main-thread", state: .waiting, cpuTime: 1),
+        ThreadInfo(id: 4, name: "worker", state: .uninterruptible, cpuTime: 3, recentCPU: 0.1, priority: 20),
+        ThreadInfo(id: 5, name: "io", state: .waiting, cpuTime: 0.5, fixedPolicy: "FIFO")
+    ])
+    #expect(groups.map(\.name) == ["com.apple.main-thread", "worker", "io", ""])
+    let worker = try #require(groups.first { $0.name == "worker" })
+    #expect(worker.count == 2 && worker.running == 1 && worker.uninterruptible == 1)
+    #expect(worker.cpuTime == 5 && worker.priorities == 20...31)
+    #expect(abs((worker.recentCPU ?? 0) - 0.5) < 0.0001)
+    #expect(groups.first { $0.name == "io" }?.fixedPolicies == ["FIFO"])
+}
+
+@Test func threadGroupsFromNameOnlyRecordsHaveNoReadings() throws {
+    let thread = InventoryCollector.thread(from: ThreadRecord(id: 9, name: "main"))
+    let group = try #require(ThreadGroup.grouping([thread]).first)
+    #expect(thread.state == nil && group.cpuTime == nil && group.recentCPU == nil && group.priorities == nil)
+}
+
+@Test func threadRecordMapsSchedulerFields() {
+    let thread = InventoryCollector.thread(from: ThreadRecord(id: 1, name: "a", runState: 4, userTime: 1_500_000_000,
+                                                              systemTime: 500_000_000, cpuUsage: 250, priority: 47, policy: 4))
+    #expect(thread.state == .uninterruptible && thread.cpuTime == 2 && thread.recentCPU == 0.25)
+    #expect(thread.priority == 47 && thread.fixedPolicy == "FIFO")
+}
+
+@Test func cpuTimeFormatting() {
+    #expect(DetailReadings.cpuTime(0.042) == "42 ms")
+    #expect(DetailReadings.cpuTime(1.25).hasSuffix(" s"))
 }
 
 @Test func environmentAndEntitlementRisks() {
@@ -112,4 +141,17 @@ private func render<V: View>(_ content: V, name: String, width: Double) async th
         try png.write(to: destination.appendingPathComponent("\(name.replacingOccurrences(of: " ", with: "-"))-\(Int(width)).png"))
     }
     window.contentView = nil
+}
+
+@Test func threadTableSortsByStateThenCPU() {
+    func row(_ name: String, running: Int = 0, blocked: Int = 0, cpu: Double? = nil) -> ThreadTableRow {
+        ThreadTableRow(id: name, group: ThreadGroup(name: name, count: 1, running: running, uninterruptible: blocked, cpuTime: cpu))
+    }
+    let idle = row("idle", cpu: 9), busy = row("busy", running: 1, cpu: 1), io = row("io", blocked: 1), legacy = row("legacy")
+    #expect(ThreadTable.compare(.state, busy, io) == .orderedDescending)
+    #expect(ThreadTable.compare(.state, io, idle) == .orderedDescending)
+    #expect(ThreadTable.compare(.cpuTime, idle, busy) == .orderedDescending)
+    #expect(ThreadTable.compare(.cpuTime, legacy, io) == .orderedSame)
+    #expect(ThreadTable.compare(.name, row(""), row("a")) == .orderedDescending)
+    #expect(ThreadTable.stateTitle(busy.group) == "Running" && ThreadTable.stateTitle(io.group) == "Blocked")
 }

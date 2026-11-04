@@ -196,10 +196,33 @@ struct BaselineView: View {
         BaselineCard(title: "Compare", systemImage: "arrow.left.arrow.right", color: .orange,
                      caption: "Diff the selected baseline against a fresh capture of now or another saved baseline.") {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { basePicker; againstPicker; compareButtons }
-                VStack(alignment: .leading) { basePicker; againstPicker; compareButtons }
+                HStack(alignment: .center, spacing: 10) {
+                    baseEndpoint
+                    Image(systemName: "arrow.right.circle.fill").font(.title2).foregroundStyle(.orange.gradient)
+                    againstEndpoint
+                }
+                VStack(alignment: .leading, spacing: 8) { baseEndpoint; againstEndpoint }
             }
+            compareButtons
         }
+    }
+
+    private func document(_ id: String) -> BaselineDocument? {
+        model.rows.first { $0.0.lastPathComponent == id }?.1
+    }
+
+    private var baseEndpoint: some View {
+        let doc = document(model.baseID)
+        let golden = !model.baseID.isEmpty && settingsStore.settings.security.goldenBaselineID == model.baseID
+        return BaselineEndpoint(role: golden ? "Base · golden" : "Base", title: doc?.name ?? "Choose a baseline",
+                                date: doc?.capturedAt, machine: doc?.machine, color: .indigo, isLive: false) { basePicker }
+    }
+
+    private var againstEndpoint: some View {
+        let live = model.againstID == "now"
+        let doc = live ? nil : document(model.againstID)
+        return BaselineEndpoint(role: "Against", title: live ? "This Mac, now" : doc?.name ?? "",
+                                date: doc?.capturedAt, machine: doc?.machine, color: live ? .green : .teal, isLive: live) { againstPicker }
     }
 
     private var againstPicker: some View {
@@ -235,7 +258,7 @@ struct BaselineView: View {
                     Label("Markdown report", systemImage: "doc.text")
                 }
             }
-            Text(diff.markdown).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            BaselineDriftReport(diff: diff)
         }
     }
 

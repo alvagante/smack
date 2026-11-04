@@ -164,7 +164,6 @@ struct TimelineView: View {
     @ObservedObject private var activity: ActivityFeedModel
     @ObservedObject private var settingsStore: SettingsStore
     @AppStorage("timeline.graphLayout") private var graphLayout = false
-    @State private var hover: TimelineHover?
 
     init(store: MonitorStore) {
         self.store = store
@@ -197,7 +196,7 @@ struct TimelineView: View {
                 ResourceTitle(title: "Timeline", systemImage: "list.bullet.rectangle", color: .mint,
                               subtitle: "Changes " + model.windowPhrase)
             } actions: {
-                readLimitControl
+                settingsBox
             } overview: {
                 ResourceStatsRow(headline: model.loading ? "…" : model.loadFailed ? "–" : String(model.loaded.count), unit: "events", stats: [
                     ResourceStat(title: "Matching", systemImage: "line.3.horizontal.decrease.circle", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.filtered.count)),
@@ -259,6 +258,46 @@ struct TimelineView: View {
         .help("Newest events the Timeline loads for the selected window. Filters and search work on these; older events in the window are shaded as not loaded. Higher values use more memory and slow the page.")
     }
 
+    /// Page-level settings, framed so they read apart from the filters below.
+    private var settingsBox: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            readLimitControl
+            recordingToggles
+        }
+        .font(.caption)
+        .padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.secondary.opacity(0.3)))
+        .overlay(alignment: .topLeading) {
+            Text("Settings")
+                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(.background, in: Capsule())
+                .overlay(Capsule().strokeBorder(.secondary.opacity(0.3)))
+                .offset(x: 10, y: -8)
+        }
+        .padding(.top, 8)
+    }
+
+    /// Same switches as Settings › Processes/Network › Timeline: whether new events of these groups are recorded.
+    private var recordingToggles: some View {
+        HStack(spacing: 10) {
+            Text("Record").foregroundStyle(.secondary)
+            Toggle("Processes", isOn: activityBinding(\.recordProcessEvents))
+                .help("Record process started and exited events. Already recorded events stay.")
+            Toggle("Network", isOn: activityBinding(\.recordNetworkEvents))
+                .help("Record listening port, interface and address events. Already recorded events stay.")
+        }
+        .toggleStyle(.switch).controlSize(.mini)
+        .disabled(!settingsStore.settings.activity.recordActivity)
+    }
+
+    private func activityBinding(_ keyPath: WritableKeyPath<ActivitySettings, Bool>) -> Binding<Bool> {
+        Binding(get: { settingsStore.settings.activity[keyPath: keyPath] }, set: { value in
+            settingsStore.update { $0.activity[keyPath: keyPath] = value }
+        })
+    }
+
     private var readLimit: Binding<Int> {
         Binding(get: { settingsStore.settings.activity.timelineReadLimit }, set: { value in
             settingsStore.update { $0.activity.timelineReadLimit = value }
@@ -288,7 +327,8 @@ struct TimelineView: View {
             ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
                                    description: Text("No activity events in \(model.windowPhrase)."))
         } else if graphLayout {
-            graph
+            TimelineGraph(store: store, events: model.filtered, lanes: model.lanes, window: model.window(), truncatedBefore: model.truncatedBefore)
+                .padding()
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -411,14 +451,28 @@ struct TimelineView: View {
         return .file(path)
     }
 
-    // MARK: Graph
+    private func color(_ severity: ActivityEventSeverity) -> Color {
+        switch severity {
+        case .info: .secondary
+        case .notice: .orange
+        case .warning: .red
+        }
+    }
+}
 
-    private var graph: some View {
-        let events = model.filtered
-        let lanes = model.lanes
-        let window = model.window()
+/// Events as points on one lane per event group; hovering shows the nearest events, clicking opens a live process.
+struct TimelineGraph: View {
+    let store: MonitorStore
+    let events: [ActivityEvent]
+    let lanes: [ActivityEventKind.Group]
+    let window: DateInterval
+    /// When the read limit cut older events off, the oldest loaded instant; the window before it is shaded.
+    var truncatedBefore: Date?
+    @State private var hover: TimelineHover?
+
+    var body: some View {
         let domain = window.start...window.end
-        let truncated = model.truncatedBefore.flatMap { $0 > window.start ? $0 : nil }
+        let truncated = truncatedBefore.flatMap { $0 > window.start ? $0 : nil }
         let nearby = hover.map { TimelineViewModel.events(near: $0.date, lane: $0.lane, in: events, tolerance: $0.tolerance) } ?? []
         return VStack(alignment: .leading, spacing: 8) {
             Chart {
@@ -490,7 +544,6 @@ struct TimelineView: View {
             .frame(minHeight: CGFloat(lanes.count) * 36 + 30)
             legend(events, lanes: lanes)
         }
-        .padding()
     }
 
     /// Maps the pointer to a lane and a time, with an 8 pt hit radius converted to seconds at the current scale.

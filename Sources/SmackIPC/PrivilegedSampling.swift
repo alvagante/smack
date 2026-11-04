@@ -120,13 +120,32 @@ public struct ConnectionRecord: Codable, Sendable, Equatable {
     }
 }
 
+/// Scheduler values come from the same `proc_threadinfo` read as the name. They are optional so payloads from an
+/// older helper, which sends only the name, still decode.
 public struct ThreadRecord: Codable, Sendable, Equatable {
     public var id: UInt64
     public var name: String?
+    /// `TH_STATE_*`: 1 running, 2 stopped, 3 waiting, 4 uninterruptible, 5 halted.
+    public var runState: Int32?
+    /// CPU time since the thread started, in nanoseconds.
+    public var userTime: UInt64?
+    public var systemTime: UInt64?
+    /// The scheduler's decaying CPU average, scaled to `TH_USAGE_SCALE` (1000 = one full core).
+    public var cpuUsage: Int32?
+    public var priority: Int32?
+    /// `POLICY_*`: 1 timeshare, 2 round-robin, 4 FIFO.
+    public var policy: Int32?
 
-    public init(id: UInt64, name: String?) {
+    public init(id: UInt64, name: String?, runState: Int32? = nil, userTime: UInt64? = nil, systemTime: UInt64? = nil,
+                cpuUsage: Int32? = nil, priority: Int32? = nil, policy: Int32? = nil) {
         self.id = id
         self.name = name
+        self.runState = runState
+        self.userTime = userTime
+        self.systemTime = systemTime
+        self.cpuUsage = cpuUsage
+        self.priority = priority
+        self.policy = policy
     }
 }
 

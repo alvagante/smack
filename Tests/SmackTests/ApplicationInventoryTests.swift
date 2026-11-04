@@ -32,7 +32,7 @@ private func ref(_ pid: Int32, _ name: String = "Helper") -> ProcessRef {
     #expect(result.connections.count == 2)
     #expect(result.unnamedSocketCount == 1)
     #expect(result.threadTotal == 3)
-    #expect(result.threads.first { $0.name == "worker" }?.count == 2)
+    #expect(result.threads.first { $0.group.name == "worker" }?.group.count == 2)
     #expect(result.warnings == ["Permission denied"])
     #expect(result.isPartial)
 
