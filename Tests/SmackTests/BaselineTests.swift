@@ -164,27 +164,20 @@ private struct FixtureBaselineCollector: BaselineSectionCollector {
     let executable = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent(".build/debug/SmackCLI")
     guard FileManager.default.isExecutableFile(atPath: executable.path) else { return }
-    func run(_ arguments: [String]) throws -> (Int32, String) {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["baseline"] + arguments + ["--socket", socket]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    func run(_ arguments: [String]) async -> (Int32, String) {
+        let result = await CommandRunner.run(executable.path,
+            ["baseline"] + arguments + ["--socket", socket], timeout: 3, outputLimit: 65_536)
+        return (result.status, result.output)
     }
-    #expect(try run(["diff", "--json"]).0 == 0)
-    let strict = try run(["diff", "--strict", "--json"])
+    #expect(await run(["diff", "--json"]).0 == 0)
+    let strict = await run(["diff", "--strict", "--json"])
     #expect(strict.0 == 2)
     #expect(strict.1.contains("\"sections\""))
-    let created = try run(["create", "--name", "fixture", "--sections", "system"])
+    let created = await run(["create", "--name", "fixture", "--sections", "system"])
     #expect(created.0 == 0)
     #expect(created.1.trimmingCharacters(in: .whitespacesAndNewlines) == "/tmp/fixture-baseline.json")
-    #expect(try run(["export", "missing"]).0 == 1)
-    #expect(try run(["diff", "--bad-flag", "value"]).0 == 1)
+    #expect(await run(["export", "missing"]).0 == 1)
+    #expect(await run(["diff", "--bad-flag", "value"]).0 == 1)
 }
 #endif
 
