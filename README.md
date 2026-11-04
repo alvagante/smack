@@ -87,32 +87,18 @@ brew tap alvagante/tap
 brew install --cask smack
 ```
 
-Update with `brew upgrade --cask smack`. The cask removes the quarantine flag, so the manual steps below are not needed.
+Update with `brew upgrade --cask smack`.
 
 ## Install from a GitHub release
 
-Release builds are not notarized by Apple, so macOS blocks the first launch.
+Releases from 1.0.0 are signed with Developer ID and notarized by Apple, so they open without Gatekeeper warnings.
 
 1. Download `Smack-<version>-macOS-arm64.zip` from the GitHub release, optionally check it against the `.sha256` file (`shasum -a 256 -c Smack-<version>-macOS-arm64.zip.sha256`), unzip it, and move `Smack.app` to `/Applications`.
-2. Try to open the app normally. macOS blocks it and shows a warning that it cannot be opened.
-3. Click **OK** to close the warning.
-4. Go to **Apple menu &gt; System Settings &gt; Privacy &amp; Security**.
-5. Scroll down to the **Security** section. You will see a message saying Smack was blocked.
-6. Click **Open Anyway** and enter your Mac's administrator password.
-7. Click **Open** on the final confirmation prompt.
+2. Open it. macOS asks once to confirm opening an app downloaded from the internet.
 
-The **Open Anyway** button is only available for about one hour after your first attempt to open the app. Control-click &gt; Open no longer bypasses this check on macOS 15 and later.
+If you enable native menu-bar icons, grant Screen Recording and Accessibility when asked, then reopen Smack. Grants survive updates. Upgrading from 0.7.0 or earlier asks for them once more, because those releases had a different signature; see [docs/signing.md](docs/signing.md).
 
-Alternatively, from Terminal, remove the quarantine flag and open the app:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Smack.app
-open /Applications/Smack.app
-```
-
-Only do this for a download you trust and have verified against its checksum.
-
-If you enable native menu-bar icons, grant Screen Recording and Accessibility when asked, then reopen Smack. Release builds are not signed with a stable identity yet, so each update may ask for these permissions again; see [docs/signing.md](docs/signing.md).
+If you installed the superuser helper with a 0.x release, turn **Sample processes owned by other users** off and on once after upgrading: Smack removes the old helper (administrator password) and registers the new one in Login Items.
 
 On macOS 27, Accessibility is also required to discover the icons. Use the copied overflow button to open macOS's hidden menu-bar items. Earlier macOS versions retain individual icon capture, including icons behind the notch.
 
@@ -124,7 +110,7 @@ SMACK_FLAVOR=app-store Scripts/build-app.sh   # sandboxed build without the help
 open dist/Smack.app
 ```
 
-Create a `Smack Local Dev` code-signing certificate (or set `SMACK_SIGN_IDENTITY`) to keep Screen Recording and Accessibility grants across rebuilds; see [docs/signing.md](docs/signing.md) for local and release signing.
+The build script signs with a Developer ID Application identity when one is in your keychain, otherwise with a `Smack Local Dev` self-signed certificate (or `SMACK_SIGN_IDENTITY`), to keep Screen Recording and Accessibility grants across rebuilds; see [docs/signing.md](docs/signing.md) for local and release signing.
 
 Superuser sampling is off by default and needs nothing until you enable **Sample
 processes owned by other users** in Settings. A notarized Developer ID build then asks you

@@ -4,9 +4,18 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
-Release target: 1.0.0, combining specs 004 and 005 (dev servers, agent sessions,
-baseline drift and file export). Prometheus metrics export is excluded and will not be implemented.
-Release artifacts target 1.0.0 (build 10); publication remains pending approval.
+## [1.0.0] - 2026-11-04
+
+Combines specs 004 and 005 (dev servers, agent sessions, baseline drift and file export).
+Prometheus metrics export is excluded and will not be implemented. Build 10.
+
+### Distribution
+
+- Releases are signed with Developer ID (team 37L6SLVHJZ), use the hardened runtime and are notarized and stapled, so they open without Gatekeeper warnings. The Homebrew cask no longer strips quarantine.
+- The release workflow fails instead of publishing an ad-hoc build when signing or notarization credentials are missing, and checks the result with `codesign --verify --strict` and `spctl --assess`.
+- The superuser helper is registered through `SMAppService` and approved in Login Items. After upgrading from a 0.x release with the classic helper installed, turn superuser sampling off and on once: Smack removes the old daemon (administrator password) and registers the new one.
+- Upgrading from 0.x asks for Screen Recording and Accessibility once more, because the signature changed. Grants then survive updates.
+- `Scripts/build-app.sh` signs local direct builds with a Developer ID Application identity when one is in the keychain, before falling back to `Smack Local Dev` or ad hoc.
 
 ### Changed
 

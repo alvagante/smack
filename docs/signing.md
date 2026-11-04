@@ -16,8 +16,15 @@ contains an App Store build variant; see [distribution.md](distribution.md) for 
 `Scripts/build-app.sh` picks the identity in this order and prints the one it used:
 
 1. `$SMACK_SIGN_IDENTITY`, if set (`-` forces ad hoc)
-2. `Smack Local Dev`, if that code-signing identity is in the keychain
-3. Ad hoc, with a warning
+2. The first valid `Developer ID Application:` identity in the keychain (direct flavor only)
+3. `Smack Local Dev`, if that code-signing identity is in the keychain
+4. Ad hoc, with a warning
+
+Signing local builds with Developer ID keeps `dist/Smack.app` and an installed release on
+the same designated requirement, so privacy grants and the helper's signer pin stay valid
+when switching between them. Developer ID signing adds a secure timestamp, which needs
+network access to Apple's timestamp service; offline, set `SMACK_SIGN_IDENTITY="Smack Local Dev"`.
+Run only one copy of Smack at a time: two instances contend for the helper and the control socket.
 
 Check what a build got:
 
