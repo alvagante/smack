@@ -6,7 +6,7 @@
 Smack lives in the camera island (notch) and menu bar: move the pointer up and a panel shows what your Mac is doing right now, who is doing it, and lets you act on it.  
 No windows to manage, no third-party dependencies, no data leaving the machine.
 
-![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
+[![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)](https://lab42.it/assets/images/smack/Smack-1.0.0-Brochure.pdf)
 
 ## Advanced features
 
@@ -20,7 +20,7 @@ No windows to manage, no third-party dependencies, no data leaving the machine.
 - **Battery history:** the Battery page combines live charge, time remaining, health and cycle count with macOS PowerLog history for charge levels, charging sessions, time near full, drain, screen time, capacity, temperature and system power. Choose 24-hour, 7-day or 30-day ranges. History is read from macOS rather than recorded by Smack and is unavailable in the App Store build.
 - **Customizable title bar:** optionally show a sponsor link, hostname, primary IPv4 address and prefix, a configurable clock, uptime, load average, battery and thermal warnings. Items drop out in groups when the panel is narrow; the sponsor link is omitted from the App Store build.
 - **History chart zoom:** drag across a system or program history chart to inspect a time window at full available resolution. Double-click or use Reset Zoom to return to the complete range.
-- **Insights ([spec 006](docs/specs/006-insights.md)):** answers from history Smack already records, with no new collection or writes. A click on a system history chart zooms to five minutes, and any zoom names the top programs by CPU, memory, disk and wakeups plus the events in the window. The program list ranks the zoomed window. The Insights page (`smack://insights`, 24h or 7d) ranks programs by bytes written with hourly or daily bars beside the device total, and ranks process churn, flagging launchd jobs outside system paths that restart often. It also lists public hosts each program reached for the first time in the last 24 hours (direct build). A Summary card digests the last 24 hours; turn it off in Settings > Historical Data, and the Minimal preset turns it off too. New destinations need connection events, which are off by default (Settings > Network > Include connections).
+- **Insights:** answers from history Smack already records, with no new collection or writes. A click on a system history chart zooms to five minutes, and any zoom names the top programs by CPU, memory, disk and wakeups plus the events in the window. The program list ranks the zoomed window. The Insights page (`smack://insights`, 24h or 7d) ranks programs by bytes written with hourly or daily bars beside the device total, and ranks process churn, flagging launchd jobs outside system paths that restart often. It also lists public hosts each program reached for the first time in the last 24 hours (direct build). A Summary card digests the last 24 hours; turn it off in Settings > Historical Data, and the Minimal preset turns it off too. New destinations need connection events, which are off by default (Settings > Network > Include connections).
 
 ## Core features: see, change, monitor
 
