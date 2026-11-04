@@ -29,6 +29,15 @@ import Synchronization
 }
 
 #if !SMACK_APP_STORE
+// Socket clients must not occupy the cooperative workers needed by server handlers.
+private func controlBlocking<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global(qos: .utility).async {
+            continuation.resume(with: Result { try operation() })
+        }
+    }
+}
+
 private func controlTemporaryPath() throws -> String {
     let root = "/tmp/smack-control-" + UUID().uuidString
     try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: false,
@@ -47,7 +56,7 @@ private func controlTemporaryPath() throws -> String {
     #expect(info.st_mode & 0o777 == 0o600)
     #expect(info.st_uid == geteuid())
     #expect(throws: (any Error).self) { try ControlServer(paths: [path]) { _ in ControlResponse() } }
-    try await Task.detached {
+    try await controlBlocking {
         func roundTrip(_ bytes: Data) throws -> ControlResponse {
             let fd = try ControlSocket.connect(path)
             defer { close(fd) }
@@ -63,14 +72,14 @@ private func controlTemporaryPath() throws -> String {
         #expect(try roundTrip(JSONEncoder().encode(ControlRequest(op: "status", version: 1))).version == 1)
         #expect(try roundTrip(Data("{}".utf8)).error == .invalidRequest)
         #expect(try roundTrip(Data(repeating: 32, count: 65537)).error == .invalidRequest)
-    }.value
+    }
 }
 
 @Test func controlServerBoundsClientsAndTimesOutIdlePeers() async throws {
     let path = try controlTemporaryPath()
     let server = try ControlServer(paths: [path]) { _ in ControlResponse() }
     defer { server.stop() }
-    try await Task.detached {
+    try await controlBlocking {
         var peers: [Int32] = []
         defer { peers.forEach { close($0) } }
         for _ in 0..<ControlProtocol.clientLimit { peers.append(try ControlSocket.connect(path)) }
@@ -87,7 +96,7 @@ private func controlTemporaryPath() throws -> String {
         if let data {
             #expect(try JSONDecoder().decode(ControlResponse.self, from: data).error == .invalidRequest)
         }
-    }.value
+    }
 }
 
 @Test func controlServerRejectsFilesAndSymlinks() throws {
@@ -297,7 +306,7 @@ private func controlTemporaryPath() throws -> String {
     }
     #expect(bound == 0); close(stale)
     let server = try ControlServer(paths: [path]) { _ in ControlResponse(records: [.init(id: "ok", title: "fragment")]) }
-    try await Task.detached {
+    try await controlBlocking {
         let peer = try ControlSocket.connect(path); defer { close(peer) }
         let bytes = try JSONEncoder().encode(ControlRequest(op: "status"))
         for byte in bytes { try ControlSocket.write(Data([byte]), to: peer) }
@@ -308,7 +317,7 @@ private func controlTemporaryPath() throws -> String {
         server.stop()
         var byte: UInt8 = 0
         #expect(Darwin.read(idle, &byte, 1) <= 0)
-    }.value
+    }
     server.stop()
     let restarted = try ControlServer(paths: [path]) { _ in ControlResponse() }
     restarted.stop()
@@ -375,7 +384,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         ControlResponse(records: [.init(id: "huge", title: String(repeating: "a", count: ControlProtocol.responseLimit))])
     }
     defer { server.stop() }
-    try await Task.detached {
+    try await controlBlocking {
         let peer = try ControlSocket.connect(path); defer { close(peer) }
         let bytes = try JSONEncoder().encode(ControlRequest(op: "status")) + Data([10])
         try ControlSocket.write(bytes + bytes, to: peer)
@@ -391,7 +400,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         #expect(first.records.first?.id == "one")
         #expect(!first.end)
         #expect(try reader.next(from: follow).records.first?.id == "two")
-    }.value
+    }
 }
 
 @Test func controlRequestDeadlineCannotBeExtendedByTrickling() async throws {
@@ -416,8 +425,8 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
     }.value
 }
 
-@Test func controlWriteDeadlineBoundsSlowReaders() async {
-    await Task.detached {
+@Test func controlWriteDeadlineBoundsSlowReaders() async throws {
+    try await controlBlocking {
         var pair: [Int32] = [0, 0]
         #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
         defer { close(pair[0]); close(pair[1]) }
@@ -428,7 +437,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - started
         #expect(elapsed >= 4.5 && elapsed < 8)
-    }.value
+    }
 }
 #endif
 
@@ -453,12 +462,12 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
     #expect(!FileManager.default.fileExists(atPath: path))
     settings.update { $0.automation.controlSocketEnabled = true }
     #expect(FileManager.default.fileExists(atPath: path))
-    let response = try await Task.detached {
+    let response = try await controlBlocking {
         let fd = try ControlSocket.connect(path); defer { close(fd) }
         try ControlSocket.write(try JSONEncoder().encode(ControlRequest(op: "status", version: 999)) + Data([10]), to: fd)
         var reader = ControlResponseReader()
         return try reader.next(from: fd)
-    }.value
+    }
     #expect(response.error == .unsupportedVersion)
     delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
     #expect(!FileManager.default.fileExists(atPath: path))
@@ -509,10 +518,12 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while old.activeClientCount != 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         #expect(old.activeClientCount == 0)
-        let peer = try ControlSocket.connect(path)
-        try ControlSocket.write(JSONEncoder().encode(ControlRequest(op: "status")) + Data([10]), to: peer)
-        #expect(try ControlSocket.readLine(from: peer, limit: ControlProtocol.responseLimit).count > 0)
-        close(peer)
+        try await controlBlocking {
+            let peer = try ControlSocket.connect(path)
+            defer { close(peer) }
+            try ControlSocket.write(JSONEncoder().encode(ControlRequest(op: "status")) + Data([10]), to: peer)
+            #expect(try ControlSocket.readLine(from: peer, limit: ControlProtocol.responseLimit).count > 0)
+        }
         replacement.stop()
     }
 }
