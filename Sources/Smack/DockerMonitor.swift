@@ -25,6 +25,36 @@ struct DockerPortBinding: Decodable, Hashable, Sendable {
     }
 }
 
+/// One published port of a container: its IPv4 and IPv6 host bindings side by side, duplicates once.
+struct DockerPortPair: Identifiable, Hashable, Sendable {
+    var containerPort: String
+    var ipv4: DockerPortBinding?
+    var ipv6: DockerPortBinding?
+
+    var id: String { "\(containerPort)|\(ipv4?.HostIp ?? "-")|\(ipv6?.HostIp ?? "-")|\((ipv4 ?? ipv6)?.HostPort ?? "")" }
+
+    static func host(_ binding: DockerPortBinding) -> String {
+        binding.HostIp.contains(":") ? "[\(binding.HostIp)]:\(binding.HostPort)" : "\(binding.HostIp):\(binding.HostPort)"
+    }
+
+    /// Pairs by container port, host port and loopback-ness, so 0.0.0.0 meets :: and 127.0.0.1 meets ::1.
+    static func pairs(_ ports: [String: [DockerPortBinding]?]) -> [DockerPortPair] {
+        func loopback(_ ip: String) -> Bool { ip.hasPrefix("127.") || ip == "::1" }
+        return ports.keys.sorted().flatMap { containerPort -> [DockerPortPair] in
+            let bindings = Array(Set(ports[containerPort].flatMap { $0 } ?? []))
+            let groups = Dictionary(grouping: bindings) { "\($0.HostPort)|\(loopback($0.HostIp))" }
+            return groups.keys.sorted { (Int($0.split(separator: "|")[0]) ?? 0, $0) < (Int($1.split(separator: "|")[0]) ?? 0, $1) }.flatMap { key in
+                let group = groups[key]!
+                let v4 = group.filter { !$0.HostIp.contains(":") }.sorted { $0.HostIp < $1.HostIp }
+                let v6 = group.filter { $0.HostIp.contains(":") }.sorted { $0.HostIp < $1.HostIp }
+                return (0..<max(v4.count, v6.count)).map {
+                    DockerPortPair(containerPort: containerPort, ipv4: $0 < v4.count ? v4[$0] : nil, ipv6: $0 < v6.count ? v6[$0] : nil)
+                }
+            }
+        }
+    }
+}
+
 struct DockerContainer: Decodable, Identifiable, Sendable {
     let id: String
     let name: String

@@ -179,3 +179,44 @@ private func devProcess(_ pid: Int32, parent: Int32? = nil) -> ProcessMetrics {
     #expect(await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false).isEmpty)
     #expect(await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: true).count == 1)
 }
+
+@Test func portPairsMergeDuplicatesAndPairAddressFamilies() {
+    let ports = [
+        obsPort(pid: 1, port: 8021, host: "127.0.0.1", fd: 3), obsPort(pid: 1, port: 8021, host: "127.0.0.1", fd: 4),
+        obsPort(pid: 1, port: 8021, host: "[::1]", fd: 5), obsPort(pid: 1, port: 8021, host: "[::1]", fd: 6),
+        obsPort(pid: 1, port: 3000, host: "0.0.0.0", fd: 7)
+    ]
+    let pairs = ListeningPortPair.pairs(ports)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].ipv4?.localAddress == "0.0.0.0:3000" && pairs[0].ipv6 == nil && pairs[0].scope == .external)
+    #expect(pairs[1].ipv4?.localAddress == "127.0.0.1:8021" && pairs[1].ipv6?.localAddress == "[::1]:8021")
+}
+
+@Test func portPairsPerProcessKeepProcessesApart() {
+    let ports = [obsPort(pid: 1, port: 80, host: "0.0.0.0", fd: 3), obsPort(pid: 2, port: 80, host: "[::]", fd: 3)]
+    #expect(ListeningPortPair.pairs(ports).count == 1)
+    #expect(ListeningPortPair.pairs(ports, perProcess: true).count == 2)
+}
+
+@Test func dockerPortPairsMatchAddressFamiliesPerHostPort() {
+    let bindings: [String: [DockerPortBinding]?] = [
+        "80/tcp": [DockerPortBinding(HostIp: "0.0.0.0", HostPort: "8080"), DockerPortBinding(HostIp: "::", HostPort: "8080"),
+                   DockerPortBinding(HostIp: "0.0.0.0", HostPort: "8080")],
+        "53/udp": [DockerPortBinding(HostIp: "127.0.0.1", HostPort: "5353")],
+        "9000/tcp": nil
+    ]
+    let pairs = DockerPortPair.pairs(bindings)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].containerPort == "53/udp" && pairs[0].ipv6 == nil)
+    #expect(pairs[1].ipv4.map(DockerPortPair.host) == "0.0.0.0:8080" && pairs[1].ipv6.map(DockerPortPair.host) == "[::]:8080")
+}
+
+@Test func launchdIsNeverStoppable() {
+    let launchd = ProcessIdentity(pid: 1, startTime: Date(timeIntervalSince1970: 1))
+    let worker = ProcessIdentity(pid: 42, startTime: Date(timeIntervalSince1970: 2))
+    var server = DevServer(id: "x", process: launchd, processName: "launchd", ports: [])
+    server.listenerProcesses = [launchd]
+    #expect(server.stoppableProcesses.isEmpty)
+    server.listenerProcesses.append(worker)
+    #expect(server.stoppableProcesses == [worker])
+}

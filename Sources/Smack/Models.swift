@@ -316,8 +316,19 @@ struct NetworkPortSnapshot: Sendable {
 }
 
 struct ThreadInfo: Identifiable, Sendable {
+    enum State: Sendable { case running, waiting, uninterruptible, stopped, halted }
+
     var id: UInt64
     var name: String?
+    /// The fields below are nil when an older helper sent only the name.
+    var state: State?
+    /// User plus system CPU time since the thread started.
+    var cpuTime: TimeInterval?
+    /// The scheduler's recent CPU average as a fraction of one core.
+    var recentCPU: Double?
+    var priority: Int?
+    /// Set only for a fixed-priority policy ("FIFO" or "Round-robin"); timeshare is the default and stays nil.
+    var fixedPolicy: String?
 }
 
 struct LoadedLibrary: Identifiable, Sendable {

@@ -396,27 +396,226 @@ struct InventoryConnectionRow<Trailing: View>: View {
     }
 }
 
-/// Thread names as chips, busiest name first; repeated names carry a count.
-struct ThreadChips: View {
-    let names: [(name: String, count: Int)]
+/// One row of `ThreadTable`: the threads of one process sharing a name.
+struct ThreadTableRow: Identifiable {
+    var id: String
+    var group: ThreadGroup
+    /// Set on application pages, where rows come from several processes.
+    var process: ProcessRef?
+}
 
-    var body: some View {
-        FlowLayout {
-            ForEach(Array(names.enumerated()), id: \.offset) { _, item in
-                HStack(spacing: 4) {
-                    Text(item.name.isEmpty ? "Unnamed" : item.name)
-                        .italic(item.name.isEmpty)
-                        .foregroundStyle(item.name.isEmpty ? .secondary : .primary)
-                    if item.count > 1 { Text("×\(item.count)").foregroundStyle(.secondary).monospacedDigit() }
-                }
-                .font(.caption.monospaced())
-                .lineLimit(1)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(DetailReadings.isMainThread(item.name) ? Color.blue.opacity(0.15) : Color.primary.opacity(0.05),
-                            in: RoundedRectangle(cornerRadius: 6))
-                .textSelection(.enabled)
+/// Thread groups as a table sortable by any column; clicking the active column flips its direction.
+/// The main thread is tinted; the state dot is green when a thread is running, orange when blocked uninterruptibly (usually I/O).
+struct ThreadTable: View {
+    enum Column: CaseIterable {
+        case name, process, count, state, cpuTime, recentCPU, priority
+
+        var title: String {
+            switch self {
+            case .name: "Name"
+            case .process: "Process"
+            case .count: "Threads"
+            case .state: "State"
+            case .cpuTime: "CPU time"
+            case .recentCPU: "Recent CPU"
+            case .priority: "Priority"
             }
         }
+
+        /// Fixed widths keep columns aligned across rows; nil columns share the remaining width.
+        var width: CGFloat? {
+            switch self {
+            case .name, .process: nil
+            case .count: 58
+            case .state: 104
+            case .cpuTime: 76
+            case .recentCPU: 80
+            case .priority: 60
+            }
+        }
+
+        var alignment: Alignment {
+            switch self {
+            case .name, .process, .state: .leading
+            default: .trailing
+            }
+        }
+
+        /// Text columns read naturally A to Z; numbers start with the largest.
+        var startsAscending: Bool { self == .name || self == .process }
+    }
+
+    let rows: [ThreadTableRow]
+    var limit = 500
+    var openProcess: ((ProcessRef) -> Void)? = nil
+
+    @State private var sortColumn = Column.cpuTime
+    @State private var ascending = false
+
+    private var columns: [Column] {
+        Column.allCases.filter { $0 != .process || rows.contains { $0.process != nil } }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(sorted.prefix(limit).enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { Divider().padding(.leading, 12) }
+                    rowView(row)
+                }
+            }
+        }
+        .monitorSurface()
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            ForEach(columns, id: \.self) { column in
+                Button {
+                    if sortColumn == column { ascending.toggle() } else { sortColumn = column; ascending = column.startsAscending }
+                } label: {
+                    HStack(spacing: 3) {
+                        if column.alignment == .trailing { Spacer(minLength: 0) }
+                        Text(column.title)
+                        if sortColumn == column {
+                            Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold))
+                        }
+                        if column.alignment == .leading { Spacer(minLength: 0) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(sortColumn == column ? .semibold : .regular))
+                .foregroundStyle(sortColumn == column ? .primary : .secondary)
+                .modifier(ColumnFrame(column: column))
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
+    private func rowView(_ row: ThreadTableRow) -> some View {
+        let group = row.group
+        let main = DetailReadings.isMainThread(group.name)
+        return HStack(spacing: 10) {
+            ForEach(columns, id: \.self) { column in
+                cell(column, row: row, main: main).modifier(ColumnFrame(column: column))
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 12).padding(.vertical, 5)
+        .background(main ? Color.blue.opacity(0.08) : .clear)
+        .help(DetailReadings.threadHelp(group))
+    }
+
+    @ViewBuilder private func cell(_ column: Column, row: ThreadTableRow, main: Bool) -> some View {
+        let group = row.group
+        switch column {
+        case .name:
+            Text(group.name.isEmpty ? "Unnamed" : group.name)
+                .font(.caption.monospaced())
+                .italic(group.name.isEmpty)
+                .foregroundStyle(group.name.isEmpty ? Color.secondary : main ? Color.blue : Color.primary)
+                .lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
+        case .process:
+            if let process = row.process {
+                if let openProcess {
+                    Button { openProcess(process) } label: { Text(process.label).lineLimit(1) }.buttonStyle(.link)
+                } else {
+                    Text(process.label).lineLimit(1)
+                }
+            }
+        case .count:
+            Text(group.count.formatted()).monospacedDigit().foregroundStyle(group.count > 1 ? .primary : .secondary)
+        case .state:
+            HStack(spacing: 5) {
+                Circle().fill(Self.stateColor(group)).frame(width: 6, height: 6)
+                Text(Self.stateTitle(group)).lineLimit(1)
+            }
+        case .cpuTime:
+            Text(group.cpuTime.map(DetailReadings.cpuTime) ?? "–").monospacedDigit()
+        case .recentCPU:
+            if let usage = group.recentCPU {
+                Text(usage.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
+                    .foregroundStyle(usage >= 0.01 ? .green : .secondary)
+            } else {
+                Text("–").foregroundStyle(.secondary)
+            }
+        case .priority:
+            HStack(spacing: 3) {
+                if !group.fixedPolicies.isEmpty {
+                    Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(.purple)
+                        .help("Fixed-priority policy: " + group.fixedPolicies.sorted().joined(separator: ", "))
+                }
+                Text(group.priorities.map { $0.count == 1 ? "\($0.lowerBound)" : "\($0.lowerBound)-\($0.upperBound)" } ?? "–")
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    private var sorted: [ThreadTableRow] {
+        rows.sorted { lhs, rhs in
+            let order = Self.compare(sortColumn, lhs, rhs)
+            if order != .orderedSame { return ascending ? order == .orderedAscending : order == .orderedDescending }
+            // Ties keep the default order: main thread, CPU time, size.
+            return (lhs.group.cpuTime ?? -1, lhs.id) > (rhs.group.cpuTime ?? -1, rhs.id)
+        }
+    }
+
+    static func compare(_ column: Column, _ lhs: ThreadTableRow, _ rhs: ThreadTableRow) -> ComparisonResult {
+        func order<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult { a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame }
+        let l = lhs.group, r = rhs.group
+        switch column {
+        case .name: return (l.name.isEmpty ? "\u{10FFFF}" : l.name).localizedStandardCompare(r.name.isEmpty ? "\u{10FFFF}" : r.name)
+        case .process: return (lhs.process?.label ?? "").localizedStandardCompare(rhs.process?.label ?? "")
+        case .count: return order(l.count, r.count)
+        case .state: return order(stateRank(l), stateRank(r))
+        case .cpuTime: return order(l.cpuTime ?? -1, r.cpuTime ?? -1)
+        case .recentCPU: return order(l.recentCPU ?? -1, r.recentCPU ?? -1)
+        case .priority: return order(l.priorities?.upperBound ?? -1, r.priorities?.upperBound ?? -1)
+        }
+    }
+
+    /// Running ranks highest, then blocked, then idle; more running threads rank higher within a rank.
+    static func stateRank(_ group: ThreadGroup) -> Int {
+        if group.running > 0 { return 2_000_000 + group.running }
+        if group.uninterruptible > 0 { return 1_000_000 + group.uninterruptible }
+        return 0
+    }
+
+    static func stateTitle(_ group: ThreadGroup) -> String {
+        if group.running > 0 { return group.count > 1 ? "\(group.running) running" : "Running" }
+        if group.uninterruptible > 0 { return group.count > 1 ? "\(group.uninterruptible) blocked" : "Blocked" }
+        return "Waiting"
+    }
+
+    static func stateColor(_ group: ThreadGroup) -> Color {
+        if group.running > 0 { return .green }
+        if group.uninterruptible > 0 { return .orange }
+        return .secondary.opacity(0.35)
+    }
+}
+
+private struct ColumnFrame: ViewModifier {
+    let column: ThreadTable.Column
+
+    func body(content: Content) -> some View {
+        if let width = column.width {
+            content.frame(width: width, alignment: column.alignment)
+        } else {
+            content.frame(maxWidth: .infinity, alignment: column.alignment)
+        }
+    }
+}
+
+/// Shown only when some thread was on a core at sampling time.
+struct RunningThreadsBadge: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 { DetailBadge(text: "\(count) running", color: .green) }
     }
 }
 
@@ -543,15 +742,22 @@ enum DetailReadings {
         name == "com.apple.main-thread" || name == "main"
     }
 
-    /// Thread names grouped and counted, most frequent first, unnamed threads last.
-    static func threadNames(_ names: [String?]) -> [(name: String, count: Int)] {
-        var counts: [String: Int] = [:]
-        for name in names { counts[name ?? "", default: 0] += 1 }
-        return counts.map { ($0.key, $0.value) }.sorted {
-            if $0.name.isEmpty != $1.name.isEmpty { return !$0.name.isEmpty }
-            if isMainThread($0.name) != isMainThread($1.name) { return isMainThread($0.name) }
-            return $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name
+    /// CPU time at a readable precision: milliseconds below a second, then seconds, then minutes and hours.
+    static func cpuTime(_ seconds: TimeInterval) -> String {
+        switch seconds {
+        case ..<1: "\(Int((seconds * 1_000).rounded())) ms"
+        case ..<60: seconds.formatted(.number.precision(.fractionLength(1))) + " s"
+        default: Formatting.duration(seconds)
         }
+    }
+
+    static func threadHelp(_ group: ThreadGroup) -> String {
+        var lines = ["\(group.count) thread\(group.count == 1 ? "" : "s"): \(group.running) running, \(group.uninterruptible) uninterruptible"]
+        if let time = group.cpuTime { lines.append("CPU time since start: \(cpuTime(time))") }
+        if let usage = group.recentCPU { lines.append("Recent CPU (scheduler average): \(usage.formatted(.percent.precision(.fractionLength(0))))") }
+        if let range = group.priorities { lines.append("Priority: " + (range.count == 1 ? "\(range.lowerBound)" : "\(range.lowerBound)-\(range.upperBound)")) }
+        if !group.fixedPolicies.isEmpty { lines.append("Fixed-priority policy: " + group.fixedPolicies.sorted().joined(separator: ", ")) }
+        return lines.joined(separator: "\n")
     }
 
     enum VariableRisk { case normal, sensitive, injection }

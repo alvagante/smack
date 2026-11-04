@@ -214,15 +214,12 @@ struct DockerDetailView: View {
                 GroupBox(container.displayName) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(container.group).font(.caption).foregroundStyle(.secondary)
-                        ForEach((container.ports ?? [:]).sorted { $0.key < $1.key }, id: \.key) { containerPort, bindings in
-                            ForEach(bindings ?? [], id: \.self) { binding in
-                                if let url = binding.browserURL(containerPort: containerPort) {
-                                    Link(destination: url) {
-                                        Label(binding.description(containerPort: containerPort), systemImage: "arrow.up.right.square")
-                                    }
-                                    .help("Open " + url.absoluteString + " in browser")
-                                } else {
-                                    Label(binding.description(containerPort: containerPort), systemImage: "network")
+                        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 4) {
+                            ForEach(DockerPortPair.pairs(container.ports ?? [:])) { pair in
+                                GridRow {
+                                    bindingCell(pair.ipv4, containerPort: pair.containerPort)
+                                    bindingCell(pair.ipv6, containerPort: pair.containerPort)
+                                    Text("→ " + pair.containerPort).foregroundStyle(.secondary)
                                 }
                             }
                         }.font(.callout.monospaced())
@@ -295,6 +292,20 @@ struct DockerDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(6)
                 }
             } else { emptyState(known: false) }
+        }
+    }
+
+    /// A host binding linking to the browser for TCP; empty when the port has no binding in this address family.
+    @ViewBuilder private func bindingCell(_ binding: DockerPortBinding?, containerPort: String) -> some View {
+        if let binding {
+            if let url = binding.browserURL(containerPort: containerPort) {
+                Link(destination: url) { Label(DockerPortPair.host(binding), systemImage: "arrow.up.right.square") }
+                    .help("Open " + url.absoluteString + " in browser")
+            } else {
+                Label(DockerPortPair.host(binding), systemImage: "network")
+            }
+        } else {
+            Color.clear.frame(width: 1, height: 1)
         }
     }
 

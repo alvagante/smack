@@ -40,9 +40,50 @@ struct AggregatedConnection: Identifiable, Sendable {
 
 struct AggregatedThread: Identifiable, Sendable {
     var id: String
-    var name: String
-    var count: Int
+    var group: ThreadGroup
     var process: ProcessRef
+}
+
+/// The threads of one process that share a name, with their scheduler readings summed.
+struct ThreadGroup: Identifiable, Sendable {
+    var id: String { name }
+    /// Empty for unnamed threads.
+    var name: String
+    var count = 0
+    var running = 0
+    var uninterruptible = 0
+    /// Nil when no thread in the group reported it (an older helper sends names only).
+    var cpuTime: TimeInterval?
+    var recentCPU: Double?
+    var priorities: ClosedRange<Int>?
+    var fixedPolicies: Set<String> = []
+
+    /// Groups by name: the main thread first, then the most CPU time, then the largest group.
+    static func grouping(_ threads: [ThreadInfo]) -> [ThreadGroup] {
+        var groups: [String: ThreadGroup] = [:]
+        for thread in threads {
+            let name = thread.name ?? ""
+            var group = groups[name] ?? ThreadGroup(name: name)
+            group.count += 1
+            if thread.state == .running { group.running += 1 }
+            if thread.state == .uninterruptible { group.uninterruptible += 1 }
+            if let time = thread.cpuTime { group.cpuTime = (group.cpuTime ?? 0) + time }
+            if let usage = thread.recentCPU { group.recentCPU = (group.recentCPU ?? 0) + usage }
+            if let priority = thread.priority {
+                group.priorities = group.priorities.map { min($0.lowerBound, priority)...max($0.upperBound, priority) } ?? priority...priority
+            }
+            if let policy = thread.fixedPolicy { group.fixedPolicies.insert(policy) }
+            groups[name] = group
+        }
+        return groups.values.sorted {
+            let lhsMain = DetailReadings.isMainThread($0.name), rhsMain = DetailReadings.isMainThread($1.name)
+            if lhsMain != rhsMain { return lhsMain }
+            if ($0.cpuTime ?? -1) != ($1.cpuTime ?? -1) { return ($0.cpuTime ?? -1) > ($1.cpuTime ?? -1) }
+            if $0.count != $1.count { return $0.count > $1.count }
+            if $0.name.isEmpty != $1.name.isEmpty { return !$0.name.isEmpty }
+            return $0.name < $1.name
+        }
+    }
 }
 
 /// The inventories of every inspected process of one application, merged for display.
@@ -94,10 +135,8 @@ struct ApplicationInventory: Sendable {
                     process: process
                 ))
             }
-            var names: [String: Int] = [:]
-            for thread in inventory.threads { names[thread.name ?? "Unnamed thread", default: 0] += 1 }
-            for (name, count) in names {
-                result.threads.append(AggregatedThread(id: "thread:\(process.id)#\(name)", name: name, count: count, process: process))
+            for group in ThreadGroup.grouping(inventory.threads) {
+                result.threads.append(AggregatedThread(id: "thread:\(process.id)#\(group.name)", group: group, process: process))
             }
             result.threadTotal += inventory.threads.count
             for warning in inventory.warnings where seenWarnings.insert(warning).inserted { warnings.append(warning) }
@@ -110,7 +149,9 @@ struct ApplicationInventory: Sendable {
             let rhsUnnamed = $1.remoteAddress == "—" ? 1 : 0
             return (lhsUnnamed, $0.process.name, $0.remoteAddress, $0.id) < (rhsUnnamed, $1.process.name, $1.remoteAddress, $1.id)
         }
-        result.threads.sort { ($0.process.name, $0.process.pid, $0.name) < ($1.process.name, $1.process.pid, $1.name) }
+        // Stable per process, keeping each process's groups in `ThreadGroup.grouping` order.
+        let threadOrder = Dictionary(result.threads.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        result.threads.sort { ($0.process.name, $0.process.pid, threadOrder[$0.id] ?? 0) < ($1.process.name, $1.process.pid, threadOrder[$1.id] ?? 0) }
         result.warnings = warnings
         return result
     }
