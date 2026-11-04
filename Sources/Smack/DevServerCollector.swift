@@ -66,12 +66,12 @@ struct ListeningPortPair: Identifiable, Sendable, Equatable {
 actor DevServerCollector {
     static let engineNames: Set<String> = ["com.docker.backend", "vpnkit-bridge", "OrbStack Helper",
         "limactl", "gvproxy", "qemu-system-aarch64"]
-    private let resolver: ProjectResolver
+    private let resolver: any ProjectResolving
     private let workingDirectory: @Sendable (ProcessIdentity) -> String?
     private var appleSigned: [ProcessIdentity: Bool] = [:]
     private let isAppleSigned: @Sendable (String) -> Bool
     private var directories: [ProcessIdentity: (date: Date, path: String?)] = [:]
-    init(resolver: ProjectResolver = ProjectResolver(),
+    init(resolver: any ProjectResolving = ProjectResolver(),
          isAppleSigned: @escaping @Sendable (String) -> Bool = DevServerCollector.appleSignature,
          workingDirectory: @escaping @Sendable (ProcessIdentity) -> String? = {
              guard ProcessInspection.isCurrent($0) else { return nil }
@@ -106,6 +106,8 @@ actor DevServerCollector {
             return path
         }
         var rows: [String: DevServer] = [:]
+        // Reuse even unavailable results within a snapshot, but revalidate on the next collection.
+        var projects: [String: ProjectContext?] = [:]
         for port in ports.ports {
             let process = byPID[port.pid]
             let engine = Self.engineNames.contains(port.processName)
@@ -136,7 +138,17 @@ actor DevServerCollector {
             }
             for binding in bindings {
                 let directory = binding?.composeWorkingDirectory ?? path
-                let project = if let directory { await resolver.context(forDirectory: directory, now: now) } else { nil as ProjectContext? }
+                let project: ProjectContext?
+                if let directory {
+                    if let cached = projects[directory] {
+                        project = cached
+                    } else {
+                        project = await resolver.context(forDirectory: directory, now: now)
+                        projects.updateValue(project, forKey: directory)
+                    }
+                } else {
+                    project = nil
+                }
                 let rootIdentity = owner?.identity ?? identity
                 let id = rootIdentity.id + ":" + (binding?.containerID ?? project?.root ?? path ?? "")
                 if rows[id] == nil {
