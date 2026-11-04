@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run tests
-        run: swift test
+        run: swift test --no-parallel
 
       - name: Import Developer ID certificate
         env:

@@ -531,7 +531,7 @@ func persistenceLiveEnrichmentStormWithPackagedChild() async throws {
     let count = Mutex(0)
     let watcher = PersistenceWatcher { _ in count.withLock { $0 += 1 } }
     for _ in 0..<200 { watcher.receive(paths: ["/Library/LaunchDaemons/fixture.plist"]) }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     while count.withLock({ $0 }) == 0 && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(50))
     }

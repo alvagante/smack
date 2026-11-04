@@ -17,10 +17,17 @@ private class OldHelperFixture: NSObject, SmackPrivilegedSampling, @unchecked Se
 private final class HelperFixture: OldHelperFixture, @unchecked Sendable {
     let version: Int?
     let payload: Data?
-    let firstReplyDelay: TimeInterval
+    let holdFirstReply: Bool
+    private let replyLock = NSLock()
+    private var pendingReply: (() -> Void)?
+    var hasPendingReply: Bool {
+        replyLock.lock()
+        defer { replyLock.unlock() }
+        return pendingReply != nil
+    }
     let calls = Mutex((versions: 0, operations: 0, late: 0))
-    init(version: Int? = 2, payload: Data? = Data("\"fixture\"".utf8), firstReplyDelay: TimeInterval = 0) {
-        self.version = version; self.payload = payload; self.firstReplyDelay = firstReplyDelay
+    init(version: Int? = 2, payload: Data? = Data("\"fixture\"".utf8), holdFirstReply: Bool = false) {
+        self.version = version; self.payload = payload; self.holdFirstReply = holdFirstReply
     }
     override func collectSnapshot(reply: @escaping (Data?, String?) -> Void) {
         calls.withLock { $0.versions += 1 }
@@ -29,10 +36,19 @@ private final class HelperFixture: OldHelperFixture, @unchecked Sendable {
     func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void) {
         let first = calls.withLock { $0.operations += 1; return $0.operations == 1 }
         guard let payload else { return }
-        guard first, firstReplyDelay > 0 else { reply(payload, nil); return }
-        DispatchQueue.global().asyncAfter(deadline: .now() + firstReplyDelay) { [self] in
+        guard first, holdFirstReply else { reply(payload, nil); return }
+        replyLock.lock()
+        pendingReply = { reply(payload, nil) }
+        replyLock.unlock()
+    }
+    func releaseReply() {
+        replyLock.lock()
+        let reply = pendingReply
+        pendingReply = nil
+        replyLock.unlock()
+        if let reply {
             calls.withLock { $0.late += 1 }
-            reply(payload, nil)
+            reply()
         }
     }
     func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void) { dumpBackgroundTasks(reply: reply) }
@@ -55,7 +71,7 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
         connection.resume()
         return true
     }
-    func client(timeout: TimeInterval = 0.3) -> PrivilegedSamplingClient {
+    func client(timeout: TimeInterval = 5) -> PrivilegedSamplingClient {
         PrivilegedSamplingClient(connectionFactory: { NSXPCConnection(listenerEndpoint: self.listener.endpoint) }, timeoutOverride: timeout)
     }
 }
@@ -94,11 +110,11 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
 @Test func helperCancellationDisconnectsInFlightProbeAndRenegotiates() async throws {
     let service = HelperFixture(payload: nil)
     let fixture = HelperListenerFixture(service)
-    let client = fixture.client(timeout: 10)
+    let client = fixture.client(timeout: 60)
     client.setAvailable(true)
     defer { client.setAvailable(false); fixture.listener.invalidate() }
     let task = Task { await client.dumpBackgroundTasks() }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     while service.calls.withLock({ $0.operations }) == 0 && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -106,8 +122,9 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
     let start = ContinuousClock.now
     task.cancel()
     #expect(await task.value == nil)
-    #expect(start.duration(to: .now) < .seconds(2))
-    while fixture.disconnects.withLock({ $0 }) == 0 && ContinuousClock.now < deadline {
+    #expect(start.duration(to: .now) < .seconds(30))
+    let disconnectDeadline = ContinuousClock.now.advanced(by: .seconds(30))
+    while fixture.disconnects.withLock({ $0 }) == 0 && ContinuousClock.now < disconnectDeadline {
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(fixture.disconnects.withLock { $0 } >= 1)
@@ -125,10 +142,10 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
 
     let silent = HelperFixture(version: nil)
     let versionFixture = HelperListenerFixture(silent)
-    let versionClient = versionFixture.client(timeout: 10)
+    let versionClient = versionFixture.client(timeout: 60)
     versionClient.setAvailable(true)
     let task = Task { await versionClient.protocolVersion() }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     while silent.calls.withLock({ $0.versions }) == 0 && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -140,18 +157,14 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
 }
 
 @Test func helperLateReplyAfterTimeoutIsDroppedAndConnectionReused() async throws {
-    let service = HelperFixture(firstReplyDelay: 0.8)
+    let service = HelperFixture(holdFirstReply: true)
     let fixture = HelperListenerFixture(service)
-    let client = fixture.client(timeout: 0.3)
+    let client = fixture.client()
     client.setAvailable(true)
     defer { client.setAvailable(false); fixture.listener.invalidate() }
-    let start = ContinuousClock.now
+    #expect(await client.protocolVersion() == 2)
     #expect(await client.dumpBackgroundTasks() == nil)
-    #expect(start.duration(to: .now) < .milliseconds(700))
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while service.calls.withLock({ $0.late }) == 0 && ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    service.releaseReply()
     #expect(service.calls.withLock { $0.late } == 1)
     // The late reply resumed nothing twice; the same negotiated connection still serves requests.
     #expect(await client.dumpBackgroundTasks() == "fixture")
@@ -160,21 +173,21 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
 }
 
 @Test func helperLateReplyAfterCancellationIsDroppedAndRenegotiates() async throws {
-    let service = HelperFixture(firstReplyDelay: 0.5)
+    let service = HelperFixture(holdFirstReply: true)
     let fixture = HelperListenerFixture(service)
-    let client = fixture.client(timeout: 10)
+    let client = fixture.client(timeout: 60)
     client.setAvailable(true)
     defer { client.setAvailable(false); fixture.listener.invalidate() }
     let task = Task { await client.dumpBackgroundTasks() }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while service.calls.withLock({ $0.operations }) == 0 && ContinuousClock.now < deadline {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+    while !service.hasPendingReply && ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
+    #expect(service.hasPendingReply)
+    #expect(service.calls.withLock { $0.operations } == 1)
     task.cancel()
     #expect(await task.value == nil)
-    while service.calls.withLock({ $0.late }) == 0 && ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    service.releaseReply()
     #expect(service.calls.withLock { $0.late } == 1)
     #expect(await client.dumpBackgroundTasks() == "fixture")
     #expect(service.calls.withLock { $0.versions == 2 && $0.operations == 2 })

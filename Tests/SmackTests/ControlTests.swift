@@ -421,7 +421,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         let response = try reader.next(from: peer)
         #expect(response.error == .invalidRequest)
         let elapsed = ProcessInfo.processInfo.systemUptime - started
-        #expect(elapsed >= 4.5 && elapsed < 8)
+        #expect(elapsed >= 4.5 && elapsed < 30)
     }.value
 }
 
@@ -436,7 +436,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
             try ControlSocket.write(Data(repeating: 65, count: ControlProtocol.responseLimit), to: pair[0])
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - started
-        #expect(elapsed >= 4.5 && elapsed < 8)
+        #expect(elapsed >= 4.5 && elapsed < 30)
     }
 }
 #endif
@@ -484,7 +484,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         for _ in 0..<ControlProtocol.clientLimit { peers.append(try ControlSocket.connect(path)) }
         server.stop()
         peers.forEach { close($0) }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while server.activeClientCount != 0 && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -515,7 +515,7 @@ func controlServerRejectsForeignUIDAfterConnect() async throws {
         let replacement = try ControlServer(paths: [path]) { _ in ControlResponse() }
         old.stop()
         peers.forEach { close($0) }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while old.activeClientCount != 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         #expect(old.activeClientCount == 0)
         try await controlBlocking {

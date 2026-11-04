@@ -188,7 +188,7 @@ private final class FreshBaselineNetwork: NetworkPortCollecting {
 
 private actor UncooperativeSectionGate {
     private var continuation: CheckedContinuation<Void, Never>?
-    private var opened = false
+    private(set) var opened = false
     func wait() async {
         if !opened { await withCheckedContinuation { continuation = $0 } }
     }
@@ -207,15 +207,14 @@ private struct UncooperativeSection: BaselineSectionCollector {
 @Test func reviewBaselineDeadlineDoesNotJoinUncooperativeCollector() async throws {
     let gate = UncooperativeSectionGate()
     let rescue = Task {
-        try? await Task.sleep(for: .seconds(1))
+        do { try await Task.sleep(for: .seconds(30)) } catch { return }
         await gate.open()
     }
-    let start = ContinuousClock.now
     let document = try await BaselineCapture.capture(collectors: [UncooperativeSection(gate: gate)], name: "deadline")
-    let elapsed = start.duration(to: .now)
+    // Returning while the collector is still blocked proves capture did not join it.
+    #expect(await gate.opened == false)
     await gate.open()
     rescue.cancel(); await rescue.value
-    #expect(elapsed < .milliseconds(500))
     #expect(document.sections["posture"]?.status == .incomplete)
     #expect(document.sections["posture"]?.error == "Section timed out")
 }
