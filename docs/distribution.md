@@ -1,7 +1,9 @@
 # Distribution flavors
 
-Smack is distributed through GitHub releases and the `alvagante/tap` cask, without Developer ID or
-notarization for now (decision 2026-11-01). The cask strips quarantine. The App Store flavor is retained
+Smack is distributed through GitHub releases and the `alvagante/tap` cask. Releases are signed with
+Developer ID and notarized (decision 2026-11-04, superseding the 2026-11-01 ad-hoc decision); the release
+workflow fails instead of falling back to ad hoc. The cask keeps stripping quarantine until the first
+notarized release ships, then drops it. The App Store flavor is retained
 for compilation only and is not planned for distribution; its runtime and 42 existing test issues are
 out of scope. App Sandbox prevents that flavor from using the root sampling helper.
 

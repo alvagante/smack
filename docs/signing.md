@@ -91,11 +91,9 @@ for self-signed development builds. Existing legacy installations require an exp
 migration/removal path. Notarization does not repair the legacy script itself, and does
 not replace XPC client authorization.
 
-The release workflow already supports Developer ID signing and notarization, but currently
-permits ad-hoc fallback when secrets are missing. Once notarized releases become
-policy, make missing signing/notarization credentials fail the release and stop stripping
-quarantine in the cask. These release-policy changes are not part of the error-reporting
-and stale-reply fixes.
+Notarized Developer ID releases are policy (2026-11-04): the release workflow fails when
+signing or notarization credentials are missing. Stop stripping quarantine in the cask with
+the first notarized release.
 
 ### One-time setup
 
@@ -143,8 +141,8 @@ xcrun notarytool log <submission-id> --keychain-profile smack-notary
 
 ### Release in CI (`.github/workflows/release.yml`)
 
-The release workflow imports the certificate and notarizes automatically when these
-repository secrets are configured; without them it falls back to an ad-hoc build:
+The release workflow imports the certificate, signs, notarizes and staples. It fails if any
+of these repository secrets is missing:
 
 - `DEVELOPER_ID_P12` (base64 of the `.p12`), `DEVELOPER_ID_P12_PASSWORD`
 - `SMACK_SIGN_IDENTITY`

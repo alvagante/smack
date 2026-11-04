@@ -84,11 +84,13 @@ struct DevServersView: View {
                                 Text([container.name, container.composeProject, container.composeWorkingDirectory]
                                     .compactMap { $0 }.joined(separator: " · ")).font(.caption)
                             }
-                            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 6) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 ForEach(row.portPairs) { pair in
-                                    GridRow {
+                                    DualStackRow(trailingWidth: 70) {
                                         portCell(pair.ipv4, row: row)
+                                    } ipv6: {
                                         portCell(pair.ipv6, row: row)
+                                    } trailing: {
                                         Text(pair.scope.rawValue).font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
@@ -170,8 +172,6 @@ struct DevServersView: View {
                     Button("Summary") { copy("\(row.project?.name ?? row.processName): \(port.localAddress)") }
                 }.fixedSize()
             }
-        } else {
-            Color.clear.frame(width: 1, height: 1)
         }
     }
 

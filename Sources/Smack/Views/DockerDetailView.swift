@@ -214,15 +214,7 @@ struct DockerDetailView: View {
                 GroupBox(container.displayName) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(container.group).font(.caption).foregroundStyle(.secondary)
-                        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 4) {
-                            ForEach(DockerPortPair.pairs(container.ports ?? [:])) { pair in
-                                GridRow {
-                                    bindingCell(pair.ipv4, containerPort: pair.containerPort)
-                                    bindingCell(pair.ipv6, containerPort: pair.containerPort)
-                                    Text("→ " + pair.containerPort).foregroundStyle(.secondary)
-                                }
-                            }
-                        }.font(.callout.monospaced())
+                        DockerPortPairs(ports: container.ports).font(.callout.monospaced())
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(6).textSelection(.enabled)
                 }
@@ -292,20 +284,6 @@ struct DockerDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(6)
                 }
             } else { emptyState(known: false) }
-        }
-    }
-
-    /// A host binding linking to the browser for TCP; empty when the port has no binding in this address family.
-    @ViewBuilder private func bindingCell(_ binding: DockerPortBinding?, containerPort: String) -> some View {
-        if let binding {
-            if let url = binding.browserURL(containerPort: containerPort) {
-                Link(destination: url) { Label(DockerPortPair.host(binding), systemImage: "arrow.up.right.square") }
-                    .help("Open " + url.absoluteString + " in browser")
-            } else {
-                Label(DockerPortPair.host(binding), systemImage: "network")
-            }
-        } else {
-            Color.clear.frame(width: 1, height: 1)
         }
     }
 
@@ -430,9 +408,7 @@ struct DockerDetailView: View {
             } else if container.isRunning {
                 Text("Resource statistics unavailable").font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(container.portDescriptions, id: \.self) { port in
-                Label(port, systemImage: "network").font(.caption.monospaced())
-            }
+            DockerPortPairs(ports: container.ports).font(.caption.monospaced())
         }.textSelection(.enabled)
     }
 }
@@ -509,6 +485,37 @@ extension DockerContainerAction {
         case .stop: .red
         case .restart: .orange
         case .pause: .yellow
+        }
+    }
+}
+
+/// Published ports, one row per port: IPv4 and IPv6 host bindings in two equal columns, then the container port.
+struct DockerPortPairs: View {
+    let ports: [String: [DockerPortBinding]?]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(DockerPortPair.pairs(ports ?? [:])) { pair in
+                DualStackRow(trailingWidth: 100) {
+                    cell(pair.ipv4, containerPort: pair.containerPort)
+                } ipv6: {
+                    cell(pair.ipv6, containerPort: pair.containerPort)
+                } trailing: {
+                    Text("→ " + pair.containerPort).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        }
+    }
+
+    /// Links to the browser for TCP; empty when the port has no binding in this address family.
+    @ViewBuilder private func cell(_ binding: DockerPortBinding?, containerPort: String) -> some View {
+        if let binding {
+            if let url = binding.browserURL(containerPort: containerPort) {
+                Link(destination: url) { Label(DockerPortPair.host(binding), systemImage: "arrow.up.right.square") }
+                    .help("Open " + url.absoluteString + " in browser")
+            } else {
+                Label(DockerPortPair.host(binding), systemImage: "network")
+            }
         }
     }
 }

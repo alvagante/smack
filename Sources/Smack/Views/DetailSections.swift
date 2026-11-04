@@ -564,7 +564,7 @@ struct ThreadTable: View {
         }
     }
 
-    static func compare(_ column: Column, _ lhs: ThreadTableRow, _ rhs: ThreadTableRow) -> ComparisonResult {
+    nonisolated static func compare(_ column: Column, _ lhs: ThreadTableRow, _ rhs: ThreadTableRow) -> ComparisonResult {
         func order<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult { a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame }
         let l = lhs.group, r = rhs.group
         switch column {
@@ -579,13 +579,13 @@ struct ThreadTable: View {
     }
 
     /// Running ranks highest, then blocked, then idle; more running threads rank higher within a rank.
-    static func stateRank(_ group: ThreadGroup) -> Int {
+    nonisolated static func stateRank(_ group: ThreadGroup) -> Int {
         if group.running > 0 { return 2_000_000 + group.running }
         if group.uninterruptible > 0 { return 1_000_000 + group.uninterruptible }
         return 0
     }
 
-    static func stateTitle(_ group: ThreadGroup) -> String {
+    nonisolated static func stateTitle(_ group: ThreadGroup) -> String {
         if group.running > 0 { return group.count > 1 ? "\(group.running) running" : "Running" }
         if group.uninterruptible > 0 { return group.count > 1 ? "\(group.uninterruptible) blocked" : "Blocked" }
         return "Waiting"
@@ -606,6 +606,23 @@ private struct ColumnFrame: ViewModifier {
             content.frame(width: width, alignment: column.alignment)
         } else {
             content.frame(maxWidth: .infinity, alignment: column.alignment)
+        }
+    }
+}
+
+/// An IPv4 and an IPv6 listener of the same port as two equal columns filling the width, then a fixed-width trailing
+/// cell (scope, container port) so the columns line up from row to row.
+struct DualStackRow<IPv4: View, IPv6: View, Trailing: View>: View {
+    var trailingWidth: CGFloat = 90
+    @ViewBuilder let ipv4: IPv4
+    @ViewBuilder let ipv6: IPv6
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ipv4.frame(maxWidth: .infinity, alignment: .leading)
+            ipv6.frame(maxWidth: .infinity, alignment: .leading)
+            trailing.frame(width: trailingWidth, alignment: .leading)
         }
     }
 }
