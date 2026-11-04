@@ -68,7 +68,16 @@ if command -v codesign >/dev/null; then
     SIGN_IDENTITY="${SMACK_SIGN_IDENTITY:-}"
     if [ -z "$SIGN_IDENTITY" ]; then
         IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-        if [[ "$IDENTITIES" == *"\"$LOCAL_IDENTITY\""* ]]; then
+        # Local builds sign like releases when they can, so TCC grants and the helper's
+        # signer pin stay valid when switching between dist/ and /Applications.
+        if [ "$FLAVOR" = "direct" ]; then
+            DEVELOPER_ID_IDENTITY="$(sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' <<<"$IDENTITIES" | head -n 1)"
+        else
+            DEVELOPER_ID_IDENTITY=""
+        fi
+        if [ -n "$DEVELOPER_ID_IDENTITY" ]; then
+            SIGN_IDENTITY="$DEVELOPER_ID_IDENTITY"
+        elif [[ "$IDENTITIES" == *"\"$LOCAL_IDENTITY\""* ]]; then
             SIGN_IDENTITY="$LOCAL_IDENTITY"
         else
             SIGN_IDENTITY="-"
