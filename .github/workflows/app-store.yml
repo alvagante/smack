@@ -19,7 +19,7 @@ jobs:
         run: echo "KEYCHAIN=$RUNNER_TEMP/app-store.keychain-db" >> "$GITHUB_ENV"
 
       - name: Run tests
-        run: swift test
+        run: swift test --no-parallel
 
       - name: Import Apple Distribution and installer identities
         env:
