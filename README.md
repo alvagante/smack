@@ -39,8 +39,7 @@ macOS 15 or later on Apple silicon.
 ## Install
 
 ```bash
-brew tap alvagante/tap
-brew install --cask smack
+brew install alvagante/tap/smack
 ```
 
 Or download `Smack-<version>-macOS-arm64.dmg` from [Releases](../../releases), open it and drag Smack to Applications. Releases are signed and notarized.
