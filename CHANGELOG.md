@@ -4,6 +4,10 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Distribution
+
+- Releases also publish a signed, notarized and stapled DMG (`Smack-<tag>-macOS-arm64.dmg`) with an Applications shortcut, built by `Scripts/make-dmg.sh`. The zip stays for the Homebrew cask.
+
 ## [1.0.0] - 2026-11-04
 
 Combines specs 004 and 005 (dev servers, agent sessions, baseline drift and file export).

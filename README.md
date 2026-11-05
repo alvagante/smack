@@ -43,7 +43,7 @@ brew tap alvagante/tap
 brew install --cask smack
 ```
 
-Or download `Smack-<version>-macOS-arm64.zip` from [Releases](../../releases), unzip it and move `Smack.app` to `/Applications`. Releases are signed and notarized.
+Or download `Smack-<version>-macOS-arm64.dmg` from [Releases](../../releases), open it and drag Smack to Applications. Releases are signed and notarized.
 
 Open the panel by hovering over or clicking the notch, or by clicking the menu-bar icon. Quit with ⌘Q.
 

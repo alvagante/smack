@@ -82,6 +82,21 @@ jobs:
           (cd dist && shasum -a 256 "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256")
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> "$GITHUB_ENV"
 
+      - name: Build and notarize DMG
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SMACK_SIGN_IDENTITY: ${{ secrets.SMACK_SIGN_IDENTITY }}
+        run: |
+          Scripts/make-dmg.sh dist/Smack.app "dist/${ARCHIVE_NAME}.dmg" "$SMACK_SIGN_IDENTITY"
+          xcrun notarytool submit "dist/${ARCHIVE_NAME}.dmg" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" --wait
+          xcrun stapler staple "dist/${ARCHIVE_NAME}.dmg"
+          spctl --assess --type open --context context:primary-signature --verbose "dist/${ARCHIVE_NAME}.dmg"
+          (cd dist && shasum -a 256 "${ARCHIVE_NAME}.dmg" > "${ARCHIVE_NAME}.dmg.sha256")
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -89,6 +104,8 @@ jobs:
           path: |
             dist/${{ env.ARCHIVE_NAME }}.zip
             dist/${{ env.ARCHIVE_NAME }}.zip.sha256
+            dist/${{ env.ARCHIVE_NAME }}.dmg
+            dist/${{ env.ARCHIVE_NAME }}.dmg.sha256
           retention-days: 30
 
       - name: Publish GitHub release
@@ -99,11 +116,15 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" \
               "dist/${ARCHIVE_NAME}.zip" \
               "dist/${ARCHIVE_NAME}.zip.sha256" \
+              "dist/${ARCHIVE_NAME}.dmg" \
+              "dist/${ARCHIVE_NAME}.dmg.sha256" \
               --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               "dist/${ARCHIVE_NAME}.zip" \
               "dist/${ARCHIVE_NAME}.zip.sha256" \
+              "dist/${ARCHIVE_NAME}.dmg" \
+              "dist/${ARCHIVE_NAME}.dmg.sha256" \
               --generate-notes
           fi
 

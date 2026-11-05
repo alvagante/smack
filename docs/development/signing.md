@@ -138,6 +138,11 @@ xcrun stapler staple dist/Smack.app
 # Re-zip after stapling: this is the archive to publish
 ditto -c -k --sequesterRsrc --keepParent dist/Smack.app dist/Smack-<tag>-macOS-arm64.zip
 spctl --assess --type execute --verbose dist/Smack.app   # expect "source=Notarized Developer ID"
+
+# DMG: built from the stapled app, then signed, notarized and stapled itself
+Scripts/make-dmg.sh dist/Smack.app dist/Smack-<tag>-macOS-arm64.dmg "$SMACK_SIGN_IDENTITY"
+xcrun notarytool submit dist/Smack-<tag>-macOS-arm64.dmg --keychain-profile smack-notary --wait
+xcrun stapler staple dist/Smack-<tag>-macOS-arm64.dmg
 ```
 
 If notarization fails, read the log:
@@ -156,7 +161,8 @@ of these repository secrets is missing:
 - `NOTARY_KEY_P8` (base64 of the `.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`
 
 The workflow creates a temporary keychain, imports the certificate, signs the app and
-helper, submits a zip to `notarytool`, and staples the result before packaging. The
+helper, submits a zip to `notarytool`, and staples the result before packaging. It then
+publishes the zip (used by the Homebrew cask) and a DMG, which is signed, notarized and stapled separately. The
 helper only works in this signed and notarized variant.
 
 ### Privileged helper
