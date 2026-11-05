@@ -20,12 +20,12 @@ Data stays local. No feature in this spec contacts the network.
 
 ## 2. Preconditions
 
-The working tree on `main` currently holds the unstaged review fixes described in `docs/review-20261031.md` and the staged installed-apps work.
+The working tree on `main` currently holds the unstaged review fixes described in `docs/development/reviews/review-20261031.md` and the staged installed-apps work.
 
 Before starting:
 
 1. Commit that work, so 0.7.0 is a clean baseline.
-2. Resolve the open P2 findings in `docs/review-20261031.md` that affect always-on cost:
+2. Resolve the open P2 findings in `docs/development/reviews/review-20261031.md` that affect always-on cost:
    - synchronous Accessibility discovery on MainActor (`NativeMenuBarStore.refresh`);
    - eager installed-app sizing on Summary;
    - unbounded caches (`DevEnvironmentMonitor.inspections`, `ApplicationIconCache`).
@@ -440,7 +440,7 @@ CLI conventions: `smack <op> [flags]`, `--json` emits JSON Lines, `--socket <pat
 
 Smack builds with SwiftPM and `Scripts/build-app.sh`, not Xcode. App Intents metadata (`Metadata.appintents`) is normally produced by an Xcode build phase. Phase 0 must establish whether running the metadata processor from `build-app.sh` produces a bundle that Shortcuts discovers on macOS 15 and macOS 27, for both flavors. Use Context7 or the Apple documentation to confirm the toolchain step before writing any intent code.
 
-**Decision, 2026-11-01: GO, approved by the user.** Implement REQ-009 in Phase 4. Local metadata extraction and resource measurements support proceeding. Packaged Shortcuts discovery/execution on macOS 15 and 27, for both signed flavors, remain release validation work; they are not measured passes. See `docs/phase0-measurements-20261101.md`.
+**Decision, 2026-11-01: GO, approved by the user.** Implement REQ-009 in Phase 4. Local metadata extraction and resource measurements support proceeding. Packaged Shortcuts discovery/execution on macOS 15 and 27, for both signed flavors, remain release validation work; they are not measured passes. See `docs/development/measurements/phase0-measurements-20261101.md`.
 
 ### 5.9 Posture checks
 
@@ -547,14 +547,14 @@ Today an older helper simply fails the request; callers show "Update the helper"
 ### Phase 0: baseline and spikes
 
 - [x] Satisfy section 2: 0.7.0 baseline committed (`08804a4`), branch `080` created, and the
-  `docs/review-20261031.md` P2 findings resolved (confirmed by the user on 2026-11-01).
+  `docs/development/reviews/review-20261031.md` P2 findings resolved (confirmed by the user on 2026-11-01).
 - [x] GO decision approved for ordinary alerts, scoped persistence watching, the direct-build socket and App Intents (5.8, section 13).
 - [x] Measure the FSEvents watcher's idle cost with all surfaces registered. Production watcher:
   0.0463% over 635 s on M5 Max; running-app ten-minute observation also recorded, including its
   existing sampling/alerts (4.79% total app CPU, not isolated watcher attribution). See Phase 6 evidence.
 - [x] Confirm `getpeereid` behavior and the socket path fallback on a long home path (primitive probe:
   103-byte paths bind, 104 and longer are rejected, fallback round trip passes; see
-  `docs/phase0-measurements-20261101.md`).
+  `docs/development/measurements/phase0-measurements-20261101.md`).
 
 ### Phase 1: models, settings, event kinds
 
@@ -660,15 +660,15 @@ Today an older helper simply fails the request; callers show "Update the helper"
 - [x] M1/macOS 15 budgets, varied release alert workloads/tails/storms, allocation profiling, real
   watcher/enrichment and helper CPU/energy attribution. Preserve unresolved results.
   Alert engine idle-track optimization brings every M5 Max release workload, including a firing/churn
-  storm, under 5 ms (docs/phase7-alert-engine-optimization-20261101.json); M1 remains unverified.
+  storm, under 5 ms (docs/development/measurements/phase7-alert-engine-optimization-20261101.json); M1 remains unverified.
   System-rule steady state is now allocation-free (0 allocations per sample for 50 armed, pending and
-  volume rules; docs/phase7-local-measurements-20261101.json). Posture child CPU 0.05 to 0.07 s,
+  volume rules; docs/development/measurements/phase7-local-measurements-20261101.json). Posture child CPU 0.05 to 0.07 s,
   wall 0.33 to 0.43 s; hourly helper probes under 0.02 s CPU each, BTM dump wall 1 to 3 s against a 5 s
   timeout (M5 Max). No M1 exists: the user explicitly accepts M1/macOS 15 as unverified, using M5 Max
   evidence only. This is an accepted hardware gap, not a measured M1 pass. Running-app watcher
-  results and idle socket thread counts are in docs/phase7-completion-20261101.json.
+  results and idle socket thread counts are in docs/development/measurements/phase7-completion-20261101.json.
 - [x] Document capabilities, migration/rollback and support limits; unreleased notes and validation matrix
-  in docs/spec-004-validation.md. Final release approval remains pending.
+  in docs/development/validation/spec-004-validation.md. Final release approval remains pending.
 - [x] Track external Homebrew cask CLI integration as a separately authorized, deferred publication gate
   (accepted scope: not now). No tap changes were made. When 1.0.0 is published,
   the tap needs a `binary` entry for `#{appdir}/Smack.app/Contents/Helpers/smack` (check the remote tap:
@@ -718,7 +718,7 @@ Integration and manual:
 | Risk | Mitigation |
 |---|---|
 | App Intents metadata cannot be produced outside Xcode | Phase 0 spike with a no-go path (5.8) |
-| Notification permission resets after updates, because release builds lack a stable signing identity (see `docs/signing.md`) | Detect `notDetermined` after an update and re-prompt once with an explanation; document it next to the Screen Recording note |
+| Notification permission resets after updates, because release builds lack a stable signing identity (see `docs/development/signing.md`) | Detect `notDetermined` after an update and re-prompt once with an explanation; document it next to the Screen Recording note |
 | Alert fatigue makes users disable everything | All templates off by default, cooldowns, a rate limit, wake coalescing, a visible state per rule |
 | Local process abuses the control socket | Same-UID only, read-only ops, size and concurrency caps, no secrets (no argv or env) in responses |
 | Posture tool output changes across macOS releases | Fixture-based parsers; unexpected output becomes `unknown` with the raw evidence, never a false `pass` |
@@ -729,7 +729,7 @@ Integration and manual:
 ## 11. Documentation
 
 - README: Alerts, URL scheme, CLI (install via cask `binary` or a manual symlink), Security page, and the persistence monitoring scope per edition.
-- `docs/distribution.md`: capability matrix rows from 5.12.
+- `docs/development/distribution.md`: capability matrix rows from 5.12.
 - New `docs/cli.md`: operations, flags, JSON fields, exit codes, protocol versioning.
 - New `docs/url-scheme.md`: route table.
 - Settings help text for the background requirement and the pre-filter evaluation of event rules.
@@ -737,7 +737,7 @@ Integration and manual:
 ## 12. Definition of done
 
 - [x] REQ scenarios have automated or recorded host checks, or explicit acceptance. Shortcuts/helper upgrade lack recorded execution output; the hour-long observation is accepted with its failed-harness timing caveat, not claimed as a passing run.
-- [x] Performance evidence is recorded in docs/phase7-completion-20261101.json and the earlier Phase 7 files. M1/macOS 15 are unverified and explicitly accepted; M5 Max is the measured host. Whole-app CPU is distinguished from dedicated watcher attribution.
+- [x] Performance evidence is recorded in docs/development/measurements/phase7-completion-20261101.json and the earlier Phase 7 files. M1/macOS 15 are unverified and explicitly accepted; M5 Max is the measured host. Whole-app CPU is distinguished from dedicated watcher attribution.
 - [x] Direct suite passes (422 tests reported; opt-in/privileged checks evidenced separately), debug/release CLI format checks pass, and the App Store flavor compiles. Its 42 existing test issues are out of scope.
 - [x] Legacy settings fixtures pass; existing settings/history are exercised by live queries and event recording. Old/new helper degradation has regression coverage; the signed helper upgrade is user-accepted without recorded output.
 - [x] README, distribution matrix, CLI, URL and validation docs are current. CSV/TSV is implemented; persistence defaults off; badge and bputil are explicitly deferred.
@@ -750,7 +750,7 @@ Integration and manual:
 2. Decided 2026-11-01: defer the menu-bar alert badge. Define its lifetime and acknowledgement semantics before adding it.
 3. Decided 2026-11-01: add `--format csv|tsv` with proper quoting and stable per-operation columns; retain table and JSON Lines.
 4. Decided 2026-11-01: defer `bputil` secure boot posture. Privileged Apple-silicon policy parsing needs separate validation.
-5. Phase 0 decision: **GO, approved by the user on 2026-11-01**, for ordinary alerts, scoped persistence watching, the direct-build socket and App Intents. Standalone metadata extraction passed locally on macOS 27.2 for both flavor defines. Packaged direct-build Shortcuts checks were closed by the user without per-action output; macOS 15 is unverified and accepted, and App Store runtime/sandbox checks are out of scope. See `docs/phase0-measurements-20261101.md` for the original spike. The earlier 50-broad-rule failure was resolved on M5 Max; M1/macOS 15 remain unverified and explicitly accepted.
+5. Phase 0 decision: **GO, approved by the user on 2026-11-01**, for ordinary alerts, scoped persistence watching, the direct-build socket and App Intents. Standalone metadata extraction passed locally on macOS 27.2 for both flavor defines. Packaged direct-build Shortcuts checks were closed by the user without per-action output; macOS 15 is unverified and accepted, and App Store runtime/sandbox checks are out of scope. See `docs/development/measurements/phase0-measurements-20261101.md` for the original spike. The earlier 50-broad-rule failure was resolved on M5 Max; M1/macOS 15 remain unverified and explicitly accepted.
 
 
 6. Distribution decision (2026-11-01): the app ships through GitHub releases and the `alvagante/tap` cask without
@@ -874,7 +874,7 @@ Remaining work and limits:
 
 Next-session prompt:
 
-> Continue `docs/specs/004-alerts-automation-security.md` from section 14. Implement Phase 3:
+> Continue `docs/development/specs/004-alerts-automation-security.md` from section 14. Implement Phase 3:
 > the pure navigation-only DeepLinkParser and tests, URL scheme registration, AppDelegate handling,
 > pinned panel navigation and filters. Replace AlertTarget's temporary route mapping and route
 > notification Open through the same parser. Preserve all staged/unstaged work. Keep Phase 0 spikes,
@@ -915,7 +915,7 @@ Measured locally on an Apple M5 Max (18 logical CPUs, 128 GiB), macOS 27.2, Xcod
   (0.000092% of one core), and ended with an RSS high-water mark 192 KiB above the simultaneous baseline.
   A synthetic burst delivered all 200 plist paths within 2.008 seconds, without drop flags. Local stream
   idle CPU passes; daemon energy attribution, rescans and enrichment remain unverified. Detailed methodology,
-  resource units and limits are recorded in `docs/phase0-measurements-20261101.md`. The production PersistenceWatcher does not exist yet;
+  resource units and limits are recorded in `docs/development/measurements/phase0-measurements-20261101.md`. The production PersistenceWatcher does not exist yet;
   stream cost cannot stand in for bounded rescans, hashing, signing or persistence work.
 
 Validation:
@@ -924,7 +924,7 @@ Validation:
 - `swift test`: 351 tests reported, with the opt-in benchmark skipped during the ordinary run.
 - Standalone watcher/socket Swift probes compile with `swiftc -O`; socket and App Intents probes pass.
 - No downloads, installations, privilege escalation, staging or commits. Raw temporary artifacts retained.
-- Full evidence and reproduction commands: `docs/phase0-measurements-20261101.md`.
+- Full evidence and reproduction commands: `docs/development/measurements/phase0-measurements-20261101.md`.
 
 Remaining gates: M1 alert budget, broad-rule optimization, allocation profiling, packaged signed
 notification/UI checks, signed Shortcuts discovery/execution on both OS versions/flavors, cross-UID
@@ -934,7 +934,7 @@ these outstanding validation items. Earlier pending spike statements are histori
 
 Next-session prompt:
 
-> Continue spec 004 from section 14 and `docs/phase0-measurements-20261101.md`. Preserve the Phase 2
+> Continue spec 004 from section 14 and `docs/development/measurements/phase0-measurements-20261101.md`. Preserve the Phase 2
 > changes and measurement tools. Phase 0 GO is approved, including App Intents in Phase 4; retain
 > unverified release checks. First address or explicitly carry forward the measured 50-broad-rule
 > alert-engine budget failure, using the opt-in release benchmark to compare changes. Continue Phase 3
@@ -975,8 +975,8 @@ Release benchmark comparison (same M5 Max host and unchanged opt-in tool):
   1.5743 to 1.5923 ms. Both system workloads remain below 0.012 ms mean locally.
 - The strict 5 ms budget remains open: the measured maximum exceeds it, M1 is untested, and
   differing metrics/matchers may share less work. Firing/dispatch costs and allocations are excluded.
-- Comparison data: `docs/phase3-alert-comparison-20261101.json`; methodology and full table appended
-  to `docs/phase0-measurements-20261101.md`. Raw outputs retained in `/tmp/smack-phase3-before.log`
+- Comparison data: `docs/development/measurements/phase3-alert-comparison-20261101.json`; methodology and full table appended
+  to `docs/development/measurements/phase0-measurements-20261101.md`. Raw outputs retained in `/tmp/smack-phase3-before.log`
   and `/tmp/smack-phase3-after.log`. Do not reinterpret these as target-hardware certification.
 
 Validation:
@@ -1012,7 +1012,7 @@ Remaining work:
 Next-session prompt:
 
 > Continue spec 004 from section 14 and the Phase 3 follow-up in
-> `docs/phase0-measurements-20261101.md`. Preserve Phase 2/3 changes and all measurement tools/evidence.
+> `docs/development/measurements/phase0-measurements-20261101.md`. Preserve Phase 2/3 changes and all measurement tools/evidence.
 > Phase 0 GO is approved, including App Intents in Phase 4. Continue Phase 4 control socket, CLI and
 > App Intents, starting with cached read-only protocol/security boundaries and production packaging.
 > Carry the alert budget forward: 50 broad rules improved from 23.2638 to 4.4031 ms mean on M5 Max,
@@ -1162,7 +1162,7 @@ Implemented:
 - Delivery-only alerts pause/resume/snooze. Pause uses the existing persisted dispatcher setting;
   snooze is a bounded-duration session override, separate from rule edits and engine tracking.
   Suppressed firings still return alert events. No control toggles rules, collection or startup items.
-- Wire schema, per-operation flags, bounds and CLI conventions: docs/control-protocol-v1.md.
+- Wire schema, per-operation flags, bounds and CLI conventions: docs/development/control-protocol.md.
 - Ancestor traversal uses descriptor-relative openat/O_NOFOLLOW, mkdirat and ownership/mode checks.
   Root-owned sticky temporary ancestors and Darwin system aliases are handled explicitly.
   Stale unlink uses the pinned directory and repeated socket identity. Bind checks that the named
@@ -1225,7 +1225,7 @@ Next-session prompt:
 > Continue spec 004 section 14 from the bounded queries/follow/transport entry. Preserve all staged/
 > unstaged Phase 2/3/4 work, tools and measurement evidence. Phase 0 GO includes App Intents.
 > Shared cached projections now serve bounded history/events/startup queries, future-only events
-> follow with backpressure, and delivery-only pause/resume/snooze. Read docs/control-protocol-v1.md.
+> follow with backpressure, and delivery-only pause/resume/snooze. Read docs/development/control-protocol.md.
 > Prioritize actual cross-UID verification using the root-gated test, skipped because noninteractive
 > sudo requires a password. Also test a foreign-UID server against the client. Continue follower
 > disconnect/slot reclamation, teardown under load, ancestor replacement races, live socket settings
@@ -1291,7 +1291,7 @@ Next-session prompt:
 
 > Continue spec 004 from section 14's live-lifecycle entry and the Phase 4-7 checklist in section 6.
 > Preserve all staged/unstaged Phase 2/3/4 work, measurement tools and evidence. Phase 0 GO includes
-> App Intents. Read docs/control-protocol-v1.md; keep CLI and typed intents on the shared cached
+> App Intents. Read docs/development/control-protocol.md; keep CLI and typed intents on the shared cached
 > projection. Current Phase 4 supports bounded queries, future-only follow with backpressure,
 > delivery-only controls, live socket settings and explicit follower/task cancellation.
 >
@@ -1355,7 +1355,7 @@ Implemented:
   helper, existing manual BTM scanning remains available and background work never prompts.
   Malformed helper output does not become an empty inventory. Real hourly/helper validation is pending.
 - Capability, CLI, URL, release/rollback documentation and the explicit signed runtime matrix:
-  docs/spec-004-validation.md. Homebrew cask work remains separate in alvagante/tap.
+  docs/development/validation/spec-004-validation.md. Homebrew cask work remains separate in alvagante/tap.
 
 Validation:
 
@@ -1409,7 +1409,7 @@ Next-session prompt:
 
 > Continue spec 004 from the Phase 5 producer/Phase 6 watcher entry and section 6. Preserve every
 > staged/unstaged change, measurement tool and evidence. Phase 0 GO includes App Intents. Read
-> docs/control-protocol-v1.md and docs/spec-004-validation.md. CLI/intents share cached projections;
+> docs/development/control-protocol.md and docs/development/validation/spec-004-validation.md. CLI/intents share cached projections;
 > IPC never collects. Follow remains future-only with bounded backpressure and no replay/cursors.
 > Posture now schedules/restores/persists nineteen checks, emits regression details through existing
 > alerts/history, and has Security/Summary UI. Persistence has debounced FSEvents, category-correct
@@ -1483,7 +1483,7 @@ Tokensave serves main for untracked branch 080; working sources were inspected d
 - Actual locally signed release app read the installed signed legacy helper successfully:
   snapshotAvailable=true, helperProtocol=1, BTM/profile bytes zero, without prompts. No helper update
   was attempted. Signed v2 operations and actual hourly lifecycle remain pending. Full host/signing
-  details and exact command are in docs/spec-004-validation.md.
+  details and exact command are in docs/development/validation/spec-004-validation.md.
 - Opt-in concurrent ancestor test passed 2,048 atomic directory exchanges, 128 listener attempts,
   113 racing round trips, client reclamation and a stable final round trip. This is bounded stress,
   not exhaustive same-UID adversarial replacement coverage. Existing user apps remained running.
@@ -1501,7 +1501,7 @@ Remaining work and next-session prompt:
 
 > Continue spec 004 from the independent hardening entry and section 6. Preserve every staged/
 > unstaged change, REQ-013 controls, measurement tool and evidence. Phase 0 GO includes App Intents.
-> Read docs/control-protocol-v1.md and docs/spec-004-validation.md. CLI/intents share cached
+> Read docs/development/control-protocol.md and docs/development/validation/spec-004-validation.md. CLI/intents share cached
 > projections; IPC never collects. Follow is future-only, bounded, without replay/cursors.
 > Posture schedules/restores/persists nineteen checks and uses existing alerts/history/UI.
 > Persistence now survives partial scans and file recreation, coalesces storms without starvation,
@@ -1546,7 +1546,7 @@ Tokensave serves main, not branch 080; working sources were read directly.
 - Helper fixtures add replies arriving after timeout (dropped, connection reused, no renegotiation)
   and after cancellation (dropped, connection invalidated, next request renegotiates).
 - Full suite 403 tests passed; App Store flavor compiles; `git diff --check` passes. Evidence paths
-  are in docs/spec-004-validation.md. No resource budget or new timing claim.
+  are in docs/development/validation/spec-004-validation.md. No resource budget or new timing claim.
 - Not done: a live enrichment storm needs a packaged-app harness because the signature child uses
   `Bundle.main`, which is the test runner under `swift test`. Real dropped-event recovery remains
   synthetic. Wider concurrent socket/symlink races were not extended this session.
@@ -1555,7 +1555,7 @@ Remaining work and next-session prompt:
 
 > Continue spec 004 from the symlink/watched-root/late-reply entry and section 6. Preserve every
 > staged/unstaged change, REQ-013 controls, measurement tool and evidence. Phase 0 GO includes App
-> Intents. Read docs/control-protocol-v1.md and docs/spec-004-validation.md. CLI/intents share cached
+> Intents. Read docs/development/control-protocol.md and docs/development/validation/spec-004-validation.md. CLI/intents share cached
 > projections; IPC never collects. Follow is future-only, bounded, without replay/cursors. Posture
 > schedules/restores/persists nineteen checks and uses existing alerts/history/UI. Persistence hashes
 > every listed launchd plist (decoys cannot hide additions), resolves symlinked plists/rc files
@@ -1586,7 +1586,7 @@ changes or existing-app termination. Release app built to /tmp only.
 - New default test races link retargeting (including automount, loop, directory and relative
   targets) and whole-directory RENAME_SWAP exchanges against 60 scans; it requires observed
   inventories/events and bounded scan time.
-- Three release repeats of the fixed Phase 0 alert workloads recorded in docs/phase7-alert-reruns-20261101.json:
+- Three release repeats of the fixed Phase 0 alert workloads recorded in docs/development/measurements/phase7-alert-reruns-20261101.json:
   process-50-any-1000 mean 4.18 to 4.44 ms, max 4.85 to 5.63 ms. Budget remains unresolved.
 - Full suite 405 tests; App Store products compile (the App Store test target fails on the
   pre-existing direct-only ThermalSensorReaderTests); `git diff --check` passes. Details in the ledger.
@@ -1597,7 +1597,7 @@ Remaining work and next-session prompt:
 
 > Continue spec 004 from the packaged enrichment/link race entry and section 6. Preserve every
 > staged/unstaged change, REQ-013 controls, measurement tool and evidence. Phase 0 GO includes App
-> Intents. Read docs/control-protocol-v1.md and docs/spec-004-validation.md. CLI/intents share cached
+> Intents. Read docs/development/control-protocol.md and docs/development/validation/spec-004-validation.md. CLI/intents share cached
 > projections; IPC never collects. Follow is future-only, bounded, without replay/cursors. Posture
 > schedules/restores/persists nineteen checks and uses existing alerts/history/UI. Persistence hashes
 > every listed launchd plist, resolves symlinks lexically with automount roots refused, rescans on
@@ -1633,19 +1633,19 @@ pushes, helper installation or external changes.
   max 3.57 ms (was 7.62); identical fired counts. M1 and allocation profiling remain unverified.
   The characterization covers the process path only; the rewritten system path relies on the existing
   system-rule tests, and the network-unavailable branch is not distinguished (fixtures have no throughput).
-- Full direct suite 406 tests passed; `git diff --check` passes. Evidence in docs/spec-004-validation.md.
+- Full direct suite 406 tests passed; `git diff --check` passes. Evidence in docs/development/validation/spec-004-validation.md.
 
 Remaining work and next-session prompt:
 
 > Continue spec 004 from the App Store test target/alert engine entry and section 6. Preserve every
 > staged/unstaged change (including the pre-existing unstaged `.gitignore` edit), REQ-013 controls, measurement tools
-> and evidence. Phase 0 GO includes App Intents. Read docs/control-protocol-v1.md and
-> docs/spec-004-validation.md. CLI/intents share cached projections; IPC never collects. Follow is
+> and evidence. Phase 0 GO includes App Intents. Read docs/development/control-protocol.md and
+> docs/development/validation/spec-004-validation.md. CLI/intents share cached projections; IPC never collects. Follow is
 > future-only, bounded, without replay/cursors. The App Store test target compiles and runs to
 > completion; its 42 remaining issues are pre-existing direct-only assertions (optional cleanup).
 > Alert evaluation is under 5 ms on M5 Max for all release workloads including churn; verify on M1
 > and profile system-rule allocations before claiming the section 8 budget. The 23.2638 to 4.4031 ms
-> mean and 6.0106 ms max are pre-optimization history; docs/phase7-alert-engine-optimization-20261101.json
+> mean and 6.0106 ms max are pre-optimization history; docs/development/measurements/phase7-alert-engine-optimization-20261101.json
 > is the current state. Tokensave tracks only main: run `tokensave branch add 080` instead of
 > disabling the grep hook. Remaining local work:
 > FSEvents-driven storms with enrichment inside the running app, real dropped-event recovery, and
@@ -1674,18 +1674,18 @@ Fixed:
 - The CLI retries `unavailable` within the ten-second launch deadline when it started Smack, and
   prints the table header only after a successful answer. Verified on a cold start (status at 0.60 s).
 
-Full suite 407 passed. Evidence in docs/spec-004-validation.md. Nothing staged or committed.
+Full suite 407 passed. Evidence in docs/development/validation/spec-004-validation.md. Nothing staged or committed.
 
 Next-session prompt:
 
 > Continue spec 004 from the "User-run host validation" entry and section 6. Read
-> docs/spec-004-validation.md (last three sections) and docs/control-protocol-v1.md first. Preserve every
+> docs/development/validation/spec-004-validation.md (last three sections) and docs/development/control-protocol.md first. Preserve every
 > staged/unstaged change on branch 080, including the pre-existing `.gitignore` edit; nothing is committed.
 > Run `tokensave branch add 080` instead of disabling the grep hook (the index serves main only).
 > Log every command in ~/.agents/logs/smack.jsonl.
 >
 > Done and verified on M5 Max/macOS 27.2: alert engine under 5 ms for all release workloads including
-> churn (docs/phase7-alert-engine-optimization-20261101.json; the 23.2638 to 4.4031 ms mean and 6.0106 ms
+> churn (docs/development/measurements/phase7-alert-engine-optimization-20261101.json; the 23.2638 to 4.4031 ms mean and 6.0106 ms
 > max are pre-optimization history); App Store test target compiles and runs (42 pre-existing
 > direct-only issues); foreign-UID tests as root; signed helper v2 operations; cold `--launch` with
 > readiness retry; label-less plist coverage fix with a real-host 37-item inventory.
@@ -1716,7 +1716,7 @@ staged, committed or pushed. The working branch is `devel` at the same commit as
 `tokensave branch add 080` ran (tracked from `devel`, not yet synced because `080` is not checked out).
 No running user app was touched: the app and root helper were only read with `proc_pid_rusage` and `ps`.
 M1 results were not pasted, so the first task (recording M1 results and optimizing if over budget) is
-still open. Evidence: `docs/phase7-local-measurements-20261101.json`, `docs/spec-004-validation.md`.
+still open. Evidence: `docs/development/measurements/phase7-local-measurements-20261101.json`, `docs/development/validation/spec-004-validation.md`.
 
 - Opt-in harness `Tests/SmackTests/Phase7Measurements.swift` (`SMACK_PHASE7=alloc,posture,idle,burst,dropped`).
 - A validated `malloc_logger` counter found one allocation per rule per sample for pending rules with long
@@ -1738,13 +1738,13 @@ still open. Evidence: `docs/phase7-local-measurements-20261101.json`, `docs/spec
 Remaining work and next-session prompt:
 
 > Continue spec 004 from the "Local Phase 7 measurements" entry and section 6. Read
-> docs/spec-004-validation.md (last three sections) and docs/control-protocol-v1.md first. Preserve every
+> docs/development/validation/spec-004-validation.md (last three sections) and docs/development/control-protocol.md first. Preserve every
 > staged/unstaged change, including the pre-existing `.gitignore` edit; nothing is committed. The working
 > branch is `devel` (same commit as `080`); use `tokensave branch add 080` and `tokensave sync` instead of
 > disabling the grep hook. Log every command in ~/.agents/logs/smack.jsonl.
 >
 > Done on M5 Max/macOS 27.2: alert engine under 5 ms for all release workloads and allocation-free system
-> rules (docs/phase7-local-measurements-20261101.json); production watcher idle 0.0463 % (10 min) and burst,
+> rules (docs/development/measurements/phase7-local-measurements-20261101.json); production watcher idle 0.0463 % (10 min) and burst,
 > real UserDropped recovery, posture child CPU, first-sample cpuPercent unavailable; App Store test target
 > (42 pre-existing issues); foreign-UID tests as root; signed helper v2; cold `--launch`; label-less plists.
 >
@@ -1768,7 +1768,7 @@ Remaining work and next-session prompt:
 
 ### 2026-11-01: Shipped-build checks and wrap-up
 
-User-run on M5 Max, macOS 27.2, ad hoc and self-signed builds (docs/phase7-shipped-build-checks-20261101.json):
+User-run on M5 Max, macOS 27.2, ad hoc and self-signed builds (docs/development/measurements/phase7-shipped-build-checks-20261101.json):
 launch, CLI, URL scheme, notifications and UI pass; Shortcuts lists the Smack actions without a Team ID (the
 `linkd` "Unable to get teamId" errors are not fatal); the four Shortcuts.app crashes are an uncaught exception in
 Shortcuts' own SwiftUI/AppKit layout with no Smack frames. The helper reports protocol 2 with BTM and profile
@@ -1778,10 +1778,10 @@ unverified. Boxes ticked: App Intents, helper v2, release-as-shipped. Nothing is
 
 Next-session prompt:
 
-> Finish spec 004 (docs/specs/004-alerts-automation-security.md). Read the last three entries of section 14,
-> docs/spec-004-validation.md (last four sections) and docs/control-protocol-v1.md first. Preserve every
+> Finish spec 004 (docs/development/specs/004-alerts-automation-security.md). Read the last three entries of section 14,
+> docs/development/validation/spec-004-validation.md (last four sections) and docs/development/control-protocol.md first. Preserve every
 > staged/unstaged change, including the pre-existing `.gitignore` edit and the untracked files
-> (`Tests/SmackTests/Phase7Measurements.swift`, `docs/phase7-*.json`, `docs/shortcut-trace.txt`, which is the
+> (`Tests/SmackTests/Phase7Measurements.swift`, `docs/development/measurements/phase7-*.json`, `docs/development/measurements/shortcut-trace.txt`, which is the
 > user's 830-line Shortcuts crash trace; ask before deleting it). Nothing is committed; never commit, push or
 > touch the `homebrew-tap` repo without explicit approval. The working branch is `devel` (same commit as `080`);
 > use `tokensave branch add 080`/`tokensave sync` instead of disabling the grep hook. Log every command in
@@ -1818,7 +1818,7 @@ Next-session prompt:
 >    keeps the placeholder first CPU sample.
 > 6. Before publishing 0.8.0 (not now): the remote `alvagante/tap` cask needs a `binary` entry for
 >    `#{appdir}/Smack.app/Contents/Helpers/smack` (the local tap clone is stale at 0.5.0; `release.yml` only
->    rewrites version and sha256); final release approval; `docs/distribution.md` and README current.
+>    rewrites version and sha256); final release approval; `docs/development/distribution.md` and README current.
 > 7. Section 13 questions 1 to 4 (default persistence template, menu-bar badge, CLI CSV/TSV, bputil posture) are
 >    undecided product choices: ask the user, do not decide.
 >
@@ -1828,7 +1828,7 @@ Next-session prompt:
 ### 2026-11-01: Completion checks and hourly harness correction (one acceptance pending)
 
 All remaining checks except final acceptance of the hour-long observation are recorded in
-`docs/phase7-completion-20261101.json` and the completion section of `docs/spec-004-validation.md`.
+`docs/development/measurements/phase7-completion-20261101.json` and the completion section of `docs/development/validation/spec-004-validation.md`.
 
 - User decisions: no M1 available, accept M5 Max-only evidence with M1/macOS 15 unverified; keep
   persistence templates disabled by default, defer badge and bputil, add CSV/TSV (implemented).
@@ -1855,7 +1855,7 @@ Done are not closed yet. The evidence retains the actual failure and all success
 Next-session prompt:
 
 > Finish the one remaining spec 004 gate. Read this latest entry, the completion section of
-> docs/spec-004-validation.md and docs/phase7-completion-20261101.json. Obtain the pending choice:
+> docs/development/validation/spec-004-validation.md and docs/development/measurements/phase7-completion-20261101.json. Obtain the pending choice:
 > accept the observed hour-long lifecycle with the harness timing caveat, or rerun the corrected
 > `SMACK_HELPER_HOUR=1 swift test --filter helperHourLongPollingLifecycle` for a full hour.
 > The earlier run is /tmp/smack-004-helper-hour-final.log (failed harness, successful one-poll/two-op/stop
@@ -1870,7 +1870,7 @@ Next-session prompt:
 > Shortcuts/helper upgrade were previously accepted without execution output. Direct suite 422 passed,
 > App Store compile passed; its 42 existing test issues are excluded. Rules restored, watcher plist gone.
 > Preserve every staged/unstaged change and pre-existing untracked file, including .gitignore,
-> Tests/SmackTests/Phase7Measurements.swift, docs/phase7-*.json and docs/shortcut-trace.txt (ask before
+> Tests/SmackTests/Phase7Measurements.swift, docs/development/measurements/phase7-*.json and docs/development/measurements/shortcut-trace.txt (ask before
 > deleting the user's trace). The original index is unchanged; branch devel. Never commit, push or
 > touch homebrew-tap without explicit approval. Log commands in ~/.agents/logs/smack.jsonl; use
 > tokensave sync/branch add 080, never disable the grep hook. Never disrupt running user apps or prompt
@@ -1887,7 +1887,7 @@ failed after repeated minute sleeps drifted past the deadline. The corrected sca
 a corrected full-hour rerun was not performed. This supersedes the preceding pending-acceptance entry.
 
 All section 6 boxes and section 12 are now closed through evidence or explicit acceptance.
-Evidence: docs/phase7-completion-20261101.json and docs/spec-004-validation.md. Direct suite: 422 tests
+Evidence: docs/development/measurements/phase7-completion-20261101.json and docs/development/validation/spec-004-validation.md. Direct suite: 422 tests
 reported, passed; App Store compile and debug/release CLI export checks pass. Original staged content,
 unrelated unstaged diffs, .gitignore, prior untracked evidence/measurements and the user's crash trace
 remain preserved. Alert rules are restored and the watcher test plist is gone. Nothing was staged,
@@ -1896,7 +1896,7 @@ committed or pushed; homebrew-tap was untouched. 0.8.0 remains unreleased.
 Next-session prompt:
 
 > Spec 004 is complete with explicit accepted gaps. Read this latest section 14 entry,
-> docs/spec-004-validation.md and docs/phase7-completion-20261101.json. Do not restart closed validation.
+> docs/development/validation/spec-004-validation.md and docs/development/measurements/phase7-completion-20261101.json. Do not restart closed validation.
 > The user accepted the observed hour-long helper lifecycle with its harness timing caveat; preserve
 > the failed raw run as failed. The corrected scaled test passes; no corrected full-hour rerun occurred.
 > M1/macOS 15 are unverified and accepted (no available machine), with M5 Max/macOS 27.2 evidence only.
@@ -1904,7 +1904,7 @@ Next-session prompt:
 > templates stay disabled by default, badge and bputil are deferred, CSV/TSV is implemented.
 >
 > Preserve every staged/unstaged change and all pre-existing untracked files, including .gitignore,
-> Tests/SmackTests/Phase7Measurements.swift, docs/phase7-*.json and docs/shortcut-trace.txt (ask before
+> Tests/SmackTests/Phase7Measurements.swift, docs/development/measurements/phase7-*.json and docs/development/measurements/shortcut-trace.txt (ask before
 > deleting the user's trace). Branch devel; original index unchanged. Never commit, push or touch
 > homebrew-tap without explicit approval. Log commands in ~/.agents/logs/smack.jsonl; use tokensave
 > sync/branch add 080 rather than disabling the grep hook. Never disrupt running user apps or prompt
@@ -1913,7 +1913,7 @@ Next-session prompt:
 >
 > Left to review/commit with approval: the preserved spec 004 implementation/tests/docs/evidence plus
 > Sources/SmackCLI/OutputFormat.swift, Scripts/spikes/phase7-cli-formats.py and
-> docs/phase7-completion-20261101.json. Review unrelated .gitignore/Xcode changes separately.
+> docs/development/measurements/phase7-completion-20261101.json. Review unrelated .gitignore/Xcode changes separately.
 > Before publishing 0.8.0 (not now), obtain release approval and separately authorize the remote
 > alvagante/tap cask binary stanza for #{appdir}/Smack.app/Contents/Helpers/smack. The local tap is stale
 > at 0.5.0; release.yml only rewrites version/sha256. Optional root-helper CPU profiling, first history
@@ -1930,7 +1930,7 @@ Earlier session prompts and measured app versions are historical and do not set 
 Current continuation prompt:
 
 > Spec 004 is complete and targets unreleased 1.0.0 together with
-> docs/specs/005-dev-sessions-baseline-export.md. Spec 005 is draft; implement its dev-server, agent-session,
+> docs/development/specs/005-dev-sessions-baseline-export.md. Spec 005 is draft; implement its dev-server, agent-session,
 > baseline/drift and file-export scope when requested. Prometheus export will not be implemented.
 > Preserve spec 004's recorded acceptance caveats, including the failed hourly harness run; do not
 > relabel it as passing or restart accepted validation. M1/macOS 15 remain unverified and accepted.

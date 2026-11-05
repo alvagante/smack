@@ -32,7 +32,7 @@ This spec depends on spec 004:
 Before starting:
 
 1. Spec 004 is integrated on the working branch with tests passing. Specs 004 and 005 ship together in 1.0.0; no separate spec 004 release is required.
-2. The P2 findings in `docs/review-20261031.md` are resolved, in particular eager app sizing and the unbounded `DevEnvironmentMonitor.inspections` cache. Baselines read both inventories.
+2. The P2 findings in `docs/development/reviews/review-20261031.md` are resolved, in particular eager app sizing and the unbounded `DevEnvironmentMonitor.inspections` cache. Baselines read both inventories.
 3. `swift test` passes and both flavors compile.
 
 Implement against spec 004's shared navigation, cached automation and posture surfaces. Release 1.0.0 includes both specs; spec 005 remains draft until implemented and validated.
@@ -411,7 +411,7 @@ var scheduledDriftCheck = false
 - [x] Capture fixture directory listings for Claude Code, Codex and Gemini session logs. Gemini's existing logs were captured; its current executable is unavailable, so a live layout check remains for phase 2.
 - [x] Measure argv read cost per process to confirm the 200-per-snapshot cap.
 
-Evidence and choices: [phase 0 validation](../spec-005-phase0-validation.md), captured
+Evidence and choices: [phase 0 validation](../validation/spec-005-phase0-validation.md), captured
 2026-11-01. The cap is retained provisionally: p95 for 200 reads plus argv decoding was 2.053 ms
 on M5 Max. This does not measure the full future tracker or slower hardware.
 
@@ -422,7 +422,7 @@ on M5 Max. This does not measure the full future tracker or slower hardware.
 - [x] Dev Servers page, Summary card, actions, terminal and editor preferences.
 - [x] Deep link and CLI ops.
 
-Validation: [phase 1 checks](../spec-005-phase1-validation.md). Live browser, terminal/editor and Docker action checks remain manual.
+Validation: [phase 1 checks](../validation/spec-005-phase1-validation.md). Live browser, terminal/editor and Docker action checks remain manual.
 
 ### Phase 2: agent sessions
 
@@ -431,7 +431,7 @@ Validation: [phase 1 checks](../spec-005-phase1-validation.md). Live browser, te
 - [x] Events, detail annotations on listener and connection events, alert templates.
 - [x] Log adapters with fixtures.
 
-Validation: [phase 2 checks](../spec-005-phase2-validation.md). Live multi-agent, command-line
+Validation: [phase 2 checks](../validation/spec-005-phase2-validation.md). Live multi-agent, command-line
 reveal and helper capture checks remain manual; Gemini's executable remains unavailable locally.
 
 ### Phase 3: baselines
@@ -440,7 +440,7 @@ reveal and helper capture checks remain manual; Gemini's executable remains unav
 - [x] `BaselineDiff`, Baseline page, import and export.
 - [x] CLI ops and exit codes, scheduled drift check.
 
-Validation: [phase 3 checks](../spec-005-phase3-validation.md). Two-Mac interchange, live helper
+Validation: [phase 3 checks](../validation/spec-005-phase3-validation.md). Two-Mac interchange, live helper
 and daily scheduled delivery checks remain manual.
 
 ### Phase 4: hardening and release
@@ -449,7 +449,7 @@ and daily scheduled delivery checks remain manual.
 - [x] Format, CLI/protocol, URL, capability and release documentation.
 - [x] Both flavors compile and package as local 1.0.0 (build 10) bundles.
 
-Validation and publication gates: [phase 4 checks](../spec-005-phase4-validation.md).
+Validation and publication gates: [phase 4 checks](../validation/spec-005-phase4-validation.md).
 
 ## 7. Test plan
 
@@ -498,7 +498,7 @@ Integration and manual:
 - README: Dev Servers, Agent sessions, Baseline capture/drift and baseline/report export, with the edition notes.
 - `docs/cli.md`: v2 operations and exit codes.
 - New `docs/baseline-format.md`: the schema, section table and stability promise.
-- `docs/distribution.md`: matrix rows from 5.11.
+- `docs/development/distribution.md`: matrix rows from 5.11.
 
 ## 12. Definition of done
 

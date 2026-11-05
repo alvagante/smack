@@ -2,6 +2,72 @@
 
 A lightweight macOS menu-bar utility for inspecting system-wide and per-application resource usage, activity, and the local software environment (startup items, installed apps, Homebrew, Docker, development runtimes, AI agents, user home).
 
+## Developing Smack
+
+Smack is a monitor: its own CPU, memory and disk footprint is part of the product. A feature that makes the Mac busier to show how busy the Mac is, is a regression.
+
+### Build and test
+
+```bash
+swift test --no-parallel                                   # full suite; CI runs it serially
+swift build -Xswiftc -DSMACK_APP_STORE --product Smack     # the App Store flavor must still compile
+Scripts/build-app.sh && open dist/Smack.app               # direct app bundle; needs full Xcode
+```
+
+- Swift 6, macOS 15+, Swift Testing (`@Test`, `#expect`). No third-party dependencies; don't add any.
+- Targets: `Smack` (app), `SmackIPC` (shared types and socket protocol), `SmackCLI`, `SmackHelper` (root daemon).
+- Direct-only code goes behind `#if !SMACK_APP_STORE`. Capabilities per flavor live in `Capabilities.swift`.
+- Run one copy of Smack at a time: two instances fight over the helper and the control socket.
+- Opt-in tests are gated by `SMACK_*` environment variables (benchmarks, live system checks, UI previews). CI also runs the release performance budgets: `SMACK_PERFORMANCE_BUDGETS=1 SMACK_AGENT_BENCHMARK=1 swift test -c release --filter <test>`.
+
+### Test first
+
+- Red, green, refactor. Write the failing test before the code, in `Tests/SmackTests/<Area>Tests.swift`.
+- A bug fix starts with a test that reproduces it.
+- Unit tests never touch the real system. Inject commands, clocks, file systems and samples through the existing seams (`CommandRunner`, `ProviderContracts.swift`, closures such as `DockerCollector(run:)`).
+- Tests must be deterministic: no sleeps or wall-clock timing assertions; drive time explicitly.
+- Every new collector gets a test in `ResourceBudgetTests` asserting what it runs and when (which commands, how many, only for the visible section).
+
+### Design principles
+
+- SOLID, applied concretely: one collector per data source behind a protocol; models turn samples into state; views only render. Depend on injected abstractions, not on `Process`, `FileManager` or SQLite directly.
+- Name types, settings and UI with the glossary below. If a new concept appears, add it here first.
+- Missing data is **Unavailable**, never zero. A feature turned off shows "Off".
+- State changes are **Confirmed Actions**. Monitoring never mutates the system.
+- Nothing leaves the Mac except a lookup the user clicks.
+- Prefer deleting code to adding options.
+
+### Resource cost: measure and discuss
+
+Before implementing any change that adds or alters collection, sampling, watchers, subprocesses, caches, history writes or UI refresh rate:
+
+1. **Estimate** the cost on each axis and write it down:
+   - CPU: work per interval, subprocess launches, wakeups, whether it runs with the Panel closed.
+   - Memory: what is retained, its bound, and how it scales (processes, files, containers).
+   - Disk: rows and bytes per hour, write pattern (appends vs random page writes), commit frequency.
+2. **Discuss it with the user** before writing the code: the estimate, the cheaper alternatives, and the default you propose. Do not ship hidden background work.
+3. **Measure** a release build afterwards against `main`, Panel closed and open, for at least 10 minutes, and report the numbers:
+
+```bash
+top -l 60 -s 10 -pid "$(pgrep -x Smack)" -stats pid,cpu,mem,idlew   # CPU, memory, wakeups
+footprint Smack                                                    # physical footprint
+ls -l ~/Library/Application\ Support/Smack/history.sqlite3*        # history growth, before and after one hour
+sudo fs_usage -w -f filesys Smack                                  # write pattern, when disk behavior changed
+```
+
+Rules that keep the cost low:
+- Collect only while the Panel or its Page is visible, unless the user enables background collection.
+- Bound everything: caps on rows and entries, timeouts, cancellation when the Page closes.
+- Cache inventories (Inventory Cache), never re-collect on every refresh.
+- Batch history writes; never write a row per sample when nothing changed (see Idle Run).
+- Every cost-related Setting follows "Populating Settings" below: a default that keeps previous behavior, the cost stated in the row, and an entry in `PerformancePreset.apply` (or a reason it is left out).
+
+### When you finish
+
+- Add an entry under `[Unreleased]` in `CHANGELOG.md`, with the measured cost when it changed.
+- User-visible features: one line in the README feature list, and an update to `docs/` when the CLI, URL scheme or baseline format changes.
+- Specs, reviews and measurements go in `docs/development/`.
+
 ## Language
 
 ### Panel and navigation

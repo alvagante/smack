@@ -69,5 +69,3 @@ successful comparison time is persisted separately for each golden baseline. Dis
 `driftDetected` event details. Section counts accompany the event, in the Security group, so event
 alert rules can match it. Schedule checks never store their temporary capture. Failed checks retry
 on the next maintenance pass. Checks run with the existing maintenance cadence (about five minutes).
-The App Store edition limits capture to system and apps as visible in its container; other sections
-are unavailable, and the CLI is absent.

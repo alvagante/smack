@@ -9,7 +9,7 @@ edits, passed later as part of [phase 4](spec-005-phase4-validation.md).
 
 - Spec 004 is integrated in `3a8cb13`; its accepted runtime/platform limitations remain in
   [the validation ledger](spec-004-validation.md). This does not authorize a release.
-- All P2 findings in [the review](review-20261031.md) are marked remediated. Source inspection
+- All P2 findings in [the review](../reviews/review-20261031.md) are marked remediated. Source inspection
   confirms `InstalledAppsMonitor.refresh` only discovers apps and reuses cached sizes; measurement
   is explicit. `DevEnvironmentMonitor.inspect` serializes work and evicts retained reports by LRU
   under the configured aggregate byte budget, refusing an oversized entry.
@@ -34,7 +34,7 @@ Local logs now contain the failed recheck: `/tmp/smack-005-phase0-tests.log`,
 
 ## Session log fixtures
 
-[Metadata fixtures](../Tests/Fixtures/AgentSessionLogs) were captured from this host's existing
+[Metadata fixtures](../../../Tests/Fixtures/AgentSessionLogs) were captured from this host's existing
 Claude Code, Codex and Gemini trees. Capture uses directory enumeration and `stat` only, never
 log/configuration contents or symlink targets. Project names and session identifiers are replaced
 with synthetic aliases; file extensions, sizes, modification times and Codex date directories remain.
@@ -71,7 +71,7 @@ fields). Repeating each capture with Python file-content opens replaced by failu
 
 ## Argv budget
 
-[Raw measurement](spec005-argv-measurement.json): optimized standalone Swift probe, M5 Max,
+[Raw measurement](../measurements/spec005-argv-measurement.json): optimized standalone Swift probe, M5 Max,
 macOS 27.2 build 26B123, own-user processes, 2026-11-01. Fifty serial batches of 200 reads,
 rotating across 863 processes, after 20 warmup reads. All 10,000 reads succeeded.
 
@@ -102,7 +102,7 @@ Reproduce:
 
 ```sh
 swiftc -O Scripts/spikes/spec005-argv.swift -o /tmp/smack-005-argv
-/tmp/smack-005-argv > docs/spec005-argv-measurement.json
+/tmp/smack-005-argv > docs/development/measurements/spec005-argv-measurement.json
 ```
 
 Validation commands used:

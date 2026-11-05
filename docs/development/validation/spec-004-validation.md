@@ -164,7 +164,7 @@ External cask work is separate: `alvagante/tap` needs a `binary` entry for
   under 2 s. Bounded, not exhaustive. First version (no observation check):
   `/tmp/smack-004-link-race-initial.log`; final: `/tmp/smack-004-link-race.log`.
 - Alert reruns: three sequential repeats of the fixed Phase 0 workloads (not varied workloads),
-  `docs/phase7-alert-reruns-20261101.json` (logs `/tmp/smack-004-alert-bench-run{1,2,3}.log`).
+  `docs/development/measurements/phase7-alert-reruns-20261101.json` (logs `/tmp/smack-004-alert-bench-run{1,2,3}.log`).
   `process-50-any-1000` mean 4.4437/4.3437/4.1821 ms, max 4.9594/5.6286/4.8514 ms. The 5 ms
   budget stays unresolved (one run exceeds it), on M5 Max only, without allocation profiling.
   Recorded 23.2638 to 4.4031 ms mean and 6.0106 ms max remain the reference evidence.
@@ -199,7 +199,7 @@ External cask work is separate: `alvagante/tap` needs a `binary` entry for
   path only; the rewritten system path relies on existing system-rule tests, and fixtures without
   network throughput do not distinguish the network-unavailable branch.
 - Opt-in benchmark adds `process-50-any-1000-churn` (moving values, 10% exits per sample, rules fire and
-  clear). Three release runs before and after, M5 Max, `docs/phase7-alert-engine-optimization-20261101.json`:
+  clear). Three release runs before and after, M5 Max, `docs/development/measurements/phase7-alert-engine-optimization-20261101.json`:
 
   | Workload | Mean before (ms) | Mean after (ms) | Max before (ms) | Max after (ms) |
   |---|---|---|---|---|
@@ -253,7 +253,7 @@ External cask work is separate: `alvagante/tap` needs a `binary` entry for
 ## 2026-11-01 local Phase 7 measurements (M5 Max)
 
 Host: M5 Max, macOS 27.2, release builds through `swift test -c release`, direct flavor. Evidence file:
-`docs/phase7-local-measurements-20261101.json`; raw logs `/tmp/smack-phase7-*.log`. The harness is the
+`docs/development/measurements/phase7-local-measurements-20261101.json`; raw logs `/tmp/smack-phase7-*.log`. The harness is the
 opt-in `Tests/SmackTests/Phase7Measurements.swift` (`SMACK_PHASE7=alloc,posture,idle,burst,dropped`).
 M1 results were not provided in this session: every M1 budget in section 8 remains unverified.
 
@@ -317,7 +317,7 @@ and notarization are deferred. The remaining signed-runtime checks apply to the 
 
 ## 2026-11-01 shipped-style build checks (run by the user, macOS 27.2)
 
-Evidence: `docs/phase7-shipped-build-checks-20261101.json`. Build: ad hoc release in `/tmp/smack-ship` (as
+Evidence: `docs/development/measurements/phase7-shipped-build-checks-20261101.json`. Build: ad hoc release in `/tmp/smack-ship` (as
 `release.yml` produces without Developer ID secrets). No macOS 15 machine is available, so macOS 15 stays unverified.
 
 - Cold launch and CLI, URL scheme (including Automation toggle), notifications (permission prompt, Open/Snooze/Mute,
@@ -333,7 +333,7 @@ Evidence: `docs/phase7-shipped-build-checks-20261101.json`. Build: ad hoc releas
 
 ## 2026-11-01 completion validation and accepted scope
 
-Evidence: `docs/phase7-completion-20261101.json`. M5 Max, macOS 27.2. The user explicitly confirmed
+Evidence: `docs/development/measurements/phase7-completion-20261101.json`. M5 Max, macOS 27.2. The user explicitly confirmed
 that no M1 is available and accepts M1/macOS 15 as unverified, with M5 Max evidence only.
 The persistence template stays disabled by default; menu-bar badge and bputil posture are deferred;
 CSV/TSV output is approved and implemented. No release, tap edit, staging, commit or push is authorized.

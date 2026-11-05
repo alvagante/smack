@@ -6,3 +6,4 @@
 *.xcuserstate
 dist/
 Smack.build
+.DS_Store

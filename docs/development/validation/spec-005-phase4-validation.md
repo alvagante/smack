@@ -52,10 +52,10 @@ on slow or unresponsive filesystems. Project resolution skips volumes that are n
 ## Documentation
 
 - README: dev servers, agent sessions, baseline drift and export, edition notes, Prometheus removal.
-- [CLI](cli.md): v2 `devservers`, `who`, `agents` and `baseline` operations with exit codes 0, 1 and 2.
-- [Control protocol v2](control-protocol-v2.md), [URL scheme](url-scheme.md) and
-  [baseline format](baseline-format.md).
-- [Distribution](distribution.md): capability rows from section 5.11.
+- [CLI](../../cli.md): v2 `devservers`, `who`, `agents` and `baseline` operations with exit codes 0, 1 and 2.
+- [Control protocol v2](../control-protocol.md), [URL scheme](../../url-scheme.md) and
+  [baseline format](../../baseline-format.md).
+- [Distribution](../distribution.md): capability rows from section 5.11.
 - CHANGELOG: 1.0.0 entry combining specs 004 and 005.
 
 ## Release gates still open

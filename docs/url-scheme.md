@@ -9,5 +9,4 @@ Specific routes: `smack://app/<bundle-id>`, `smack://process/<pid>`, `smack://po
 Only Timeline accepts query parameters. Unknown/malformed routes fall back to Summary.
 
 Links navigate and pin the panel. They never run commands or change collection, alert rules or startup
-items. Missing processes show Applications with a banner. Direct-only routes show edition limitations
-in the App Store build. Signed launcher/notification integration remains a release gate.
+items. Missing processes show Applications with a banner.

@@ -1,86 +1,87 @@
 # CLI
 
-Direct builds include `Smack.app/Contents/Helpers/smack`. Invoke that path directly or create a local
-symlink. Homebrew cask integration remains a separate change in `alvagante/tap`.
-
-Operations: `status`, `ps`, `apps`, `ports`, `events`, `history`, `startup`, `posture`, `alerts`, `open`.
-Protocol [v2](control-protocol-v2.md) adds `devservers`, `who <port>`, `agents` and `baseline`. The app still accepts v1 clients.
-See [protocol v1](control-protocol-v1.md) for flags, fields, bounds and exit codes.
-
-Examples:
+The `smack` command ships inside the app. Link it into your `PATH` once:
 
 ```sh
-smack agents --json
-smack devservers --json
-smack who 3000
-smack open smack://devservers
+sudo mkdir -p /usr/local/bin
+sudo ln -sf /Applications/Smack.app/Contents/Helpers/smack /usr/local/bin/smack
+```
+
+Smack must be running; `--launch` starts it and waits up to ten seconds for the first sample.
+Turn the CLI, Shortcuts actions and `smack://` links on or off in Settings > Automation.
+
+## Commands
+
+| Command | Shows |
+|---|---|
+| `status` | CPU, memory, pressure, swap, thermal, battery, disk free, helper and alert state |
+| `ps` | Processes (`--sort cpu\|memory`, `--app NAME_OR_BUNDLE_ID`) |
+| `apps` | Applications |
+| `ports` | Listening ports and their clients (`--port N`) |
+| `who PORT` | Which program owns a port |
+| `devservers` | Dev servers grouped by project, with branch and Compose context |
+| `agents` | Live AI coding-agent sessions |
+| `events` | Timeline events (`--since`, `--until`, `--kinds`, `--search`, `--follow`) |
+| `history` | Stored metric history (`--metric`, `--since`, `--until`, `--resolution SECONDS`) |
+| `startup` | Startup items |
+| `posture` | Security check results |
+| `alerts` | Alert rules; `alerts pause [DURATION]`, `alerts resume`, `alerts snooze RULE_UUID DURATION` |
+| `baseline` | `create`, `list`, `diff`, `export` machine baselines |
+| `open URL` | Open a [`smack://` page](url-scheme.md) |
+
+History metrics: `cpu`, `memoryUsedBytes`, `memoryPressure`, `swapUsedBytes`, `gpuUtilization`,
+`networkReceiveRate`, `networkSendRate`, `diskReadRate`, `diskWriteRate`.
+
+## Options and output
+
+| Option | Effect |
+|---|---|
+| `--format table\|json\|csv\|tsv` | Output format; `--json` is a shortcut for `--format json` |
+| `--limit N` | Maximum rows, 1 to 1000 (default 100) |
+| `--launch` | Start Smack if it is not running |
+| `--socket PATH` | Use a non-default control socket |
+
+Output is a table in a terminal and JSON Lines when redirected. CSV and TSV start with one header
+row: `id`, `title`, then the command's fields in alphabetical order.
+Dates accept ISO 8601; `--since` also accepts relative durations such as `30m`, `1h` or `7d`.
+
+Exit codes: `0` success, `1` error (or `who` found nothing), `2` usage error, or drift for
+`baseline diff`, `3` Smack not running, `4` version mismatch between CLI and app.
+
+## Examples
+
+```sh
 smack status --json
 smack ps --sort memory --limit 10
+smack who 3000
+smack devservers --json
+smack agents --json
 smack ps --format csv > processes.csv
-smack events --follow --format tsv > events.tsv
 smack events --since 1h --kinds postureChanged,persistenceFileChanged
-smack events --follow --json
+smack events --follow --format tsv > events.tsv
 smack history --metric cpu --since 1h --resolution 60
-smack posture --json
 smack alerts pause 1h
-smack alerts resume
 smack open smack://security
 ```
 
-Monitoring queries read cached observations or bounded history. Only explicit baseline create/diff requests collect data. Before the first
-sample or scheduled posture check, unavailable is expected. TTY output is tabular; redirected output is
-JSON Lines. `--format table|json|csv|tsv` explicitly selects output even when redirected;
-`--json` is an alias for `--format json`. Conflicting selectors return usage exit code 2.
-CSV and TSV always emit one header, including for empty results and before follow heartbeats.
-Columns are `id`, `title`, then the operation's protocol-v1 fields in alphabetical order (see the
-protocol field table). Missing fields are empty. Column order stays fixed across follow envelopes.
-CSV uses commas and CRLF row endings; TSV uses tabs and LF. Both quote cells containing their delimiter,
-quotes or line breaks, doubling embedded quotes. Embedded newlines stay inside quoted cells.
-`--launch` asks Launch Services to start Smack and retries for up to ten seconds. When it
-started Smack, `unavailable` answers are retried within the same ten seconds, until the first sample or scan.
+`--follow` streams new events only, from the moment you subscribe; query earlier ones with `--since`.
 
-Follow is future-only from subscription. There is no replay, durable delivery or reconnect cursor.
-Query history separately; range flags cannot be combined with follow. Slow followers are disconnected.
-Pause/resume/snooze control delivery only. They never disable rules or mutate collection/startup items.
-
-Posture exports status, area, summary, unknown reason and observation timestamp. Raw TCC clients,
-tool evidence, process arguments and environment are excluded from automation output.
-
-Settings > Automation controls CLI/socket access, App Intents and URL navigation independently.
-Turning off the socket disconnects active followers. Intents disabled in Settings reject execution
-and entity lookups; packaged actions may still appear in Shortcuts and can launch Smack before rejection.
-Settings > Alerts can stop evaluation and pending delivery without editing saved rules.
-Settings > Security controls collection cadence, file watching, enrichment and scheduled helper scans.
-Those panes show expected resource impact and identify unmeasured costs. Disabling collection keeps
-the last cached snapshot; it does not remove stored history.
-
-Dev server queries read cached rows, including project root, working directory, type, branch or short
-commit, listener addresses, container and Compose context. They never start collection. Open Summary
-or Dev servers first, or enable background collection in Settings > Development. Background
-collection follows the network interval. Before the first collection the response is `unavailable`;
-`who` returns `notFound` (exit 1) when no cached row owns that port. Settings can include system
-listeners. No process arguments or environment values are exported.
-
-`agents` returns cached live sessions only. Fields include agent ID, root PID/start time, parent
-session, project/directory, CPU/memory, MCP names, listeners, remote endpoints and log path.
-The `session` field contains the complete session JSON, including helper names, recent command
-names/paths and disk/network totals. No process arguments or environment values are exported.
-
-Baseline operations are explicit collection requests, unlike cached monitoring queries:
+## Baselines
 
 ```sh
 smack baseline create --name post-onboarding --sections system,apps,homebrew
-smack baseline list --json
-smack baseline diff
-smack baseline diff 2026-11-01T100000.000Z-post-onboarding.json --against now --strict --json
-smack baseline diff /tmp/base.json --against /tmp/other-mac.json
+smack baseline list
+smack baseline diff                                   # newest stored baseline vs now
+smack baseline diff /tmp/base.json --against /tmp/other-mac.json --json
 smack baseline export 2026-11-01T100000.000Z-post-onboarding.json -o /tmp/baseline.json
 ```
 
-Create prints the stored path. List prints IDs/names or one JSON array. Diff defaults to the newest
-stored baseline versus a fresh, unsaved capture, and prints Markdown, or a JSON document with
-`--json`/`--format json`. Base accepts a stored filename ID or a path; `--against` accepts a file
-path or `now`. Export prints the JSON document or writes `-o`. Diff exits 0 for no drift, 2 for drift,
-1 for error. Not-compared sections count only with `--strict`. All baseline errors, including syntax,
-exit 1. Baseline capture allows up to 65 seconds for the control response.
-See [baseline format](baseline-format.md) for section names, privacy, timeouts and retention.
+`diff` prints Markdown, or JSON with `--json`, and exits `0` with no drift, `2` with drift.
+`--strict` also counts sections that could not be compared. See the
+[baseline format](baseline-format.md) for sections and file layout.
+
+## Privacy
+
+Queries return what Smack has already collected; only `baseline create` and `baseline diff`
+collect anything new. Process arguments and environment variables are never exported.
+The socket accepts only your own user.

@@ -719,7 +719,7 @@ Update `CodingKeys`, decoder defaults, `validate()`, and Settings UI:
 | Gatekeeper check (`spctl`) | on demand | no |
 | Knowledge base | yes | yes |
 
-Update `docs/distribution.md` with this matrix.
+Update `docs/development/distribution.md` with this matrix.
 
 ## 6. Implementation plan
 
@@ -790,7 +790,7 @@ Acceptance: the Summary strip answers "what changed", the timeline is navigable,
 
 - [ ] 6.1 Performance check: 300+ process sample, 60 cycles, measure extra CPU and event DB growth.
 - [ ] 6.2 Run both flavors and the full test suite.
-- [ ] 6.3 Update `README.md`, `CHANGELOG.md`, `CONTEXT.md`, `docs/distribution.md`.
+- [ ] 6.3 Update `README.md`, `CHANGELOG.md`, `CONTEXT.md`, `docs/development/distribution.md`.
 - [ ] 6.4 Add the vocabulary entries: Activity Event, Timeline, Change Window, Provenance, Wakeup Rate.
 - [ ] 6.5 Bump bundle version to 0.6.0 (build 6) when releasing.
 
@@ -873,7 +873,7 @@ Manual checks:
   - **Change Window**: the interval since the user last hid the panel, used by What changed.
   - **Provenance**: the origin and signing identity of a process.
   - **Wakeup Rate**: CPU wakeups per second caused by a process.
-- `docs/distribution.md`: capability matrix update.
+- `docs/development/distribution.md`: capability matrix update.
 
 ## 12. Definition of done
 
