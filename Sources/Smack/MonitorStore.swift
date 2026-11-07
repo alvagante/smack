@@ -382,7 +382,7 @@ final class MonitorStore: ObservableObject {
         guard processes.map({ snapshot.timestamp > $0.timestamp }) ?? true else { return }
         recordRecentPoints(snapshot)
         processes = snapshot
-        agentsModel.sessions = snapshot.agentSessions
+        agentsModel.receive(snapshot.agentSessions, at: snapshot.timestamp)
         if devServersModel.devServers == nil { refreshDevServers() }
         let liveIDs = Set(snapshot.applications.flatMap(\.processes).map(\.id) + snapshot.backgroundProcesses.map(\.id))
         inspection.retainScheduled(liveIDs)

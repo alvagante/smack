@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 import Synchronization
@@ -227,4 +228,82 @@ func agentSteadyStateBenchmark() async {
     #expect(result.sessions.first?.mcpServers.first?.classification == "configured: filesystem")
     #expect(result.sessions.first?.helpers.first?.identity.pid == 12)
     #expect(!String(decoding: try JSONEncoder().encode(result.sessions), as: UTF8.self).contains("TOP_SECRET"))
+}
+
+@Test func claudeLogDirectoryEncodesEveryNonAlphanumericCharacter() {
+    let home = URL(fileURLWithPath: "/fixture")
+    let project = ProjectContext(directory: "/fixture/my_site.com/app", name: "app")
+    let path = "/fixture/.claude/projects/-fixture-my-site-com-app/session.jsonl"
+    let adapter = CatalogSessionLogAdapter(agentID: "claude",
+        fileSystem: MetadataOnlyLogs(values: [AgentSessionLog(path: path, size: 1, modifiedAt: sessionEpoch)]))
+    let session = AgentSession(agentID: "claude", root: obsProcess(10).identity, project: project, startedAt: sessionEpoch)
+    #expect(adapter.latestLog(for: session, home: home)?.path == path)
+}
+
+private func liveSession(_ pid: Int32, start: Double, parent: String? = nil, cpu: Double = 0, ended: Double? = nil) -> AgentSession {
+    var session = AgentSession(agentID: "claude", root: obsProcess(pid, start: start).identity, parentSession: parent,
+        startedAt: Date(timeIntervalSince1970: start), endedAt: ended.map(Date.init(timeIntervalSince1970:)))
+    session.totals.cpu = cpu
+    return session
+}
+
+@Test func sessionListPutsNewestLiveFirstNestsChildrenAndSeparatesEnded() {
+    let old = liveSession(10, start: 1)
+    let new = liveSession(20, start: 5)
+    let child = liveSession(11, start: 2, parent: old.id)
+    let ended = liveSession(30, start: 3, ended: 9)
+    let list = AgentSessionList(sessions: [ended, child, old, new])
+    #expect(list.live.map(\.session.id) == [new.id, old.id, child.id])
+    #expect(list.live.map(\.depth) == [0, 0, 1])
+    #expect(list.ended.map(\.id) == [ended.id])
+    // A child whose parent ended is still listed as live, at the top level.
+    let orphan = AgentSessionList(sessions: [liveSession(10, start: 1, ended: 4), child])
+    #expect(orphan.live.map(\.depth) == [0])
+}
+
+@Test func sessionActivityFollowsTreeCPU() {
+    #expect(liveSession(10, start: 1, cpu: 12).activity == .working)
+    #expect(liveSession(10, start: 1, cpu: 0.5).activity == .idle)
+    #expect(liveSession(10, start: 1, cpu: 50, ended: 2).activity == .ended)
+}
+
+@Test func sessionHistoryIsBoundedFrozenAfterEndAndDroppedWithTheSession() {
+    var history = AgentSessionHistory(capacity: 3)
+    var session = liveSession(10, start: 1, cpu: 1)
+    for tick in 0..<5 {
+        session.totals.cpu = Double(tick)
+        history.record([session], at: Date(timeIntervalSince1970: 10 + Double(tick)))
+    }
+    #expect(history.points(for: session.id).map(\.cpu) == [2, 3, 4])
+    session.endedAt = Date(timeIntervalSince1970: 20)
+    history.record([session], at: Date(timeIntervalSince1970: 21))
+    #expect(history.points(for: session.id).count == 3)
+    history.record([session], at: Date(timeIntervalSince1970: 21))
+    #expect(history.points(for: session.id).last?.timestamp == Date(timeIntervalSince1970: 14))
+    history.record([], at: Date(timeIntervalSince1970: 22))
+    #expect(history.points(for: session.id).isEmpty)
+    // A stale or repeated snapshot never appends twice.
+    let other = liveSession(20, start: 1, cpu: 1)
+    history.record([other], at: Date(timeIntervalSince1970: 30))
+    history.record([other], at: Date(timeIntervalSince1970: 30))
+    history.record([other], at: Date(timeIntervalSince1970: 29))
+    #expect(history.points(for: other.id).count == 1)
+}
+
+@Test @MainActor func agentMonitorPublishesSessionsThroughTheLiveModelOnly() {
+    let monitor = AgentMonitor()
+    var monitorChanges = 0
+    let cancellable = monitor.objectWillChange.sink { monitorChanges += 1 }
+    monitor.receive([liveSession(10, start: 1, cpu: 3)], at: Date(timeIntervalSince1970: 10))
+    #expect(monitor.sessions.count == 1)
+    #expect(monitor.live.history.points(for: monitor.sessions[0].id).count == 1)
+    #expect(monitorChanges == 0)
+    cancellable.cancel()
+}
+
+@Test func sessionNetworkReadsOffWhenNetworkRateIsTurnedOff() {
+    #expect(AgentSessionDetail.networkValue(nil, enabled: false) == "Off")
+    #expect(AgentSessionDetail.networkValue(2048, enabled: false) == "Off")
+    #expect(AgentSessionDetail.networkValue(nil, enabled: true) == "Unavailable")
+    #expect(AgentSessionDetail.networkValue(2048, enabled: true) == Formatting.rate(2048))
 }

@@ -78,8 +78,20 @@ struct AgentMonitorTests {
             inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(),
             history: history, settings: settings.settings, onSystem: { _ in }, onProcesses: { _ in })
         let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
-        model.sessions = [AgentSession(agentID: "claude", root: obsProcess(42).identity,
-            project: ProjectContext(directory: home.path, name: "Fixture"), startedAt: Date())]
+        var session = AgentSession(agentID: "claude", root: obsProcess(42).identity,
+            project: ProjectContext(directory: home.path, name: "Fixture"), startedAt: Date().addingTimeInterval(-754))
+        session.mcpServers = [AgentChild(identity: obsProcess(43).identity, name: "node", executablePath: "/usr/bin/node", classification: "configured: github")]
+        session.recentCommands = [AgentCommandRecord(identity: obsProcess(44).identity, name: "git", executablePath: "/usr/bin/git", duration: 2, exitedAt: Date())]
+        var nested = AgentSession(agentID: "codex", root: obsProcess(50).identity, parentSession: session.id,
+            project: session.project, startedAt: Date().addingTimeInterval(-60))
+        var ended = AgentSession(agentID: "gemini", root: obsProcess(60).identity, startedAt: Date().addingTimeInterval(-900))
+        ended.endedAt = Date().addingTimeInterval(-120)
+        for tick in 0..<40 {
+            session.totals.cpu = 20 + 15 * sin(Double(tick) / 4)
+            session.totals.memory = UInt64(300_000_000 + tick * 2_000_000)
+            nested.totals.cpu = Double(tick % 7)
+            model.receive([session, nested, ended], at: Date().addingTimeInterval(Double(tick - 40)))
+        }
         let host = NSHostingView(rootView: AgentDetailView(model: model, store: store)
             .environment(\.colorScheme, .light).background(Color.white))
         host.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)

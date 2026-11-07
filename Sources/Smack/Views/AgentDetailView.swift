@@ -17,12 +17,14 @@ struct AgentsSummaryTile: View {
 
 struct AgentDetailView: View {
     @ObservedObject var model: AgentMonitor
-    @ObservedObject var store: MonitorStore
+    /// Not observed: only the session views redraw on each process sample.
+    let store: MonitorStore
+    /// Chosen once when the page opens: sessions while one is running, never switched by later samples.
+    @State private var mode: AgentPageMode
     @State private var selectedAgent: String?
     @State private var category: AgentCategory = .configuration
     @State private var selectedArtifact: String?
     @State private var query = ""
-    @State private var showingSessions = false
     @StateObject private var browser = UserHomeMonitor()
     @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
@@ -32,6 +34,12 @@ struct AgentDetailView: View {
     private var current: InstalledAgent? { agents.first { $0.id == selectedAgent } ?? agents.first }
     private var artifacts: [AgentArtifact] { current?.artifacts.filter { $0.category == category } ?? [] }
     private var artifact: AgentArtifact? { artifacts.first { $0.id == selectedArtifact } ?? artifacts.first }
+
+    init(model: AgentMonitor, store: MonitorStore) {
+        self.model = model
+        self.store = store
+        _mode = State(initialValue: model.live.liveCount > 0 ? .sessions : .agents)
+    }
 
     private var overview: some View {
         ResourceStatsRow(headline: model.snapshot.map { String($0.agents.count) } ?? "–", unit: "agents", stats: [
@@ -44,24 +52,20 @@ struct AgentDetailView: View {
         VStack(spacing: 0) {
             DetailPageHeader {
                 ResourceTitle(title: "Agents", systemImage: "sparkles", color: .purple,
-                              subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" })
+                              subtitle: mode == .agents ? model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } : nil)
             } actions: {
-                if model.loading { ProgressView().controlSize(.small) }
-                RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
+                AgentPageModePicker(live: model.live, mode: $mode)
+                if mode == .agents {
+                    if model.loading { ProgressView().controlSize(.small) }
+                    RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
+                }
             } overview: {
-                overview
+                if mode == .sessions { AgentSessionsOverview(live: model.live) } else { overview }
             }
             Divider()
-            DisclosureGroup(isExpanded: $showingSessions) {
-                AgentSessionsView(model: model, store: store)
-                    .frame(height: 220)
-            } label: {
-                Label("Live sessions (\(model.sessions.filter { $0.endedAt == nil }.count))", systemImage: "terminal")
-                    .font(.callout.weight(.semibold))
-            }
-            .padding(.horizontal, MonitorStyle.inset)
-            .padding(.vertical, 12)
-            Divider()
+            if mode == .sessions {
+                AgentSessionsView(live: model.live, store: store)
+            } else {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField("Filter agents", text: $query).textFieldStyle(.roundedBorder).padding(.horizontal, 10)
@@ -143,6 +147,7 @@ struct AgentDetailView: View {
                     }
                 }.padding(MonitorStyle.inset).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            }
         }
         .task { if model.snapshot == nil { await model.refresh() } }
         .task(id: artifact?.id) {
@@ -150,5 +155,41 @@ struct AgentDetailView: View {
             if let item = artifact, !item.isDirectory { await browser.inspect(item.url) }
         }
         .onChange(of: category) { selectedArtifact = nil }
+    }
+}
+
+enum AgentPageMode: String, CaseIterable, Identifiable {
+    case sessions = "Agent Sessions"
+    case agents = "Agents"
+    var id: Self { self }
+}
+
+private struct AgentPageModePicker: View {
+    @ObservedObject var live: AgentSessionsModel
+    @Binding var mode: AgentPageMode
+
+    var body: some View {
+        Picker("View", selection: $mode) {
+            Text(live.liveCount > 0 ? "Agent Sessions (\(live.liveCount))" : "Agent Sessions").tag(AgentPageMode.sessions)
+            Text("Agents").tag(AgentPageMode.agents)
+        }
+        .pickerStyle(.segmented).labelsHidden().fixedSize()
+    }
+}
+
+private struct AgentSessionsOverview: View {
+    @ObservedObject var live: AgentSessionsModel
+
+    var body: some View {
+        let running = live.sessions.filter { $0.endedAt == nil }
+        let ids = Set(running.map(\.id))
+        // Nested sessions are already included in their parent's totals.
+        let topLevel = running.filter { $0.parentSession.map { !ids.contains($0) } ?? true }
+        ResourceStatsRow(headline: String(running.count), unit: "live", stats: [
+            ResourceStat(title: "Working", systemImage: "bolt", value: String(running.filter { $0.activity == .working }.count)),
+            ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(topLevel.reduce(0) { $0 + $1.totals.cpu })),
+            ResourceStat(title: "Memory", systemImage: "memorychip", value: Formatting.bytes(topLevel.reduce(0) { $0 + $1.totals.memory })),
+            ResourceStat(title: "MCP servers", systemImage: "server.rack", value: String(running.reduce(0) { $0 + $1.mcpServers.count }))
+        ], headlineWidth: 80)
     }
 }

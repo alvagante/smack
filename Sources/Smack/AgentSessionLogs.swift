@@ -37,8 +37,9 @@ struct CatalogSessionLogAdapter: AgentSessionLogAdapter {
         switch agentID {
         case "claude":
             guard let directory = session.project?.directory else { return nil }
-            root = home.appendingPathComponent(".claude/projects")
-                .appendingPathComponent(directory.replacingOccurrences(of: "/", with: "-"))
+            // Claude Code names the folder after the directory with every non-alphanumeric character as "-".
+            let name = String(directory.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? Character($0) : "-" })
+            root = home.appendingPathComponent(".claude/projects").appendingPathComponent(name)
         case "codex": root = home.appendingPathComponent(".codex/sessions")
         case "gemini": root = home.appendingPathComponent(".gemini/tmp")
         default: return nil
