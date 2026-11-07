@@ -8,6 +8,12 @@ struct AgentSessionsView: View {
     @ObservedObject var store: MonitorStore
     @State private var selectedID: String?
 
+    init(live: AgentSessionsModel, store: MonitorStore, selectedID: String? = nil) {
+        self.live = live
+        self.store = store
+        _selectedID = State(initialValue: selectedID)
+    }
+
     private var list: AgentSessionList { AgentSessionList(sessions: live.sessions) }
 
     var body: some View {
@@ -91,8 +97,24 @@ private struct AgentSessionCard: View {
                 Spacer(minLength: 4)
                 SessionUptime(session: session).font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
-            Text([session.project?.name ?? "Unknown project", session.project?.git?.branch].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            HStack(spacing: 4) {
+                Image(systemName: session.project == nil ? "questionmark.folder" : "folder.fill")
+                    .font(.caption2).foregroundStyle(session.project == nil ? Color.secondary : Color.accentColor)
+                Text(session.project?.name ?? "Unknown project")
+                    .font(.caption.weight(.semibold)).foregroundStyle(session.project == nil ? .secondary : .primary).lineLimit(1)
+                if let branch = session.project?.git?.branch {
+                    Image(systemName: "arrow.triangle.branch").font(.caption2).foregroundStyle(.secondary)
+                    Text(branch).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                if session.project?.git?.isWorktree == true {
+                    Text("worktree").font(.caption2.weight(.medium)).foregroundStyle(.purple)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.purple.opacity(0.14), in: Capsule())
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 13)
+            .help(session.project?.directory ?? "The session's working directory is not readable")
             if session.endedAt == nil {
                 Sparkline(series: [SparklineSeries(values: points.map(\.cpu), color: .blue)], minHeight: 20, maxHeight: 20)
                 Text(summary).font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
@@ -148,7 +170,9 @@ struct AgentSessionDetail: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
                 ResourceTitle(title: session.agentName, systemImage: "sparkles", color: AppRoute.agents.tint,
-                    subtitle: session.project?.directory ?? "PID \(session.root.pid)",
+                    subtitle: session.project.map { project in
+                        [project.name, project.git?.branch].compactMap { $0 }.joined(separator: " · ") + " · " + project.directory
+                    } ?? "PID \(session.root.pid)",
                     status: ResourceStatus(title: session.activity.title, color: session.activity.color,
                         help: "Working when the session's processes use at least \(Int(AgentSessionActivity.workingCPU))% CPU."))
                 Spacer(minLength: 8)
@@ -196,9 +220,13 @@ struct AgentSessionDetail: View {
     }
 
     private var project: some View {
-        section("Project", systemImage: "folder") {
+        section("Project: \(session.project?.name ?? "Unknown")", systemImage: "folder") {
             row("Directory", session.project?.directory ?? "Unknown")
+            if let root = session.project?.root, root != session.project?.directory { row("Root", root) }
             if let branch = session.project?.git?.branch { row("Branch", branch) }
+            if let commit = session.project?.git?.commit { row("Commit", commit) }
+            if session.project?.git?.isWorktree == true { row("Worktree", "Linked worktree") }
+            if let kind = session.project?.kind { row("Kind", kind.rawValue.capitalized) }
             row("Started", session.startedAt.formatted(date: .abbreviated, time: .standard))
             if let ended = session.endedAt { row("Ended", ended.formatted(date: .abbreviated, time: .standard)) }
             if let id = session.parentSession {

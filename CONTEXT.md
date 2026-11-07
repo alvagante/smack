@@ -80,6 +80,10 @@ _Avoid_: Popover, main window
 A Panel kept in front that ignores mouse-away and outside-click dismissal until unpinned or closed.
 _Avoid_: Always on top, sticky
 
+**Standard Window**:
+The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen.
+_Avoid_: Main window, app mode
+
 **Page**:
 One destination shown in the Panel, such as Summary, a Resource Insight, a Detail Page, or an inventory page.
 _Avoid_: Screen, tab, route
@@ -89,7 +93,7 @@ A Page about one Application or one Process, organized in tabs.
 _Avoid_: Inspector, info view
 
 **Page Category**:
-One group of Pages (Performance, Health, Activity, Environment, Smack), shared by the sidebar sections and the Summary tiles. Each owns a hue range and each of its Pages a shade of it, used for that Page's icon everywhere.
+One group of Pages (Performance, Health, Activity, Work, Environment, Smack), shared by the sidebar sections and the Summary tiles. Each owns a hue range and each of its Pages a shade of it, used for that Page's icon everywhere.
 _Avoid_: Section, group
 
 **Summary Tile**:
@@ -223,7 +227,7 @@ The Small, Standard, or Large bound on memory held by caches and on-demand repor
 _Avoid_: Cache size, memory limit
 
 **Inventory Cache**:
-How long a local environment inventory (Docker, Homebrew, Development Environments, AI Agents) is reused before it is collected again.
+How long a local environment inventory (Docker, Homebrew, Development Environments, Projects, AI Agents) is reused before it is collected again.
 _Avoid_: TTL, refresh interval
 
 **Background Collection**:
@@ -301,6 +305,18 @@ _Avoid_: Resource
 **Development Environment**:
 One discovered executable of a language runtime, with where it comes from (system, Homebrew, version manager, virtual environment) and whether it is on the PATH.
 _Avoid_: SDK, toolchain, interpreter
+
+**Project Folder**:
+A user-chosen root scanned for Projects, also used to find project-local runtimes and virtual environments.
+_Avoid_: Workspace folder, source root
+
+**Project**:
+A Git repository discovered under a Project Folder, shown with its branch and commit and opened as a Detail Page with git status plus its related dev servers, Docker Compose containers, Agent Sessions and Project Runtimes.
+_Avoid_: Repo (in the interface), workspace
+
+**Project Runtime**:
+A runtime a Project declares at its root, read during discovery: a version pin (`.tool-versions`, `.nvmrc`, `.python-version`, `mise.toml`, `rust-toolchain`, `.envrc`) or a local virtual environment folder.
+_Avoid_: Development Environment (a discovered executable), toolchain
 
 **AI Agent**:
 A locally installed coding agent whose configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions, and sessions Smack can browse.

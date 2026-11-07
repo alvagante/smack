@@ -6,11 +6,13 @@ struct AgentsSummaryTile: View {
     /// Sessions are published by `live`, not by the monitor, so the tile observes it to follow them.
     @ObservedObject private var live: AgentSessionsModel
     var open: () -> Void
+    var openSession: (String) -> Void
 
-    init(model: AgentMonitor, open: @escaping () -> Void) {
+    init(model: AgentMonitor, open: @escaping () -> Void, openSession: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.live = model.live
         self.open = open
+        self.openSession = openSession
     }
 
     var body: some View {
@@ -19,18 +21,14 @@ struct AgentsSummaryTile: View {
             SummaryTile(route: .agents,
                 headline: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
                 caption: sessions.isEmpty ? "No sessions running" : "\(sessions.count) \(sessions.count == 1 ? "session" : "sessions") running",
-                open: open) {
+                interactiveVisual: true, open: open) {
                 if !sessions.isEmpty {
-                    TagChips(tags: sessions.map(label), color: .purple)
+                    AgentSessionSummaryRows(sessions: sessions, open: openSession)
                 }
             }
+            .tileSpan(sessions.isEmpty ? 1 : 2)
             .task { if model.snapshot == nil { await model.refresh() } }
         }
-    }
-
-    private func label(_ session: AgentSession) -> String {
-        let agent = AgentDefinition.catalog.first { $0.id == session.agentID }?.name ?? session.agentID
-        return session.project.map { "\(agent) · \($0.name)" } ?? agent
     }
 }
 
@@ -54,10 +52,14 @@ struct AgentDetailView: View {
     private var artifacts: [AgentArtifact] { current?.artifacts.filter { $0.category == category } ?? [] }
     private var artifact: AgentArtifact? { artifacts.first { $0.id == selectedArtifact } ?? artifacts.first }
 
-    init(model: AgentMonitor, store: MonitorStore) {
+    /// The session to show first, when the page is opened for one.
+    private let session: String?
+
+    init(model: AgentMonitor, store: MonitorStore, session: String? = nil) {
         self.model = model
         self.store = store
-        _mode = State(initialValue: model.live.liveCount > 0 ? .sessions : .agents)
+        self.session = session
+        _mode = State(initialValue: session != nil || model.live.liveCount > 0 ? .sessions : .configs)
     }
 
     private var overview: some View {
@@ -70,11 +72,11 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader {
-                ResourceTitle(title: "Agents", systemImage: "sparkles", color: AppRoute.agents.tint,
-                              subtitle: mode == .agents ? model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } : nil)
+                ResourceTitle(title: "AI agents", systemImage: "sparkles", color: AppRoute.agents.tint,
+                              subtitle: mode == .configs ? model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } : nil)
             } actions: {
                 AgentPageModePicker(live: model.live, mode: $mode)
-                if mode == .agents {
+                if mode == .configs {
                     if model.loading { ProgressView().controlSize(.small) }
                     RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
                 }
@@ -83,7 +85,7 @@ struct AgentDetailView: View {
             }
             Divider()
             if mode == .sessions {
-                AgentSessionsView(live: model.live, store: store)
+                AgentSessionsView(live: model.live, store: store, selectedID: session)
             } else {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -178,8 +180,8 @@ struct AgentDetailView: View {
 }
 
 enum AgentPageMode: String, CaseIterable, Identifiable {
-    case sessions = "Agent Sessions"
-    case agents = "Agents"
+    case sessions = "Sessions"
+    case configs = "Configs"
     var id: Self { self }
 }
 
@@ -188,11 +190,13 @@ private struct AgentPageModePicker: View {
     @Binding var mode: AgentPageMode
 
     var body: some View {
-        Picker("View", selection: $mode) {
-            Text(live.liveCount > 0 ? "Agent Sessions (\(live.liveCount))" : "Agent Sessions").tag(AgentPageMode.sessions)
-            Text("Agents").tag(AgentPageMode.agents)
-        }
-        .pickerStyle(.segmented).labelsHidden().fixedSize()
+        PageModeSwitch(options: [
+            PageModeOption(id: AgentPageMode.sessions, title: "Sessions", systemImage: "terminal",
+                           count: live.liveCount,
+                           help: "Running and recently ended Agent Sessions, with their processes, commands, network and log."),
+            PageModeOption(id: AgentPageMode.configs, title: "Configs", systemImage: "slider.horizontal.3",
+                           help: "Installed agents and their configuration, skills, memory, instructions, MCP servers, hooks and extensions."),
+        ], selection: $mode)
     }
 }
 
@@ -204,8 +208,10 @@ private struct AgentSessionsOverview: View {
         let ids = Set(running.map(\.id))
         // Nested sessions are already included in their parent's totals.
         let topLevel = running.filter { $0.parentSession.map { !ids.contains($0) } ?? true }
+        let projects = Set(running.compactMap(\.project?.root))
         ResourceStatsRow(headline: String(running.count), unit: "live", stats: [
             ResourceStat(title: "Working", systemImage: "bolt", value: String(running.filter { $0.activity == .working }.count)),
+            ResourceStat(title: "Projects", systemImage: "folder", value: String(projects.count)),
             ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(topLevel.reduce(0) { $0 + $1.totals.cpu })),
             ResourceStat(title: "Memory", systemImage: "memorychip", value: Formatting.bytes(topLevel.reduce(0) { $0 + $1.totals.memory })),
             ResourceStat(title: "MCP servers", systemImage: "server.rack", value: String(running.reduce(0) { $0 + $1.mcpServers.count }))

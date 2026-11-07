@@ -218,7 +218,7 @@ actor CollectionScheduler {
     }
 
     static func wantsAgentSessions(_ settings: CollectionSettings, rules: [AlertRule]) -> Bool {
-        settings.shows(.agents) || settings.records(.agents)
+        settings.shows(.agents) || settings.shows(.projects) || settings.records(.agents)
             || (settings.automation.alertsEnabled && rules.contains { $0.enabled && $0.usesAgentSessions })
     }
 

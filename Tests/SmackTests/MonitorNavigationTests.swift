@@ -29,6 +29,7 @@ import Testing
         #expect(routes.contains(.networkPorts) == Capabilities.supportsNetworkPortInspection)
         #expect(routes.contains(.startupItems) == Capabilities.supportsStartupItems)
         #expect(routes.contains(.security) == Capabilities.supportsPostureChecks)
+        #expect(!sections.contains { $0.title == "Work" })
         #expect(sections.allSatisfy { !$0.routes.isEmpty })
     }
 
@@ -38,6 +39,17 @@ import Testing
         for (section, category) in zip(sections, RouteCategory.allCases) {
             #expect(section.routes.allSatisfy { $0.category == category })
         }
+    }
+
+    @Test func workCategoryOwnsWorkPages() {
+        let workRoutes: [AppRoute] = [.projects, .devServers, .docker, .agents]
+        let sections = MonitorNavigation.sections(settings: CollectionSettings(), hasBattery: true)
+        #expect(sections.first { $0.title == "Work" }?.routes == workRoutes)
+        for route in workRoutes { #expect(route.category?.title == "Work") }
+        #expect(AppRoute.agentSession("session").category?.title == "Work")
+        #expect(sections.first { $0.title == "Environment" }?.routes == [
+            .homebrew, .devEnvironments, .userHome, .installedApps, .systemDetails
+        ])
     }
 
     @Test func eachCategoryHasItsOwnHueAndEachPageItsOwnShade() {
@@ -52,12 +64,14 @@ import Testing
         }
         #expect(AppRoute.application("app").category == .activity)
         #expect(AppRoute.process("p").category == .activity)
+        #expect(AppRoute.project("/repo").category?.title == "Work")
         #expect(AppRoute.summary.category == nil)
     }
 
     @Test func detailPagesRetainTheirParentSelection() {
         #expect(AppRoute.application("app").sidebarRoute == .applications)
         #expect(AppRoute.process("process").sidebarRoute == .applications)
+        #expect(AppRoute.project("/repo").sidebarRoute == .projects)
         #expect(AppRoute.resource(.cpu).sidebarRoute == .resource(.cpu))
         #expect(AppRoute.unavailable("Unsupported").sidebarRoute == nil)
     }

@@ -14,6 +14,9 @@ private let sessionEpoch = Date(timeIntervalSince1970: 1000)
     #expect(claude.matches(obsProcess(1, name: "node"), script: "claude"))
     #expect(claude.matches(obsProcess(1, name: "node"), script: "/opt/node_modules/@anthropic-ai/claude-code/cli.js"))
     #expect(!claude.matches(obsProcess(1, name: "node"), script: "/other/cli.js"))
+    // The native installer runs a versioned binary; its kernel name and path end in the version.
+    #expect(claude.matches(obsProcess(1, name: "2.1.314", path: "/Users/u/.local/share/claude/versions/2.1.314"), script: nil))
+    #expect(!claude.matches(obsProcess(1, name: "2.1.314", path: "/Users/u/.local/share/other/versions/2.1.314"), script: nil))
     var cursor = obsProcess(2, name: "Cursor")
     cursor.bundleIdentifier = "com.todesktop.230313mzl4w4u92"
     #expect(AgentDefinition.catalog.first { $0.id == "cursor" }!.matcher.matches(cursor, script: nil))

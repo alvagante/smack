@@ -35,6 +35,7 @@ enum DeepLinkParser {
             "disk": .disk, "storage": .storage, "battery": .battery, "thermal": .thermal]
         let pages: [String: AppRoute] = ["": .summary, "summary": .summary, "apps": .applications,
             "devservers": .devServers, "ports": .networkPorts, "docker": .docker, "homebrew": .homebrew, "dev": .devEnvironments,
+            "projects": .projects,
             "home": .userHome, "agents": .agents, "installed": .installedApps, "startup": .startupItems,
             "baseline": .baseline, "security": .security, "timeline": .timeline, "history": .history, "insights": .insights, "settings": .settings, "system": .systemDetails]
         if let resource = resources[host], path.isEmpty {

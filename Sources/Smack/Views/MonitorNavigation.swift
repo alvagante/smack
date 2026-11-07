@@ -26,13 +26,14 @@ enum MonitorNavigation {
 
 /// The groups of Pages shared by the sidebar and Summary. Each owns a hue range; its Pages take shades across it.
 enum RouteCategory: CaseIterable {
-    case performance, health, activity, environment, smack
+    case performance, health, activity, work, environment, smack
 
     var title: String {
         switch self {
         case .performance: "Performance"
         case .health: "Health"
         case .activity: "Activity"
+        case .work: "Work"
         case .environment: "Environment"
         case .smack: "Smack"
         }
@@ -45,7 +46,8 @@ enum RouteCategory: CaseIterable {
         case .performance: [.resource(.cpu), .resource(.gpu), .resource(.memory), .resource(.network), .resource(.disk)]
         case .health: [.resource(.storage), .resource(.thermal), .resource(.battery), .security]
         case .activity: [.applications, .timeline, .history, .insights, .networkPorts, .startupItems, .baseline]
-        case .environment: SummaryPage.allCases.map(\.route) + [.systemDetails]
+        case .work: [.projects, .devServers, .docker, .agents]
+        case .environment: [.homebrew, .devEnvironments, .userHome, .installedApps, .systemDetails]
         case .smack: [.settings]
         }
     }
@@ -56,7 +58,8 @@ enum RouteCategory: CaseIterable {
         case .performance: 0.53...0.66
         case .health: 0.27...0.44
         case .activity: 0.02...0.12
-        case .environment: 0.74...0.92
+        case .work: 0.70...0.79
+        case .environment: 0.84...0.94
         case .smack: 0...0
         }
     }
@@ -82,6 +85,7 @@ extension SummaryPage {
         case .docker: .docker
         case .homebrew: .homebrew
         case .devEnvironments: .devEnvironments
+        case .projects: .projects
         case .agents: .agents
         case .userHome: .userHome
         case .installedApps: .installedApps
@@ -93,6 +97,8 @@ extension AppRoute {
     var sidebarRoute: AppRoute? {
         switch self {
         case .application, .process: .applications
+        case .project: .projects
+        case .agentSession: .agents
         case .unavailable: nil
         default: self
         }
@@ -110,8 +116,11 @@ extension AppRoute {
         case .docker: "Docker"
         case .homebrew: "Homebrew"
         case .devEnvironments: "Dev environments"
+        case .projects: "Projects"
+        case .project: "Project detail"
         case .userHome: "User home"
         case .agents: "AI agents"
+        case .agentSession: "Agent session"
         case .installedApps: "Installed apps"
         case .startupItems: "Startup items"
         case .timeline: "Timeline"
@@ -145,8 +154,9 @@ extension AppRoute {
         case .docker: "shippingbox"
         case .homebrew: "mug"
         case .devEnvironments: "chevron.left.forwardslash.chevron.right"
+        case .projects, .project: "folder"
         case .userHome: "house"
-        case .agents: "sparkles"
+        case .agents, .agentSession: "sparkles"
         case .installedApps: "square.grid.3x3"
         case .startupItems: "sunrise"
         case .timeline: "list.bullet.rectangle"
@@ -179,6 +189,10 @@ extension MonitorStore {
         switch route {
         case .application(let id): application(id: id)?.name
         case .process(let id): process(id: id)?.name
+        case .project(let root): project(root: root)?.name
+        case .agentSession(let id): agentsModel.live.sessions.first { $0.id == id }.map { session in
+            [session.agentName, session.project?.name].compactMap { $0 }.joined(separator: " · ")
+        }
         default: nil
         }
     }

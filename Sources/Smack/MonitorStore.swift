@@ -24,8 +24,11 @@ enum AppRoute: Hashable {
     case docker
     case homebrew
     case devEnvironments
+    case projects
+    case project(String)
     case userHome
     case agents
+    case agentSession(String)
     case installedApps
     case startupItems
     case timeline
@@ -157,6 +160,8 @@ final class MonitorStore: ObservableObject {
     let dockerModel = DockerMonitor()
     let homebrewModel = HomebrewMonitor()
     let devEnvironmentModel = DevEnvironmentMonitor()
+    let projectsModel = ProjectsMonitor()
+    private var pendingProjectSection: ProjectSection?
     let userHomeModel = UserHomeMonitor()
     let agentsModel = AgentMonitor()
     let installedAppsModel = InstalledAppsMonitor()
@@ -226,6 +231,9 @@ final class MonitorStore: ObservableObject {
         devEnvironmentModel.onFoldersChanged = { [weak settingsStore] folders in
             settingsStore?.update { $0.devTools.devProjectFolders = folders }
         }
+        projectsModel.onFoldersChanged = { [weak settingsStore] folders in
+            settingsStore?.update { $0.devTools.devProjectFolders = folders }
+        }
         dockerObservation = dockerModel.$snapshot.dropFirst().sink { [weak self] _ in
             // Published delivers before assignment; read the new snapshot on the next actor turn.
             Task { @MainActor [weak self] in self?.refreshDevServers() }
@@ -257,6 +265,7 @@ final class MonitorStore: ObservableObject {
         dockerModel.configure(refreshSeconds: settings.devTools.dockerRefreshSeconds, liveStats: settings.devTools.dockerLiveStats, cache: settings.devTools.inventoryCache)
         homebrewModel.cache = settings.devTools.inventoryCache
         devEnvironmentModel.configure(folders: settings.devTools.devProjectFolders, depth: settings.devTools.devScanDepth, cache: settings.devTools.inventoryCache)
+        projectsModel.configure(folders: settings.devTools.devProjectFolders, depth: settings.devTools.devScanDepth, cache: settings.devTools.inventoryCache)
         agentsModel.configure(excluded: settings.devTools.excludedAgents, customFolders: settings.devTools.customAgentFolders, cache: settings.devTools.inventoryCache)
         let shown = Set(SummaryPage.allCases.filter(settings.shows))
         let changed = shown.symmetricDifference(appliedPages)
@@ -272,6 +281,7 @@ final class MonitorStore: ObservableObject {
         if pages.contains(.docker) { dockerModel.setVisible(show(.docker) || devServersWanted) }
         if pages.contains(.homebrew) { homebrewModel.setVisible(show(.homebrew)) }
         if pages.contains(.devEnvironments) { devEnvironmentModel.setVisible(show(.devEnvironments)) }
+        if pages.contains(.projects) { projectsModel.setVisible(show(.projects)) }
         if pages.contains(.agents) { agentsModel.setVisible(show(.agents)) }
         if pages.contains(.installedApps) { installedAppsModel.setVisible(show(.installedApps)) }
     }
@@ -459,8 +469,17 @@ final class MonitorStore: ObservableObject {
 
     private var devServersWanted: Bool {
         Capabilities.supportsNetworkPortInspection &&
-            ((panelVisible && (route == .devServers || (route == .summary && settingsStore.settings.shows(.devServers)))) ||
+            ((panelVisible && (route == .devServers || showsProjectsRoute ||
+                (route == .summary && (settingsStore.settings.shows(.devServers) || settingsStore.settings.shows(.projects))))) ||
                 settingsStore.settings.devTools.backgroundDevServersEnabled)
+    }
+
+    /// Projects and their Detail Pages join dev servers, Docker Compose containers and agent sessions already in memory.
+    private var showsProjectsRoute: Bool {
+        switch route {
+        case .projects, .project: true
+        default: false
+        }
     }
 
     private func updateDevServerVisibility() {
@@ -493,6 +512,27 @@ final class MonitorStore: ObservableObject {
 
     func application(id: String) -> ApplicationMetrics? {
         processes?.applications.first { $0.id == id }
+    }
+
+    func project(root: String) -> ProjectRecord? { projectsModel.project(root: root) }
+
+    /// Dev servers, Compose containers, Agent Sessions and Development Environments already in memory that belong to
+    /// the repository. Development Environments appear only if their own discovery has run; this never starts it.
+    func links(forProject root: String) -> ProjectLinks {
+        ProjectRelation.links(forRoot: root, servers: devServersModel.devServers ?? [],
+                              containers: dockerModel.snapshot?.containers ?? [], sessions: agentsModel.sessions,
+                              environments: devEnvironmentModel.snapshot?.environments ?? [])
+    }
+
+    /// Opens a Project Detail Page on one section; the page takes the section once when it appears.
+    func openProject(_ root: String, section: ProjectSection = .overview) {
+        pendingProjectSection = section
+        route = .project(root)
+    }
+
+    func takeProjectSection() -> ProjectSection? {
+        defer { pendingProjectSection = nil }
+        return pendingProjectSection
     }
 
     /// The application a process belongs to; nil for background processes.

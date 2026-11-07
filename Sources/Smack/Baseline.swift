@@ -47,7 +47,7 @@ struct BaselineSection: Codable, Sendable, Equatable {
 
 struct BaselineDocument: Codable, Sendable, Equatable {
     var schemaVersion = 1
-    var generator = ["app": "Smack", "version": "1.0.0", "flavor": Capabilities.flavor.rawValue]
+    var generator = ["app": "Smack", "version": "1.1.0", "flavor": Capabilities.flavor.rawValue]
     var capturedAt = Date()
     var name = ""
     var note = ""

@@ -96,42 +96,72 @@ struct SummaryTile<Visual: View>: View {
     var caption: String? = nil
     var tone: Color? = nil
     var help: String? = nil
+    var interactiveVisual = false
     let open: () -> Void
     @ViewBuilder var visual: Visual
     @State private var hovering = false
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 20)
-                    Text(route.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right").font(.caption2.weight(.bold))
-                        .foregroundStyle(hovering ? .secondary : .tertiary)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(headline)
-                        .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(tone ?? .primary)
-                        .lineLimit(1).minimumScaleFactor(0.6)
-                    if let caption {
-                        Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        Group {
+            if interactiveVisual {
+                surface {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: open) { heading }
+                            .buttonStyle(.plain)
+                            .help(help ?? "Open \(route.title)")
+                        visual
+                        Spacer(minLength: 0)
                     }
                 }
-                visual
-                Spacer(minLength: 0)
+                .accessibilityElement(children: .contain)
+            } else {
+                Button(action: open) {
+                    surface {
+                        VStack(alignment: .leading, spacing: 10) {
+                            heading
+                            visual
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .help(help ?? "Open \(route.title)")
             }
-            .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
-            .padding(14)
-            .background(Color.primary.opacity(hovering ? 0.035 : 0), in: RoundedRectangle(cornerRadius: MonitorStyle.radius))
-            .monitorSurface()
-            .contentShape(RoundedRectangle(cornerRadius: MonitorStyle.radius))
         }
-        .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .accessibilityElement(children: .combine)
-        .help(help ?? "Open \(route.title)")
+    }
+
+    private func surface<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+        .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
+        .padding(14)
+        .background(Color.primary.opacity(hovering ? 0.035 : 0), in: RoundedRectangle(cornerRadius: MonitorStyle.radius))
+        .monitorSurface()
+        .contentShape(RoundedRectangle(cornerRadius: MonitorStyle.radius))
+    }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 20)
+                Text(route.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.caption2.weight(.bold))
+                    .foregroundStyle(hovering ? .secondary : .tertiary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headline)
+                    .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(tone ?? .primary)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                if let caption {
+                    Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -266,6 +296,218 @@ struct StatusDots: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// The first `limit` rows, then a button to show the rest; expanded, every row and a button to collapse.
+struct ExpandableRows<Row: Identifiable, Content: View>: View {
+    let rows: [Row]
+    var limit = 8
+    var spacing: CGFloat = 4
+    @ViewBuilder let content: (Row) -> Content
+    @State private var expanded = false
+
+    /// One hidden row is not worth a button.
+    static func visible(_ rows: [Row], limit: Int, expanded: Bool) -> [Row] {
+        expanded || rows.count <= limit + 1 ? rows : Array(rows.prefix(limit))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Self.visible(rows, limit: limit, expanded: expanded)) { content($0) }
+            ExpandToggle(count: rows.count, limit: limit, expanded: $expanded)
+        }
+    }
+}
+
+/// "Show all N" under a collapsed list, "Show less" under an expanded one; nothing when the list fits.
+private struct ExpandToggle: View {
+    let count: Int
+    let limit: Int
+    @Binding var expanded: Bool
+
+    var body: some View {
+        if count > limit + 1 {
+            Button(expanded ? "Show less" : "Show all \(count)") { expanded.toggle() }
+                .buttonStyle(.link).font(.caption)
+                .padding(.top, 2)
+        }
+    }
+}
+
+/// Equal columns filled row by row: up to `maximumColumns`, as many as keep each at least `minimumColumnWidth`.
+struct BalancedColumns: Layout {
+    var minimumColumnWidth: CGFloat = 180
+    var maximumColumns = 2
+    var spacing: CGFloat = 6
+
+    static func columns(width: CGFloat, minimumColumnWidth: CGFloat, maximumColumns: Int, spacing: CGFloat) -> Int {
+        guard width.isFinite, width > 0 else { return 1 }
+        return max(1, min(maximumColumns, Int((width + spacing) / (minimumColumnWidth + spacing))))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimumColumnWidth
+        return CGSize(width: width, height: frames(width: width, subviews: subviews).map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, frames(width: bounds.width, subviews: subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
+        let columns = Self.columns(width: width, minimumColumnWidth: minimumColumnWidth, maximumColumns: maximumColumns, spacing: spacing)
+        let columnWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        var frames: [CGRect] = []
+        var y: CGFloat = 0
+        for start in stride(from: 0, to: subviews.count, by: columns) {
+            let row = start..<min(start + columns, subviews.count)
+            let height = row.map { subviews[$0].sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }.max() ?? 0
+            for index in row {
+                frames.append(CGRect(x: CGFloat(index - start) * (columnWidth + spacing), y: y, width: columnWidth, height: height))
+            }
+            y += height + spacing
+        }
+        return frames
+    }
+}
+
+/// A project name in bold behind a small folder; a process name, standing in for an unknown project, stays secondary.
+private struct ProjectLabel: View {
+    let name: String
+    var isProject = true
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: isProject ? "folder" : "terminal").font(.caption2).foregroundStyle(.secondary)
+            Text(name).font(.caption.weight(isProject ? .semibold : .regular))
+                .foregroundStyle(isProject ? .primary : .secondary)
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+}
+
+/// The dev servers' endpoints that answered HTTP or HTTPS, grouped under the project or process serving them,
+/// in two columns when the tile is wide enough.
+struct DevServerHTTPLinks: View {
+    struct Endpoint: Identifiable {
+        var url: URL
+        var owner: String
+        var isProject: Bool
+        var id: String { url.absoluteString }
+    }
+
+    let servers: [DevServer]
+    /// Probe results by `ListeningPort.probeKey`; listeners without one are not linked.
+    let schemes: [String: HTTPScheme]
+    var limit = 8
+    @State private var expanded = false
+
+    /// The first server listening on an endpoint owns it. Projects come first, each with its endpoints by port.
+    var entries: [Endpoint] {
+        var owners: [URL: Endpoint] = [:]
+        for server in servers {
+            for port in server.ports {
+                guard let url = schemes[port.probeKey].flatMap(port.webURL), owners[url] == nil else { continue }
+                owners[url] = Endpoint(url: url, owner: server.project?.name ?? server.processName, isProject: server.project != nil)
+            }
+        }
+        return owners.values.sorted {
+            ($0.isProject ? 0 : 1, $0.owner.lowercased(), $0.url.port ?? 0, $0.id) < ($1.isProject ? 0 : 1, $1.owner.lowercased(), $1.url.port ?? 0, $1.id)
+        }
+    }
+
+    var endpoints: [URL] { entries.map(\.url) }
+
+    var body: some View {
+        let entries = entries
+        let shown = ExpandableRows<Endpoint, EmptyView>.visible(entries, limit: limit, expanded: expanded)
+        // Consecutive endpoints of one owner form its group; `shown` is already ordered by owner.
+        let groups = shown.reduce(into: [[Endpoint]]()) { groups, entry in
+            if let last = groups.last?.last, last.owner == entry.owner, last.isProject == entry.isProject {
+                groups[groups.count - 1].append(entry)
+            } else {
+                groups.append([entry])
+            }
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            if entries.isEmpty { Text("No web endpoints").font(.caption).foregroundStyle(.secondary) }
+            ForEach(groups, id: \.first!.id) { group in
+                VStack(alignment: .leading, spacing: 3) {
+                    ProjectLabel(name: group[0].owner, isProject: group[0].isProject)
+                    BalancedColumns(spacing: 4) {
+                        ForEach(group) { link($0) }
+                    }
+                }
+            }
+            ExpandToggle(count: entries.count, limit: limit, expanded: $expanded)
+        }
+    }
+
+    private func link(_ entry: Endpoint) -> some View {
+        Link(destination: entry.url) {
+            Text(entry.url.absoluteString).font(.caption.weight(.medium)).foregroundStyle(.blue)
+                .lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open \(entry.url.absoluteString)")
+        .accessibilityLabel("Open \(entry.url.absoluteString), \(entry.owner)")
+    }
+}
+
+/// Every running Agent Session, nested ones indented under their parent: state, project and branch, agent and CPU.
+/// Each row opens its session on the AI Agents page.
+struct AgentSessionSummaryRows: View {
+    let sessions: [AgentSession]
+    var open: (String) -> Void = { _ in }
+
+    var entries: [AgentSessionList.Entry] { AgentSessionList(sessions: sessions).live }
+
+    var body: some View {
+        ExpandableRows(rows: entries, limit: 8, spacing: 2) { entry in
+            AgentSessionSummaryRow(entry: entry) { open(entry.session.id) }
+        }
+    }
+}
+
+private struct AgentSessionSummaryRow: View {
+    let entry: AgentSessionList.Entry
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let session = entry.session
+        Button(action: open) {
+            HStack(spacing: 6) {
+                Circle().fill(session.activity.color).frame(width: 7, height: 7).help(session.activity.title)
+                if let project = session.project {
+                    ProjectLabel(name: project.name)
+                    if let branch = project.git?.branch {
+                        Text(branch).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                } else {
+                    Text("Unknown project").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text(session.agentName).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                Text(Formatting.percent(session.totals.cpu)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    .frame(minWidth: 40, alignment: .trailing).fixedSize()
+            }
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .background(Color.primary.opacity(hovering ? 0.06 : 0), in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, CGFloat(entry.depth) * 12)
+        .onHover { hovering = $0 }
+        .help("Open this \(session.agentName) session")
+        .accessibilityElement(children: .combine)
     }
 }
 

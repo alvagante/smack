@@ -26,6 +26,7 @@ struct SummaryView: View {
 
     /// One grid, busiest first: live charts and running applications lead, inventories follow.
     /// Order pairs the two-column tiles so rows pack at 2, 4, 6 and 8 columns.
+    /// Dev Servers and AI Agents widen to two columns while they list entries, and grow as tall as their lists.
     @ViewBuilder private var tiles: some View {
         let settings = settingsStore.settings
         TileGridLayout {
@@ -47,7 +48,16 @@ struct SummaryView: View {
                     .tileSpan(2)
             }
             if !Capabilities.isSandboxed && settings.shows(.devServers) { devServersTile }
-            if settings.shows(.agents) { AgentsSummaryTile(model: store.agentsModel) { store.route = .agents } }
+            if !Capabilities.isSandboxed && settings.shows(.projects) {
+                ProjectsSummaryTile(model: store.projectsModel, devServers: store.devServersModel,
+                                    sessions: store.agentsModel.live, docker: store.dockerModel,
+                                    open: { store.route = .projects },
+                                    openProject: { store.openProject($0, section: $1) },
+                                    openSession: { store.route = .agentSession($0) })
+            }
+            if settings.shows(.agents) {
+                AgentsSummaryTile(model: store.agentsModel, open: { store.route = .agents }, openSession: { store.route = .agentSession($0) })
+            }
             if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
             if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
             if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
@@ -258,13 +268,22 @@ struct SummaryView: View {
 
     private var devServersTile: some View {
         let servers = devServers.devServers
+        let candidates = Set((servers ?? []).flatMap(\.ports).filter(\.mayServeHTTP).map(\.probeKey))
+        let checking = candidates.contains { devServers.webSchemes[$0] == nil } && devServers.webSchemes.isEmpty
         return SummaryTile(route: .devServers, headline: servers.map { "\($0.count) \($0.count == 1 ? "server" : "servers")" } ?? "Awaiting collection",
                            caption: servers.map { Set($0.compactMap(\.project?.name)).count }.map { "\($0) \($0 == 1 ? "project" : "projects")" } ?? "Projects, listeners and containers",
-                           open: { store.route = .devServers }) {
+                           interactiveVisual: true, open: { store.route = .devServers }) {
             if let servers, !servers.isEmpty {
-                TagChips(tags: servers.flatMap { $0.portPairs.map { ":\($0.primary.port)" } }, color: .blue)
+                if checking {
+                    Text("Checking web endpoints…").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    DevServerHTTPLinks(servers: servers, schemes: devServers.webSchemes)
+                }
             }
         }
+        .tileSpan(candidates.isEmpty ? 1 : 2)
+        // Only while Summary shows the tile: each new listener is asked once whether it speaks HTTP.
+        .task(id: candidates) { await devServers.checkWebEndpoints(servers ?? []) }
     }
 
     private var macOSVersion: String {

@@ -34,6 +34,15 @@ import Synchronization
     #expect(settings.history.historyStorageLimitMB == 25)
 }
 
+@Test func windowStyleDefaultsToPanelAndPersists() throws {
+    let legacy = try JSONDecoder().decode(CollectionSettings.self, from: Data(#"{"panel":{"trigger":"Click"}}"#.utf8))
+    #expect(legacy.panel.windowStyle == .panel)
+    var settings = CollectionSettings()
+    settings.panel.windowStyle = .standardWindow
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.panel.windowStyle == .standardWindow)
+}
+
 @Test func disabledBackgroundCollectionStaysDisabled() {
     var settings = CollectionSettings()
     settings.sampling.backgroundSystemInterval = nil
@@ -441,7 +450,7 @@ final class SpyUserDefaults: UserDefaults {
     )
     #expect(await scheduler.isTrackingAgentSessions)
 
-    settings.hiddenPages = [.agents]
+    settings.hiddenPages = [.agents, .projects]
     await scheduler.updateFeatureSettings(settings)
     #expect(await scheduler.isTrackingAgentSessions, "agent session events still need tracking")
 
