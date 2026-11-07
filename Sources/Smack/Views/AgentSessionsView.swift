@@ -194,7 +194,7 @@ struct AgentSessionDetail: View {
     private func networkValue(_ rate: Double?) -> String { Self.networkValue(rate, enabled: networkOn) }
 
     /// A Network Rate turned off reads "Off"; one the system does not report reads "Unavailable".
-    static func networkValue(_ rate: Double?, enabled: Bool) -> String {
+    nonisolated static func networkValue(_ rate: Double?, enabled: Bool) -> String {
         guard enabled else { return "Off" }
         return rate.map(Formatting.rate) ?? "Unavailable"
     }
