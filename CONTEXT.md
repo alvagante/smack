@@ -294,6 +294,10 @@ _Avoid_: SDK, toolchain, interpreter
 A locally installed coding agent whose configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions, and sessions Smack can browse.
 _Avoid_: Assistant, bot, Privileged Helper
 
+**Agent Session**:
+One running AI Agent process tree, rooted at the agent's process, with its MCP servers, helpers, recent commands, network and log; Working or Idle from its CPU, kept ten minutes as Recently ended after it exits.
+_Avoid_: Session alone, conversation, chat
+
 **User Home Area**:
 One category of the user's home browsed as a unit: dotfiles, XDG configuration, preferences, application support, launch agents, app and group containers, or Library.
 _Avoid_: Folder, location

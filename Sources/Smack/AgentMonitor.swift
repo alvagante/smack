@@ -122,7 +122,12 @@ struct AgentCollector: Sendable {
 
 @MainActor
 final class AgentMonitor: ObservableObject {
-    @Published var sessions: [AgentSession] = []
+    let live = AgentSessionsModel()
+    /// Read without observing; views that show sessions observe `live`.
+    var sessions: [AgentSession] {
+        get { live.sessions }
+        set { live.receive(newValue, at: Date()) }
+    }
     @Published private(set) var snapshot: AgentSnapshot?
     @Published private(set) var loading = false
     private let collector: AgentCollector
@@ -149,6 +154,8 @@ final class AgentMonitor: ObservableObject {
     }
 
     init(collector: AgentCollector = AgentCollector()) { self.collector = collector }
+
+    func receive(_ sessions: [AgentSession], at date: Date) { live.receive(sessions, at: date) }
 
     func setVisible(_ visible: Bool) {
         task?.cancel()

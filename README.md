@@ -13,7 +13,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.
 - **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
 - **Dev servers:** local listeners grouped by project, with git branch and Docker Compose context.
-- **AI agents:** live coding-agent sessions with their helpers, MCP servers, listeners and recent commands, plus their configuration.
+- **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, plus their configuration.
 - **Docker:** containers, images, volumes and networks, with start, stop and restart.
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
 - **Startup items:** login items, launch agents, daemons and cron jobs, each with an on/off switch.

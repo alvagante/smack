@@ -4,6 +4,16 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **AI Agents:** Agent Sessions are a view of their own, opened by default while one runs. Each session shows Working or Idle, a ticking uptime, CPU, memory, MCP servers and ports, with a CPU sparkline; the selected one adds CPU, memory, disk and network charts, nested sessions, per-process CPU and memory with links to the Process Detail Page, paged recent commands, network and log. Recently ended sessions are listed apart.
+  - Cost (estimated, release measurement pending): no new collection, subprocesses or disk writes. Charts reuse the totals the session tracker already computes, kept in memory only (120 points per live session, about 4 KB each). The agent browser should no longer redraw on every process sample.
+
+### Fixed
+
+- Claude Code session logs are found for project paths containing `.`, `_` or other non-alphanumeric characters.
+- Agent session network shows "Off" instead of "Unavailable" when Network Rate is turned off.
+
 ### Distribution
 
 - Releases also publish a signed, notarized and stapled DMG (`Smack-<tag>-macOS-arm64.dmg`) with an Applications shortcut, built by `Scripts/make-dmg.sh`. The zip stays for the Homebrew cask.
