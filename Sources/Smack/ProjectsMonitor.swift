@@ -15,6 +15,8 @@ struct ProjectRecord: Identifiable, Equatable, Sendable {
     var runtimes: [ProjectRuntime] = []
 
     var id: String { root }
+    /// The folder that contains the repository.
+    var location: String { (root as NSString).deletingLastPathComponent }
 }
 
 /// A runtime a Project declares at its root: a version pin or a local virtual environment.
@@ -81,6 +83,10 @@ struct ProjectLinks {
     /// Running sessions without a parent, so an agent's subagents do not repeat its chip.
     var runningRootSessions: [AgentSession] { runningSessions.filter { $0.parentSession == nil } }
 
+    var latestStartedAt: Date? {
+        (runningSessions.map(\.startedAt) + servers.map(\.process.startTime)).max()
+    }
+
     /// Discovered executables not already shown by one of the repository's virtual environment markers.
     func environments(excluding runtimes: [ProjectRuntime], root: String) -> [DevEnvironment] {
         let folders = runtimes.filter(\.isEnvironment).map { root + "/" + $0.marker + "/" }
@@ -88,42 +94,60 @@ struct ProjectLinks {
     }
 }
 
-/// How the Projects list is ordered. Unknown sizes always sort last.
+/// How the Projects list is ordered. Unknown sizes and unread Git statuses always sort last.
 enum ProjectSort: String, CaseIterable, Identifiable, Sendable {
     case name = "Name"
-    case modified = "Modified"
+    case modified = "Latest activity"
+    case started = "Start time"
     case size = "Size"
     case language = "Language"
+    case branch = "Branch"
+    case status = "Status"
+    case location = "Location"
 
     var id: Self { self }
     var systemImage: String {
         switch self {
         case .name: "textformat"
         case .modified: "clock"
+        case .started: "play.circle"
         case .size: "internaldrive"
         case .language: "chevron.left.forwardslash.chevron.right"
+        case .branch: "arrow.triangle.branch"
+        case .status: "checkmark.circle"
+        case .location: "folder"
         }
     }
-    /// Natural direction: names A to Z, newest and largest first.
-    var startsAscending: Bool { self == .name || self == .language }
+    /// Natural direction: text A to Z, newest, largest and dirtiest first.
+    var startsAscending: Bool { !(self == .modified || self == .started || self == .size || self == .status) }
 }
 
 enum ProjectOrder {
     static func sorted(_ projects: [ProjectRecord], by sort: ProjectSort, ascending: Bool,
-                       sizes: [String: UInt64]) -> [ProjectRecord] {
+                       sizes: [String: UInt64], statuses: [String: ProjectGitReport] = [:], starts: [String: Date] = [:]) -> [ProjectRecord] {
         projects.sorted { lhs, rhs in
+            if sort == .modified, (lhs.modifiedAt == nil) != (rhs.modifiedAt == nil) {
+                return lhs.modifiedAt != nil
+            }
+            if sort == .started, (starts[lhs.root] == nil) != (starts[rhs.root] == nil) {
+                return starts[lhs.root] != nil
+            }
             if sort == .size {
                 let left = sizes[lhs.root], right = sizes[rhs.root]
                 if (left == nil) != (right == nil) { return left != nil }
             }
-            let order = compare(lhs, rhs, by: sort, sizes: sizes)
+            if sort == .status {
+                let left = statuses[lhs.root].flatMap { $0.failed ? nil : $0 }, right = statuses[rhs.root].flatMap { $0.failed ? nil : $0 }
+                if (left == nil) != (right == nil) { return left != nil }
+            }
+            let order = compare(lhs, rhs, by: sort, sizes: sizes, statuses: statuses, starts: starts)
             if order != .orderedSame { return ascending ? order == .orderedAscending : order == .orderedDescending }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
     }
 
     private static func compare(_ lhs: ProjectRecord, _ rhs: ProjectRecord, by sort: ProjectSort,
-                                sizes: [String: UInt64]) -> ComparisonResult {
+                                sizes: [String: UInt64], statuses: [String: ProjectGitReport], starts: [String: Date]) -> ComparisonResult {
         switch sort {
         case .name:
             return lhs.name.localizedStandardCompare(rhs.name)
@@ -132,9 +156,20 @@ enum ProjectOrder {
             return order == .orderedSame ? lhs.name.localizedStandardCompare(rhs.name) : order
         case .modified:
             return compare(lhs.modifiedAt ?? .distantPast, rhs.modifiedAt ?? .distantPast)
+        case .started:
+            guard let left = starts[lhs.root], let right = starts[rhs.root] else { return .orderedSame }
+            return compare(left, right)
         case .size:
             guard let left = sizes[lhs.root], let right = sizes[rhs.root] else { return .orderedSame }
             return compare(left, right)
+        case .branch:
+            return (lhs.git?.branch ?? "").localizedStandardCompare(rhs.git?.branch ?? "")
+        case .location:
+            return lhs.location.localizedStandardCompare(rhs.location)
+        case .status:
+            guard let left = statuses[lhs.root], let right = statuses[rhs.root] else { return .orderedSame }
+            let order = compare(left.changes, right.changes)
+            return order == .orderedSame ? compare(left.ahead + left.behind, right.ahead + right.behind) : order
         }
     }
 
@@ -325,6 +360,17 @@ struct ProjectGitInspector: Sendable {
         return report
     }
 
+    /// Only `git status`: the table needs dirty and ahead/behind counts, not the last commit.
+    func status(root: String) async -> ProjectGitReport {
+        let result = await run(root, ["status", "--porcelain=v2", "--branch"])
+        var report = Self.parseStatus(result.output) ?? ProjectGitReport()
+        if result.status != 0 || result.timedOut || result.cancelled {
+            report.failed = true
+            report.message = Self.message(result)
+        }
+        return report
+    }
+
     private static func message(_ result: CommandRunner.Result) -> String {
         if result.timedOut { return "Git timed out after 8 seconds." }
         if result.cancelled { return "Git was stopped." }
@@ -378,6 +424,9 @@ final class ProjectsMonitor: ObservableObject {
     /// Repositories whose size was attempted, including ones that came back Unavailable.
     @Published private(set) var measured: Set<String> = []
     @Published private(set) var measuring = false
+    /// Git status per repository for the table, read only when the user asks for it.
+    @Published private(set) var statuses: [String: ProjectGitReport] = [:]
+    @Published private(set) var loadingStatuses = false
     private(set) var depth = 4
     var cache = InventoryCachePreset.standard
     /// Persists folders added from the page; settings then call `configure`, which rescans.
@@ -387,11 +436,19 @@ final class ProjectsMonitor: ObservableObject {
         snapshot?.projects.contains { !measured.contains($0.root) } ?? false
     }
 
+    var hasUnloadedStatuses: Bool {
+        snapshot?.projects.contains { statuses[$0.root] == nil } ?? false
+    }
+
+    /// Repositories read at once; each `git status` walks the working tree.
+    private static let statusConcurrency = 2
+
     private let inspector: ProjectGitInspector
     private let measureSize: SizeMeasurer
     private let discover: @Sendable ([String], Int) async -> ProjectDiscovery
     private var task: Task<Void, Never>?
     private var measurementTask: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
     private var generation = 0
     private var rerun = false
     private var reportOrder: [String] = []
@@ -431,6 +488,7 @@ final class ProjectsMonitor: ObservableObject {
         self.cache = cache
         guard folders != self.folders || depth != self.depth else { return }
         cancelMeasuring()
+        cancelStatusLoading()
         self.folders = folders
         self.depth = depth
         guard snapshot != nil || loading else { return }
@@ -439,7 +497,7 @@ final class ProjectsMonitor: ObservableObject {
 
     func setVisible(_ visible: Bool) {
         task?.cancel()
-        guard visible else { cancelMeasuring(); return }
+        guard visible else { cancelMeasuring(); cancelStatusLoading(); return }
         task = Task { [weak self] in
             guard let self else { return }
             if snapshot == nil || Date().timeIntervalSince(snapshot!.timestamp) > cache.slowInventory { await refresh() }
@@ -461,6 +519,7 @@ final class ProjectsMonitor: ObservableObject {
         guard !Capabilities.isSandboxed else { return }
         guard !loading else { rerun = true; return }
         cancelMeasuring()
+        cancelStatusLoading()
         loading = true
         defer { loading = false }
         repeat {
@@ -471,6 +530,7 @@ final class ProjectsMonitor: ObservableObject {
             snapshot = value
             reports = [:]
             reportOrder = []
+            statuses = [:]
             let roots = Set(value.projects.map(\.root))
             sizes = sizes.filter { roots.contains($0.key) }
             measured.formIntersection(roots)
@@ -500,6 +560,38 @@ final class ProjectsMonitor: ObservableObject {
     func cancelMeasuring() {
         measurementTask?.cancel()
         measurementTask = nil
+    }
+
+    /// Reads `git status` for every repository not yet read, two at a time, publishing each result as it lands.
+    func loadStatuses() async {
+        guard !Capabilities.isSandboxed, !loadingStatuses, let projects = snapshot?.projects else { return }
+        loadingStatuses = true
+        defer { loadingStatuses = false }
+        let started = generation
+        let inspector = inspector
+        var pending = projects.map(\.root).filter { statuses[$0] == nil }.makeIterator()
+        await withTaskGroup(of: (String, ProjectGitReport).self) { group in
+            func addNext() {
+                guard let root = pending.next() else { return }
+                group.addTask { (root, await inspector.status(root: root)) }
+            }
+            for _ in 0..<Self.statusConcurrency { addNext() }
+            while let (root, report) = await group.next() {
+                guard !Task.isCancelled, started == generation else { group.cancelAll(); continue }
+                statuses[root] = report
+                addNext()
+            }
+        }
+    }
+
+    func startLoadingStatuses() {
+        guard !loadingStatuses else { return }
+        statusTask = Task { [weak self] in await self?.loadStatuses() }
+    }
+
+    func cancelStatusLoading() {
+        statusTask?.cancel()
+        statusTask = nil
     }
 
     /// Reads deep git state once per project, in memory only, bounded to the recently opened projects.

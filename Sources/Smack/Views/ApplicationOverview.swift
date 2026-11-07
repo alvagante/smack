@@ -261,7 +261,7 @@ struct ApplicationAboutCard: View {
             ("Requires", info?.minimumSystem.map { "macOS \($0) or later" }),
             ("Kind", info.map { $0.isAgent ? "Agent (no Dock icon)" : "Regular application" }),
             ("Main PID", ApplicationReadings.mainProcess(app).map { String($0.identity.pid) }),
-            ("Started", ApplicationReadings.startTime(app).map { $0.formatted(date: .abbreviated, time: .shortened) }),
+            ("Started", ApplicationReadings.startTime(app).map { Formatting.dated($0.formatted(date: .abbreviated, time: .shortened), $0) }),
             ("Users", ApplicationReadings.users(app).joined(separator: ", ")),
             ("Bundle ID", app.bundleIdentifier),
             ("Bundle", info?.bundlePath),

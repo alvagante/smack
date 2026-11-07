@@ -135,9 +135,10 @@ final class TitleBarLayout: ObservableObject {
     @Published var leading: CGFloat = 100
     @Published var sidebarWidth: CGFloat = 0
 
-    /// Width of the sidebar and back buttons, so the page title starts over the page, past the sidebar's edge.
+    /// Width of the sidebar button and the Smack icon at the sidebar's right edge, so the Previous page button
+    /// and title start over the page, past the sidebar's edge.
     var navigationWidth: CGFloat {
-        let buttons: CGFloat = 72
+        let buttons: CGFloat = 84
         guard showsSidebar, sidebarWidth > 0 else { return buttons }
         return max(buttons, sidebarWidth + MonitorStyle.spacing - leading)
     }
@@ -162,6 +163,14 @@ private struct MonitorTitleBarControls: View {
                 navigationButtons
                     .buttonStyle(.borderless)
                     .frame(width: layout.navigationWidth, alignment: .leading)
+                if store.previousRoute != nil {
+                    Button { store.goBack() } label: {
+                        Image(systemName: "chevron.left").font(.system(size: 15)).frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Previous page")
+                    .accessibilityLabel("Previous page")
+                }
                 Text(store.route.title).font(.title3.bold()).lineLimit(1)
                 if let subject = store.routeSubject {
                     Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary).padding(.horizontal, 6)
@@ -191,12 +200,17 @@ private struct MonitorTitleBarControls: View {
             }
             .help(layout.showsSidebar ? "Hide sidebar" : "Show sidebar")
             .accessibilityLabel(layout.showsSidebar ? "Hide sidebar" : "Show sidebar")
-            Button { store.goBack() } label: {
-                Image(systemName: "chevron.left").font(.system(size: 15)).frame(width: 32, height: 28)
+            Spacer(minLength: 0)
+            Button { store.route = .summary } label: {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 22, height: 22)
+                    .frame(width: 32, height: 28)
             }
-            .disabled(store.previousRoute == nil)
-            .help("Previous page")
-            .accessibilityLabel("Previous page")
+            .help("Summary")
+            .accessibilityLabel("Summary")
+            .padding(.trailing, MonitorStyle.spacing)
         }
     }
 

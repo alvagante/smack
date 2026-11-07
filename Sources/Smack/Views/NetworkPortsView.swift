@@ -136,6 +136,7 @@ struct NetworkPortsView: View {
             )
             .frame(maxHeight: .infinity)
         } else {
+            let processIDs = runningProcessIDs
             List {
                 ForEach(ports) { pair in
                     let port = pair.primary
@@ -192,12 +193,7 @@ struct NetworkPortsView: View {
                                 .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text(port.processName).font(.callout.weight(.semibold))
-                                Text("PID \(port.pid)\(port.userName.map { " · \($0)" } ?? "")")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            processLink(name: port.processName, pid: port.pid, userName: port.userName, spacing: 4, processIDs: processIDs)
                             if let url = port.browserURL {
                                 Link(destination: url) {
                                     Label("Browser", systemImage: "safari")
@@ -223,6 +219,7 @@ struct NetworkPortsView: View {
             )
             .frame(maxHeight: .infinity)
         } else {
+            let processIDs = runningProcessIDs
             List {
                 ForEach(connectionGroups) { group in
                     DisclosureGroup(isExpanded: expansion(for: group)) {
@@ -238,13 +235,7 @@ struct NetworkPortsView: View {
                                         .foregroundStyle(connection.state == "ESTABLISHED" ? .green : .secondary)
                                 }
                                 Spacer()
-                                VStack(alignment: .trailing, spacing: 3) {
-                                    Text(connection.processName)
-                                        .font(.callout.weight(.semibold))
-                                    Text("PID \(connection.pid)\(connection.userName.map { " · \($0)" } ?? "")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                                processLink(name: connection.processName, pid: connection.pid, userName: connection.userName, spacing: 3, processIDs: processIDs)
                             }
                             .padding(.vertical, 4)
                         }
@@ -263,12 +254,21 @@ struct NetworkPortsView: View {
                                 .buttonStyle(.plain)
                                 .help("Open \(application.name) details")
                             } else {
-                                Image(systemName: "terminal")
-                                    .frame(width: 24, height: 24)
-                                    .foregroundStyle(.secondary)
-                                Text(group.name)
-                                    .font(.headline)
-                                    .lineLimit(1)
+                                let processID = singleProcessID(of: group, processIDs: processIDs)
+                                Button { if let processID { store.route = .process(processID) } } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "terminal")
+                                            .frame(width: 24, height: 24)
+                                            .foregroundStyle(.secondary)
+                                        Text(group.name)
+                                            .font(.headline)
+                                            .lineLimit(1)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(processID == nil)
+                                .help(processID == nil ? group.name : "Open \(group.name) details")
                             }
                             Spacer()
                             Text("\(group.connections.count) connection\(group.connections.count == 1 ? "" : "s")")
@@ -282,6 +282,36 @@ struct NetworkPortsView: View {
             }
             .listStyle(.plain)
         }
+    }
+
+    /// Process name and PID, opening the process Detail Page while it is still running.
+    private func processLink(name: String, pid: Int32, userName: String?, spacing: CGFloat, processIDs: [Int32: String]) -> some View {
+        let processID = processIDs[pid]
+        return Button { if let processID { store.route = .process(processID) } } label: {
+            VStack(alignment: .trailing, spacing: spacing) {
+                Text(name).font(.callout.weight(.semibold))
+                Text("PID \(pid)\(userName.map { " · \($0)" } ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(processID == nil)
+        .help(processID == nil ? "\(name) is not in the current process list" : "Open \(name) details")
+    }
+
+    /// The running process behind a group without an Application, when all its connections share one PID.
+    private func singleProcessID(of group: ApplicationNetworkConnections, processIDs: [Int32: String]) -> String? {
+        guard let pid = group.connections.first?.pid, group.connections.allSatisfy({ $0.pid == pid }) else { return nil }
+        return processIDs[pid]
+    }
+
+    /// Running process IDs by PID, built once per render instead of scanning the process list per row.
+    private var runningProcessIDs: [Int32: String] {
+        guard let snapshot = store.processes else { return [:] }
+        let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
+        return Dictionary(processes.map { ($0.identity.pid, $0.id) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Fixed width so IPv4 and IPv6 addresses line up as two columns across rows; empty when the family is absent.

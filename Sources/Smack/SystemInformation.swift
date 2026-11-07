@@ -100,7 +100,7 @@ enum SystemInformation {
         rows.append(optional: string("kern.version"), key: "Kernel")
         rows.append(optional: string("kern.bootargs"), key: "Boot Arguments")
         if let bootTime {
-            rows.append(SystemInformationRow(key: "Boot Time", value: bootTime.formatted(date: .abbreviated, time: .standard)))
+            rows.append(SystemInformationRow(key: "Boot Time", value: Formatting.dated(bootTime.formatted(date: .abbreviated, time: .standard), bootTime)))
             rows.append(SystemInformationRow(key: "Uptime", value: CPUReadings.uptime(Date().timeIntervalSince(bootTime))))
         }
         if let load = loadAverage {

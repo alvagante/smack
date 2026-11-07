@@ -212,10 +212,10 @@ private struct HomeFileInfoView: View {
             ("Inode", String(info.inode)),
             ("Device", info.device),
             ("Flags", info.flags),
-            ("Accessed", info.accessed.formatted(date: .abbreviated, time: .standard)),
-            ("Modified", info.modified.formatted(date: .abbreviated, time: .standard)),
-            ("Changed", info.changed.formatted(date: .abbreviated, time: .standard)),
-            ("Birth", info.created.formatted(date: .abbreviated, time: .standard))
+            ("Accessed", Formatting.dated(info.accessed.formatted(date: .abbreviated, time: .standard), info.accessed)),
+            ("Modified", Formatting.dated(info.modified.formatted(date: .abbreviated, time: .standard), info.modified)),
+            ("Changed", Formatting.dated(info.changed.formatted(date: .abbreviated, time: .standard), info.changed)),
+            ("Birth", Formatting.dated(info.created.formatted(date: .abbreviated, time: .standard), info.created))
         ]
         if let target = info.linkTarget { rows.insert(("Link target", target), at: 1) }
         return rows

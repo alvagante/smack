@@ -239,7 +239,7 @@ struct BatteryHistoryContent: View {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
                     ForEach(sessions.suffix(6).reversed()) { session in
                         GridRow {
-                            Text(session.start.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
+                            Text(Formatting.dated(session.start.formatted(date: .abbreviated, time: .shortened), session.start)).foregroundStyle(.secondary)
                             Text("\(Int(session.startPercent))% → \(Int(session.endPercent))%").monospacedDigit()
                             // Position on a 0-100% track: where charging started and where it stopped.
                             ZStack(alignment: .leading) {

@@ -288,6 +288,7 @@ func phase7RealDroppedEventRecovery() async throws {
         let manager = FileManager.default
         for directory in 0..<200 { try? manager.createDirectory(at: watched.appendingPathComponent("d\(directory)"), withIntermediateDirectories: false) }
         DispatchQueue.concurrentPerform(iterations: 8) { worker in
+            let manager = FileManager()
             for index in stride(from: worker, to: files, by: 8) {
                 manager.createFile(atPath: watched.appendingPathComponent("d\(index % 200)/f\(index)").path, contents: Data("x".utf8))
             }

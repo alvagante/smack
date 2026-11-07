@@ -80,7 +80,7 @@ struct DockerDetailView: View {
         VStack(spacing: 0) {
             DetailPageHeader {
                 ResourceTitle(title: "Docker", systemImage: "shippingbox", color: AppRoute.docker.tint,
-                              subtitle: model.snapshot.map { "Checked " + $0.timestamp.formatted(date: .omitted, time: .shortened) })
+                              subtitle: model.snapshot.map { "Checked " + Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp) })
             } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
                 RefreshButton { Task { await model.refresh() } }

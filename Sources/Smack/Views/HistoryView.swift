@@ -490,7 +490,8 @@ struct HistoryView: View {
         guard let id = model.selectedInstance else { return listing }
         let parts = id.split(separator: "-", maxSplits: 1)
         guard parts.count == 2, let start = Double(parts[1]) else { return listing }
-        let started = Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened)
+        let date = Date(timeIntervalSince1970: start)
+        let started = Formatting.dated(date.formatted(date: .abbreviated, time: .shortened), date)
         return "PID \(parts[0]), started \(started). \(listing)"
     }
 

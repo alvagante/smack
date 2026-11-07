@@ -603,6 +603,8 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
     /// Extra folders browsed as custom AI agents.
     var customAgentFolders: [String] = []
     var showAgentCommandLines = false
+    /// The Session Timeline reads prompts, answers and tool calls from agent transcripts, only while it is open.
+    var readSessionTranscripts = true
 
     mutating func validate() {
         if !CollectionSettings.dockerRefreshChoices.contains(dockerRefreshSeconds) { dockerRefreshSeconds = 15 }
@@ -634,6 +636,7 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
         excludedAgents = c.value(.excludedAgents, or: d.excludedAgents)
         customAgentFolders = c.value(.customAgentFolders, or: d.customAgentFolders)
         showAgentCommandLines = c.value(.showAgentCommandLines, or: d.showAgentCommandLines)
+        readSessionTranscripts = c.value(.readSessionTranscripts, or: d.readSessionTranscripts)
     }
 }
 

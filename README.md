@@ -8,6 +8,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 
 ## Features
 
+- **Onboarding:** a first-launch window to pick the menu-bar Panel or a Standard Window, Project folders and a Performance preset.
 - **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
 - **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top.
 - **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
@@ -16,7 +17,8 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
 - **Dev servers:** local listeners grouped by project, with git branch, Docker Compose context and every HTTP(S) endpoint linked on an expandable Summary tile.
 - **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, plus their configuration in a separate Configs view.
-- **Projects:** Git repositories discovered under your Project folders, with a Summary tile of recent projects and clickable ports, a sortable folder-filtered list by name, modified time, size or language, and a detail page for deep git status, clickable listening ports, related dev servers, Docker Compose containers, AI agent sessions and the runtimes each repository pins or carries (virtualenvs, `.tool-versions`, `.nvmrc`, `mise.toml`); Summary rows show ports, running agent sessions, container counts and runtimes per project.
+- **Session Timeline:** every prompt, answer, command, MCP and tool call of a Claude Code, Codex or OpenCode session on zoomable lanes, live or replayed from History, with each event's full text, output or diff a click away.
+- **Projects:** Git repositories discovered under your Project folders, with a Summary tile of recent projects and clickable ports, a folder-filtered table with visible sort buttons (latest activity first by default), sortable by name, latest activity, running session start time, size, language, branch, status or location, and a detail page with a file browser and text viewer, local commit history and patches, branches, tags, remotes, deep git status, clickable listening ports, related dev servers, Docker Compose containers, AI agent sessions and the runtimes each repository pins or carries (virtualenvs, `.tool-versions`, `.nvmrc`, `mise.toml`); Summary rows show ports, running agent sessions, container counts and runtimes per project.
 - **Docker:** containers, images, volumes and networks, with start, stop and restart.
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
 - **Startup items:** login items, launch agents, daemons and cron jobs, each with an on/off switch.

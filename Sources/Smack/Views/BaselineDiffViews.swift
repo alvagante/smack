@@ -105,7 +105,7 @@ struct BaselineEndpoint<Picker: View>: View {
     private var subtitle: String {
         if isLive { return "Fresh capture at compare time" }
         var parts: [String] = []
-        if let date { parts.append(date.formatted(date: .abbreviated, time: .shortened)) }
+        if let date { parts.append(Formatting.dated(date.formatted(date: .abbreviated, time: .shortened), date)) }
         if let macOS = machine?["macOS"] { parts.append("macOS " + macOS) }
         return parts.isEmpty ? "No baseline selected" : parts.joined(separator: " · ")
     }

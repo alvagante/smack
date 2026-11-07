@@ -61,6 +61,29 @@ struct ResourceBudgetTests {
         ])
     }
 
+    @Test func projectHistoryIsOnDemandBoundedAndCommitDetailsUseOneReadOnlyCommand() async {
+        let commands = Commands()
+        let inspector = ProjectHistoryInspector(run: { _, args in
+            await commands.record(args)
+            return .init(status: 0, output: "", error: "")
+        })
+        #expect(await commands.values.isEmpty)
+        _ = await inspector.history(root: "/project")
+        #expect(await commands.values == [
+            ["log", "-100", "--date-order", "--format=%H%x00%an%x00%ct%x00%s%x00%D"],
+            ["for-each-ref", "--count=200", "--sort=-committerdate",
+             "--format=%(refname:short) %(objectname:short) %(subject)"],
+            ["remote", "-v"],
+        ])
+        _ = await inspector.commit(root: "/project", id: "--output=/tmp/file")
+        #expect(await commands.values.count == 3)
+        _ = await inspector.commit(root: "/project", id: "abcdef123456")
+        #expect(await commands.values.last == [
+            "show", "--no-ext-diff", "--no-textconv", "--format=fuller", "--stat", "--patch", "abcdef123456", "--",
+        ])
+        #expect(await commands.values.count == 4)
+    }
+
     @Test func dockerOnlyCollectsSelectedDetailsIncludingRemoteFailure() async {
         for section in DockerSection.allCases {
             let commands = Commands()

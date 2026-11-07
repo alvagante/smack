@@ -568,7 +568,7 @@ struct TimelineGraph: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(event.kind.group.color)
                     Text(event.subject).font(.caption).lineLimit(2)
-                    Text([event.timestamp.formatted(date: .abbreviated, time: .standard), event.processName].compactMap { $0 }.joined(separator: " · "))
+                    Text([Formatting.dated(event.timestamp.formatted(date: .abbreviated, time: .standard), event.timestamp), event.processName].compactMap { $0 }.joined(separator: " · "))
                         .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
                     ForEach(event.details.keys.sorted().prefix(4), id: \.self) { key in
                         Text("\(key): \(event.details[key] ?? "")").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
