@@ -5,15 +5,26 @@ struct DevEnvironmentSummaryTile: View {
     @ObservedObject var model: DevEnvironmentMonitor
     var open: () -> Void
 
+    private var languages: [String] {
+        let environments = model.snapshot?.environments ?? []
+        let groups: [DevLanguage: [DevEnvironment]] = Dictionary(grouping: environments, by: \.language)
+        let sorted = groups.sorted { lhs, rhs in
+            if lhs.value.count != rhs.value.count {
+                return lhs.value.count > rhs.value.count
+            }
+            return lhs.key.rawValue < rhs.key.rawValue
+        }
+        return sorted.map { $0.key.rawValue }
+    }
+
     var body: some View {
         if !Capabilities.isSandboxed {
-            let languages = Dictionary(grouping: model.snapshot?.environments ?? [], by: \.language)
-                .sorted { $0.value.count != $1.value.count ? $0.value.count > $1.value.count : $0.key.rawValue < $1.key.rawValue }
+            let languages = languages
             SummaryTile(route: .devEnvironments,
                 headline: model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"),
                 caption: model.snapshot.map { _ in "\(languages.count) languages detected" } ?? "Languages, packages and paths", open: open) {
                 if !languages.isEmpty {
-                    TagChips(tags: languages.map(\.key.rawValue), color: .teal)
+                    TagChips(tags: languages, color: .teal)
                 }
             }
         }
