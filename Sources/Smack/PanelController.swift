@@ -11,10 +11,19 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let store: MonitorStore
     private let nativeMenuBarStore: NativeMenuBarStore
     private let statusItem: NSStatusItem
-    private let panel: NSPanel
+    /// Rebuilt when the Window style changes: a non-activating panel cannot become main or go full screen.
+    private var panel: NSWindow
+    private var windowStyle: WindowStyle
     /// The panel window, for tests that check its frame.
     var window: NSWindow { panel }
+    /// Whether Live Data is running for this window, for tests.
+    private(set) var showsLiveData = false
     private let smackSound: SmackSound
+    private let setActivationPolicy: (NSApplication.ActivationPolicy) -> Void
+    private let activate: () -> Void
+    private let frameAutosaveName: String?
+    private let hostingController: NSHostingController<MonitorRootView>
+    private let titleBarControls = NSTitlebarAccessoryViewController()
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var globalClickMonitor: Any?
@@ -29,6 +38,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var glassModeSubscription: AnyCancellable?
     private var appearanceSubscription: AnyCancellable?
     private var iconsSubscription: AnyCancellable?
+    private var windowStyleSubscription: AnyCancellable?
     private let titleBarLayout = TitleBarLayout()
     private var titleBarView: NSView?
 
@@ -39,23 +49,87 @@ final class PanelController: NSObject, NSWindowDelegate {
     ///   - nativeMenuBarStore: Store managing forwarded native menu-bar icons.
     ///   - statusItem: Status item representing Smack in the macOS menu bar.
     ///   - smackSound: Audio player responsible for playing panel open sounds.
+    ///   - setActivationPolicy: Gives Smack a Dock icon for the Standard Window.
+    ///   - activate: Brings Smack to the front when the Standard Window opens.
+    ///   - frameAutosaveName: Where the Standard Window remembers its frame; nil keeps none.
     init(
         store: MonitorStore,
         nativeMenuBarStore: NativeMenuBarStore,
         statusItem: NSStatusItem,
-        smackSound: SmackSound = SmackSound()
+        smackSound: SmackSound = SmackSound(),
+        setActivationPolicy: @escaping (NSApplication.ActivationPolicy) -> Void = { _ = NSApplication.shared.setActivationPolicy($0) },
+        activate: @escaping () -> Void = { NSApplication.shared.activate() },
+        frameAutosaveName: String? = "SmackWindow"
     ) {
         self.store = store
         self.nativeMenuBarStore = nativeMenuBarStore
         self.statusItem = statusItem
         self.smackSound = smackSound
-        panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 430),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: true
+        self.setActivationPolicy = setActivationPolicy
+        self.activate = activate
+        self.frameAutosaveName = frameAutosaveName
+        windowStyle = store.settingsStore.settings.panel.windowStyle
+        panel = Self.makeWindow(windowStyle)
+        var close: () -> Void = {}
+        let rootView = MonitorRootView(
+            store: store,
+            nativeMenuBarStore: nativeMenuBarStore,
+            titleBarLayout: titleBarLayout,
+            onClose: { close() }
         )
+        hostingController = NSHostingController(rootView: rootView)
         super.init()
+        close = { [weak self] in self?.close() }
+        titleBarControls.layoutAttribute = .right
+        let titleBarView = NSHostingView(rootView: rootView.titleBarControls(layout: titleBarLayout) { [weak self] width in
+            self?.titleBarView?.setFrameSize(NSSize(width: ceil(width), height: TitleBarLayout.height))
+        })
+        titleBarView.setFrameSize(NSSize(width: 400, height: TitleBarLayout.height))
+        titleBarControls.view = titleBarView
+        self.titleBarView = titleBarView
+        configureWindow()
+        setActivationPolicy(windowStyle.activationPolicy)
+        glassModeSubscription = store.settingsStore.$settings
+            .map(\.panel.glassMode)
+            .removeDuplicates()
+            .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
+        appearanceSubscription = store.settingsStore.$settings
+            .map(\.panel.appearance)
+            .removeDuplicates()
+            .sink { [weak self] appearance in self?.applyAppearance(appearance) }
+        windowStyleSubscription = store.settingsStore.$settings
+            .map(\.panel.windowStyle)
+            .removeDuplicates()
+            .sink { [weak self] style in self?.applyWindowStyle(style) }
+        iconsSubscription = store.settingsStore.$settings
+            .map { $0.panel.showTopBarIcons && $0.panel.showMenuBarItems }
+            .removeDuplicates()
+            .sink { [weak nativeMenuBarStore] enabled in
+                nativeMenuBarStore?.setFeatureEnabled(enabled)
+            }
+        installMonitors()
+        nativeMenuBarStore.onItemActivated = { [weak self] in
+            guard let self, self.windowStyle == .panel, !self.stuck else { return }
+            self.hotZoneSuppressedUntil = Date().addingTimeInterval(1)
+            self.hoverTask?.cancel()
+            self.close()
+        }
+    }
+
+    private static func makeWindow(_ style: WindowStyle) -> NSWindow {
+        let rect = NSRect(x: 0, y: 0, width: 1200, height: 430)
+        return switch style {
+        case .panel:
+            FloatingPanel(contentRect: rect, styleMask: [.titled, .closable, .nonactivatingPanel, .resizable, .fullSizeContentView],
+                          backing: .buffered, defer: true)
+        case .standardWindow:
+            NSWindow(contentRect: rect, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                     backing: .buffered, defer: true)
+        }
+    }
+
+    /// Dresses a freshly made window in Smack's chrome and content.
+    private func configureWindow() {
         panel.title = "Smack"
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
@@ -64,57 +138,57 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.toolbarStyle = .unified
         panel.hidesOnDeactivate = false
         // An ordinary window level, so Spotlight, alerts, menus and other apps' windows can come in front of it.
-        // It still opens on the current Space, including over a full-screen app.
-        panel.isFloatingPanel = false
+        (panel as? NSPanel)?.isFloatingPanel = false
         panel.level = .normal
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        switch windowStyle {
+        case .panel:
+            // The panel still opens on the current Space, including over a full-screen app.
+            panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        case .standardWindow:
+            panel.collectionBehavior = [.fullScreenPrimary]
+            panel.tabbingMode = .disallowed
+            if let frameAutosaveName { panel.setFrameAutosaveName(frameAutosaveName) }
+        }
         panel.minSize = NSSize(width: 720, height: 340)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        let rootView = MonitorRootView(
-            store: store,
-            nativeMenuBarStore: nativeMenuBarStore,
-            titleBarLayout: titleBarLayout,
-            onClose: { [weak self] in self?.close() }
-        )
-        panel.contentViewController = NSHostingController(rootView: rootView)
-        let titleBarControls = NSTitlebarAccessoryViewController()
-        titleBarControls.layoutAttribute = .right
-        let titleBarView = NSHostingView(rootView: rootView.titleBarControls(layout: titleBarLayout) { [weak self] width in
-            self?.titleBarView?.setFrameSize(NSSize(width: ceil(width), height: TitleBarLayout.height))
-        })
-        titleBarView.setFrameSize(NSSize(width: 400, height: TitleBarLayout.height))
-        titleBarControls.view = titleBarView
-        self.titleBarView = titleBarView
+        panel.contentViewController = hostingController
         panel.addTitlebarAccessoryViewController(titleBarControls)
-        glassModeSubscription = store.settingsStore.$settings
-            .map(\.panel.glassMode)
-            .removeDuplicates()
-            .sink { [weak self] enabled in self?.applyGlassMode(enabled) }
-        appearanceSubscription = store.settingsStore.$settings
-            .map(\.panel.appearance)
-            .removeDuplicates()
-            .sink { [weak self] appearance in
-                self?.panel.appearance = switch appearance {
-                case .system: nil
-                case .light: NSAppearance(named: .aqua)
-                case .dark: NSAppearance(named: .darkAqua)
-                }
-            }
-        iconsSubscription = store.settingsStore.$settings
-            .map { $0.panel.showTopBarIcons && $0.panel.showMenuBarItems }
-            .removeDuplicates()
-            .sink { [weak nativeMenuBarStore] enabled in
-                nativeMenuBarStore?.setFeatureEnabled(enabled)
-            }
-        installStickButton()
+        let settings = store.settingsStore.settings.panel
+        applyGlassMode(settings.glassMode)
+        applyAppearance(settings.appearance)
+        if windowStyle == .panel { installStickButton() }
         updateTitleBarLayout()
-        installMonitors()
-        nativeMenuBarStore.onItemActivated = { [weak self] in
-            guard let self, !self.stuck else { return }
-            self.hotZoneSuppressedUntil = Date().addingTimeInterval(1)
-            self.hoverTask?.cancel()
-            self.close()
+    }
+
+    /// Swaps in a window of the new style, reopening it if the old one was showing.
+    private func applyWindowStyle(_ style: WindowStyle) {
+        setActivationPolicy(style.activationPolicy)
+        guard style != windowStyle else { return }
+        let wasOpen = panel.isVisible || panel.isMiniaturized
+        let old = panel
+        // Detached first, so closing it neither stops Live Data nor takes the shared content with it.
+        old.delegate = nil
+        old.contentViewController = nil
+        if let index = old.titlebarAccessoryViewControllers.firstIndex(of: titleBarControls) {
+            old.removeTitlebarAccessoryViewController(at: index)
+        }
+        old.close()
+        stickButton?.removeFromSuperview()
+        stickButton = nil
+        pinned = false
+        stuck = false
+        windowStyle = style
+        panel = Self.makeWindow(style)
+        configureWindow()
+        if wasOpen { open() } else { reportVisible(false) }
+    }
+
+    private func applyAppearance(_ appearance: PanelAppearance) {
+        panel.appearance = switch appearance {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
     }
 
@@ -162,7 +236,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func togglePinned() {
-        if panel.isVisible {
+        if windowStyle == .standardWindow {
+            // A window behind other apps comes forward instead of closing.
+            let inFront = panel.isVisible && panel.isKeyWindow && NSApplication.shared.isActive
+            inFront ? close() : open()
+        } else if panel.isVisible {
             close()
         } else {
             pinned = true
@@ -171,6 +249,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func open() {
+        if windowStyle == .standardWindow {
+            openStandardWindow()
+            return
+        }
         guard !panel.isVisible else { return }
         let target = targetFrame()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -189,8 +271,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             panel.alphaValue = 0
         }
         panel.orderFrontRegardless()
-        nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
-        store.setVisible(true)
+        reportVisible(true)
         smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
         guard !reduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
@@ -201,8 +282,36 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func openStandardWindow() {
+        if panel.isMiniaturized {
+            panel.deminiaturize(nil)
+        } else if !panel.isVisible {
+            if frameAutosaveName.map(panel.setFrameUsingName) != true { panel.setFrame(targetFrame(), display: false) }
+            smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
+        }
+        activate()
+        panel.makeKeyAndOrderFront(nil)
+        reportVisible(true)
+    }
+
     func close() {
         panel.close()
+    }
+
+    /// Live Data runs while the window can be seen: not minimized, hidden, on another Space or fully covered.
+    static func isOnScreen(isVisible: Bool, isMiniaturized: Bool, occlusion: NSWindow.OcclusionState) -> Bool {
+        isVisible && !isMiniaturized && occlusion.contains(.visible)
+    }
+
+    private func reportVisible(_ visible: Bool) {
+        guard visible != showsLiveData else { return }
+        showsLiveData = visible
+        if visible {
+            nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
+        } else {
+            nativeMenuBarStore.setPanelVisible(false)
+        }
+        store.setVisible(visible)
     }
 
     /// Every page shares one height, so navigating never resizes the panel.
@@ -253,6 +362,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func mouseMoved() {
+        guard windowStyle == .panel else { return }
         let location = NSEvent.mouseLocation
         let inHotZone = cameraHotZone()?.contains(location) == true
         if inHotZone, store.settingsStore.settings.panel.trigger == .hover, !panel.isVisible {
@@ -269,6 +379,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func mouseClicked() {
+        guard windowStyle == .panel else { return }
         let location = NSEvent.mouseLocation
         if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.panel.trigger == .click {
             pinned = true
@@ -285,10 +396,15 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     /// Keeps titlebar items clear of the traffic lights and pin button.
     private func updateTitleBarLayout() {
-        let reserved = (stickButton?.frame.maxX ?? 100) + 16
+        let reserved = (stickButton?.frame.maxX ?? panel.standardWindowButton(.zoomButton)?.frame.maxX ?? 100) + 16
         let available = max(160, panel.frame.width - reserved)
         if titleBarLayout.available != available { titleBarLayout.available = available }
         if titleBarLayout.leading != reserved { titleBarLayout.leading = reserved }
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard windowStyle == .standardWindow else { return }
+        reportVisible(Self.isOnScreen(isVisible: panel.isVisible, isMiniaturized: panel.isMiniaturized, occlusion: panel.occlusionState))
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -296,7 +412,13 @@ final class PanelController: NSObject, NSWindowDelegate {
         stuck = false
         updateStickButton()
         hoverTask?.cancel()
-        nativeMenuBarStore.setPanelVisible(false)
-        store.setVisible(false)
+        reportVisible(false)
+    }
+}
+
+private extension WindowStyle {
+    /// The Standard Window lives in the Dock; the Panel belongs to the menu bar only.
+    var activationPolicy: NSApplication.ActivationPolicy {
+        self == .standardWindow ? .regular : .accessory
     }
 }

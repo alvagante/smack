@@ -229,11 +229,19 @@ struct SettingsView: View {
 
     @ViewBuilder private var generalPane: some View {
         Section {
-            Picker(selection: binding(\.panel.trigger)) {
-                ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
-            } label: { SettingsLabel("Open the panel with", help: "How the camera hot zone opens the panel.") }
-            if settings.settings.panel.trigger == .hover {
-                LabeledContent("Hover delay") { NumberField(value: binding(\.panel.hoverDelay), unit: "s") }
+            Picker(selection: appearanceBinding(\.panel.windowStyle)) {
+                ForEach(WindowStyle.allCases) { Text($0.rawValue).tag($0) }
+            } label: {
+                SettingsLabel("Window style",
+                    help: "Menu-bar Panel opens under the menu bar and closes when you click elsewhere. Standard Window adds a Dock icon, opens at launch, and can be minimized, resized and made full screen. Live Data runs only while the window is on screen, so neither costs more than the other.")
+            }
+            if settings.settings.panel.windowStyle == .panel {
+                Picker(selection: binding(\.panel.trigger)) {
+                    ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
+                } label: { SettingsLabel("Open the panel with", help: "How the camera hot zone opens the panel.") }
+                if settings.settings.panel.trigger == .hover {
+                    LabeledContent("Hover delay") { NumberField(value: binding(\.panel.hoverDelay), unit: "s") }
+                }
             }
             Picker(selection: soundSelectionBinding) {
                 ForEach(PanelSound.allCases) { Text($0.displayName).tag($0) }
@@ -593,11 +601,14 @@ struct SettingsView: View {
         }
         Section {
             summaryToggle(.devEnvironments)
-            StepperRow(title: "Project scan depth", help: "Directory levels searched below each project folder for virtual environments and project-local runtimes.",
+            summaryToggle(.projects)
+            StepperRow(title: "Project scan depth", help: "Directory levels searched below each project folder for virtual environments, project-local runtimes and Git repositories.",
                        text: "\(settings.settings.devTools.devScanDepth) levels", value: localBinding(\.devTools.devScanDepth), range: CollectionSettings.devScanDepthRange)
             FolderListRows(folders: localBinding(\.devTools.devProjectFolders), addTitle: "Add Project Folder…", empty: "No project folders")
         } header: {
-            Text("Development environments")
+            Text("Development environments and projects")
+        } footer: {
+            SettingsFooter("Directory entries and .git files only, while Projects or its Summary tile is visible. Git status and the last commit run only for the repository you open. A selected folder is scanned to the project scan depth, never the whole home directory.")
         }
         Section {
             summaryToggle(.homebrew)
@@ -651,7 +662,7 @@ struct SettingsView: View {
         } header: {
             Text("Sessions")
         } footer: {
-            SettingsFooter("Running sessions are tracked on every process sample only while AI Agents is on Summary, session events are recorded, or an enabled alert rule uses agent sessions. Otherwise tracking stops, and the sessions list, the CLI, dev server links and listener event attribution show none.")
+            SettingsFooter("Running sessions are tracked on every process sample only while AI Agents or Projects is on Summary, session events are recorded, or an enabled alert rule uses agent sessions. Otherwise tracking stops, and the sessions list, the CLI, dev server links, project pages and listener event attribution show none.")
         }
         timelineSection {
             Toggle(isOn: binding(\.activity.recordAgentEvents)) {

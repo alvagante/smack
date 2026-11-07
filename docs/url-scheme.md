@@ -1,7 +1,7 @@
 # URL navigation
 
 `smack://` opens Summary. Resource pages use `cpu`, `memory`, `network`, `disk`, `storage`, `battery`
-and `thermal`. Other hosts: `apps`, `ports`, `devservers`, `docker`, `homebrew`, `dev`, `home`, `agents`, `installed`,
+and `thermal`. Other hosts: `apps`, `ports`, `devservers`, `docker`, `homebrew`, `dev`, `projects`, `home`, `agents`, `installed`,
 `startup`, `security`, `baseline`, `timeline`, `history`, `insights`, `settings`, `system`.
 
 Specific routes: `smack://app/<bundle-id>`, `smack://process/<pid>`, `smack://port/<port>`,

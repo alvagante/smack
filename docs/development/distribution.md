@@ -10,12 +10,13 @@ out of scope. App Sandbox prevents that flavor from using the root sampling help
 | | Direct build | App Store build |
 |---|---|---|
 | Sandbox | no | `com.apple.security.app-sandbox` |
-| Signing | ad hoc or local self-signed; no Developer ID/notarization required | not distributed; future packaging requirements below |
+| Signing | Developer ID, hardened runtime, notarized and stapled for releases; ad hoc or self-signed for local builds | not distributed; future packaging requirements below |
 | Directory usage scans | home or startup disk, optional root access | user-selected folder |
 | Superuser sampling | opt-in root helper | unavailable |
 | Native menu-bar icons | yes, private window-server APIs and ScreenCaptureKit | unavailable |
 | Menu-bar click forwarding | yes, Accessibility events | unavailable |
-| Dev servers (unreleased) | projects, git branches, container/Compose mapping, confirmed stop and directory actions; CLI v2 | unavailable |
+| Dev servers | projects, git branches, container/Compose mapping, confirmed stop and directory actions; CLI v2 | unavailable |
+| Projects | Git repositories under Project Folders, Project Runtimes, related dev servers, Compose containers and Agent Sessions | unavailable |
 | Network ports | libproc, all visible processes | unavailable: sandbox denies descriptor inspection |
 | Dev environments | discover runtimes and version managers, inspect versions, packages and paths | unavailable: sandbox denies runtime inspection |
 | Homebrew | installed and outdated packages, search/install, upgrades, uninstall/reinstall, pinning, user services, cleanup | unavailable: sandbox denies running brew |
@@ -39,14 +40,14 @@ out of scope. App Sandbox prevents that flavor from using the root sampling help
 | Terminate and Force Kill | yes; Terminate asks applications to quit, Force Kill sends SIGKILL | unavailable: the sandbox denies signaling other processes |
 | Hardware temperature sensors | yes, undocumented IOHIDEventSystemClient, read only while the thermal page is open | unavailable: private interface, not compiled in |
 | Update channel | GitHub release zip and `alvagante/tap` cask | not planned |
-| Insights: spike attribution, disk write ledger, process churn, Summary digest (unreleased) | yes | yes, from the history the build records |
-| Insights: new network destinations (unreleased) | yes, when connection events are on (off by default) | unavailable: connection events are direct-only |
-| Threshold/event alerts and navigation URLs (unreleased) | yes | yes, available metrics only |
-| Typed App Intents (unreleased) | five packaged actions; macOS 27.2 checks accepted by user, macOS 15 unverified | compile only; runtime out of scope |
-| Same-UID control socket and CLI (unreleased) | cached queries, bounded history, future-only follow, delivery controls, CSV/TSV output | unavailable, no socket/CLI |
-| Offline posture (unreleased) | scheduled checks, explicit unknown states; TCC requires FDA | unavailable, explicit edition limitation |
-| Persistence (unreleased) | launchd and selected file hashes, bounded offline signature verification | unavailable |
-| BTM and profile polling (unreleased) | hourly with v2 helper; BTM stays manual without helper | unavailable |
+| Insights: spike attribution, disk write ledger, process churn, Summary digest | yes | yes, from the history the build records |
+| Insights: new network destinations | yes, when connection events are on (off by default) | unavailable: connection events are direct-only |
+| Threshold/event alerts and navigation URLs | yes | yes, available metrics only |
+| Typed App Intents | five packaged actions; macOS 27.2 checks accepted by user, macOS 15 unverified | compile only; runtime out of scope |
+| Same-UID control socket and CLI | cached queries, bounded history, future-only follow, delivery controls, CSV/TSV output | unavailable, no socket/CLI |
+| Offline posture | scheduled checks, explicit unknown states; TCC requires FDA | unavailable, explicit edition limitation |
+| Persistence | launchd and selected file hashes, bounded offline signature verification | unavailable |
+| BTM and profile polling | hourly with v2 helper; BTM stays manual without helper | unavailable |
 
 ## Why superuser cannot be in the App Store build
 
@@ -71,11 +72,16 @@ Scripts/build-app.sh release
 open dist/Smack.app
 ```
 
-1.0.0 is unreleased. Before publication, obtain explicit release approval and separately update the remote
-`alvagante/tap` cask with `binary "#{appdir}/Smack.app/Contents/Helpers/smack"`. The local tap clone is stale
-at 0.5.0; `release.yml` currently updates only version and sha256. No tap change is part of this work.
+### Releasing
 
-Developer ID and notarization are deferred. If adopted later, use [signing.md](signing.md):
+1. Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Sources/Smack/Resources/Info.plist` and the
+   baseline generator version in `Sources/Smack/Baseline.swift`.
+2. Move `[Unreleased]` in `CHANGELOG.md` under the new version and date.
+3. Run `swift test --no-parallel` and the App Store compile, then the release measurement from `CONTEXT.md`.
+4. Merge to `main` and push a `v<version>` tag. `release.yml` tests, signs with Developer ID, notarizes,
+   publishes the zip and DMG, and updates the `alvagante/tap` cask version and sha256.
+
+Local Developer ID builds use [signing.md](signing.md):
 
 ```bash
 export SMACK_SIGN_IDENTITY="Developer ID Application: Alessandro Franceschi (TEAMID)"

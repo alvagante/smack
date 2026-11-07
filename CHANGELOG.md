@@ -4,15 +4,38 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-07
+
+Projects (spec 007), Summary as a live tile grid, Agent Sessions view, Standard Window style. Build 11.
+
+### Added
+
+- **Projects:** a new Work page and Summary tile list the Git repositories under your Project folders (Settings › Development), with name, kind, branch, commit, worktree and last modification. The Summary tile shows the most recently modified repositories, expands to the full list, and makes every project and every related listening port clickable. The list is compact and sortable by name, modified time, measured size or language, and filters by Project folder, so large multi-folder setups stay navigable. Each Project Detail Page has Overview (deep git state plus clickable listening ports), Dev servers, Docker and Agent sessions sections. Git status, ahead/behind and the last commit run only for the repository you open.
+  - Cost: discovery reads directory entries and `.git` files only, while Projects or its Summary tile is visible, bounded to 10,000 directories per Project folder at the configured scan depth; results reuse the Inventory Cache. Opening a repository runs two read-only `git` commands (`status --porcelain=v2 --branch`, `log -1`), cached per project for at most 24 repositories. Sizes are measured only when you choose Size or press Measure sizes: Spotlight is used when it has indexed the folder, otherwise a walk stops at 50,000 entries or 1.5 seconds per repository, one repository at a time and cancellable. Related dev servers, containers and sessions are joined from data Smack already collects; nothing new is sampled or written to history. Estimated cost on a 100-repository tree: one readdir pass per inventory interval, two short-lived git processes per opened project, and one sequential size pass only on request.
+- **Projects: runtimes and relations on Summary.** Each repository reports its **Project Runtimes**: local virtual environments (`.venv`, `venv`, `.env` with `pyvenv.cfg`) and version pins (`.python-version`, `.nvmrc`, `.node-version`, `.ruby-version`, `rust-toolchain(.toml)`, `.tool-versions`, `mise.toml`, `.envrc`). The Project Detail Page gains a Runtimes section that also lists Development Environments discovered inside the repository, when that discovery has already run. Each Summary project row now shows, next to its ports, a chip per running Agent Session (opens the session), a running/total Compose container chip (opens the project's Docker section) and up to three runtime chips. Relations are joined by walking each item's path up once against the repository set, instead of testing every item against every repository.
+  - Cost: during discovery only, about 13 bounded opens per repository root (8 KB cap each, a failed open when the marker is absent), no subprocess, under 1 KB per repository for at most 16 runtimes. Development Environments discovery is never started by Projects. No new Setting, no history writes, nothing while the Panel is closed. Release measurement not yet run.
+
+- **Window style** (Settings > General): Standard Window shows Smack as an ordinary app window with a Dock icon, minimize (⌘M), full screen (⌃⌘F), a remembered frame and App, Edit and Window menus. It opens at launch and on a Dock click; closing it keeps Smack in the menu bar. Hover opening, click-away dismissal and the pin button apply to the Menu-bar Panel only, which stays the default.
+  - Cost: no new collection. Live Data stops while the Standard Window is minimized, hidden, on another Space or fully covered (window occlusion), so an open window costs no more than the Panel.
+
 ### Changed
 
-- Page icons are colored by Page Category: Performance in blues, Health in greens, Activity in oranges, Environment in purples, each Page a distinct shade. The sidebar, its section headers, Summary tiles and page headers use the same color.
+- **Work:** Projects, Dev servers, Docker and AI agents now have a dedicated Page Category with violet icon shades shared by the sidebar, Summary tiles and page headers. Environment keeps Homebrew, Dev environments, User home, Installed apps and System details, in pink shades. No collection changes.
+
+- **AI Agents:** the top-right switch is larger, with icons and live counts, and its configuration view is now named **Configs**. Agent Session cards and the selected session give the project more evidence: a folder-marked project name, its branch, commit, kind and worktree state, with the path in the tooltip. The sessions overview also counts distinct projects. No new collection.
+- Summary Dev Servers links only endpoints that really serve the web, grouped under their project in bold (or the process when no project is known), in two columns when the tile is wide enough. Each listener is asked once, while Summary is visible, with a `HEAD /` over loopback or the Mac's own address: plain HTTP first, then HTTPS. Well-known other protocols (SSH, databases, message brokers, OTLP gRPC, VNC) are never asked.
+  - Cost: per new listener, at most two local connections with a 1 s timeout each (measured 1 to 3 ms for a web server), four at a time; nothing while the Panel is closed or for listeners already checked. Memory: one entry per open listener, dropped when it closes. No disk writes.
+
+- Summary AI Agents lists every running Agent Session, nested ones indented under their parent: its state, project in bold and branch, agent and CPU. Clicking a row opens that session on the AI Agents page.
+- Dev Servers and AI Agents widen to two columns while they list entries and show the first 8 rows, with Show all to expand the tile. It uses the sessions Smack already tracks: no new collection.
+- Page icons are colored by Page Category: Performance in blues, Health in greens, Activity in oranges, Work in violets, Environment in pinks, each Page a distinct shade. The sidebar, its section headers, Summary tiles and page headers use the same color.
 - Summary is one grid of live tiles instead of rows of text grouped in sections, filling the window width with 1 to 8 columns. Each tile shows its key figure and, where it has one, a live visual: per-core CPU bars, memory composition, mirrored receive/send and read/write charts, volume fill, security check dots, the busiest applications, running AI agent sessions, Docker container states, Homebrew updates, dev server ports and detected languages. The header lists Summary Concerns (Thermal State, memory pressure, low battery, security findings, busy CPU), each linking to its Page, or "All quiet". Tiles use only Live Data and inventories Smack already collects: no new sampling, subprocesses, timers or animations.
 - **AI Agents:** Agent Sessions are a view of their own, opened by default while one runs. Each session shows Working or Idle, a ticking uptime, CPU, memory, MCP servers and ports, with a CPU sparkline; the selected one adds CPU, memory, disk and network charts, nested sessions, per-process CPU and memory with links to the Process Detail Page, paged recent commands, network and log. Recently ended sessions are listed apart.
   - Cost (estimated, release measurement pending): no new collection, subprocesses or disk writes. Charts reuse the totals the session tracker already computes, kept in memory only (120 points per live session, about 4 KB each). The agent browser should no longer redraw on every process sample.
 
 ### Fixed
 
+- Agent Sessions are detected for agents installed with a native installer, such as Claude Code at `~/.local/share/claude/versions/<version>`, whose process name is the version number.
 - Claude Code session logs are found for project paths containing `.`, `_` or other non-alphanumeric characters.
 - Agent session network shows "Off" instead of "Unavailable" when Network Rate is turned off.
 

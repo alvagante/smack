@@ -105,10 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.terminateApplication = terminateApplication
     }
 
+    /// Shown only for the Standard Window; the Panel keeps the key equivalents.
     func configureMainMenu() {
         let mainMenu = NSMenu()
-        let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Hide Smack", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+            .keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         let quitItem = NSMenuItem(
             title: "Quit Smack",
             action: #selector(requestQuit(_:)),
@@ -117,9 +122,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quitItem.keyEquivalentModifierMask = .command
         quitItem.target = self
         appMenu.addItem(quitItem)
-        appMenuItem.submenu = appMenu
-        mainMenu.addItem(appMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+            .keyEquivalentModifierMask = [.command, .control]
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        for menu in [appMenu, editMenu, windowMenu] {
+            let item = NSMenuItem()
+            item.submenu = menu
+            mainMenu.addItem(item)
+        }
         NSApplication.shared.mainMenu = mainMenu
+        NSApplication.shared.windowsMenu = windowMenu
     }
 
     @objc func requestQuit(_ sender: Any?) {
@@ -215,13 +239,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let url = pendingNavigationURL {
                 pendingNavigationURL = nil
                 openNavigationURL(url)
-            } else if CommandLine.arguments.contains("--open-panel") {
-                panelController?.togglePinned()
+            } else if CommandLine.arguments.contains("--open-panel") || settingsStore.settings.panel.windowStyle == .standardWindow {
+                panelController?.showPinned()
             }
         } catch {
             NSAlert(error: error).runModal()
             NSApplication.shared.terminate(nil)
         }
+    }
+
+    /// A Dock click, or opening Smack again from Finder, shows the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController?.showPinned()
+        return false
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

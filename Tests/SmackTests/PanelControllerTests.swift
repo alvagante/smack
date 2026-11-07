@@ -171,6 +171,64 @@ private func makeTestTempDir() throws -> URL {
         controller.close()
     }
 
+    @Test func standardWindowMinimizesGoesFullScreenAndShowsInTheDock() async throws {
+        let directory = try makeTestTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+        let suiteName = "PanelControllerTests-Standard-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
+        settingsStore.update {
+            $0.panel.panelSound = .none
+            $0.panel.windowStyle = .standardWindow
+        }
+        let client = PrivilegedSamplingClient()
+        let scheduler = CollectionScheduler(
+            systemCollector: SystemCollector(),
+            processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+            inventoryCollector: InventoryCollector(privileged: client),
+            networkPortCollector: NetworkPortCollector(privileged: client),
+            history: history,
+            settings: settingsStore.settings,
+            onSystem: { _ in },
+            onProcesses: { _ in },
+            onInventory: { _, _ in },
+            onNetworkPorts: { _ in }
+        )
+        let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        defer { NSStatusBar.system.removeStatusItem(statusItem) }
+        var policies: [NSApplication.ActivationPolicy] = []
+        let controller = PanelController(
+            store: store, nativeMenuBarStore: NativeMenuBarStore(), statusItem: statusItem,
+            setActivationPolicy: { policies.append($0) }, activate: {}, frameAutosaveName: nil
+        )
+        defer { controller.close() }
+
+        #expect(policies.last == .regular)
+        #expect(!(controller.window is NSPanel))
+        #expect(controller.window.styleMask.isSuperset(of: [.titled, .closable, .miniaturizable, .resizable]))
+        #expect(controller.window.collectionBehavior.contains(.fullScreenPrimary))
+        controller.open()
+        #expect(controller.window.isVisible && controller.showsLiveData)
+        controller.close()
+        #expect(!controller.showsLiveData)
+
+        settingsStore.update { $0.panel.windowStyle = .panel }
+        #expect(policies.last == .accessory)
+        #expect(controller.window is NSPanel)
+        #expect(controller.window.styleMask.contains(.nonactivatingPanel))
+        #expect(!controller.window.collectionBehavior.contains(.fullScreenPrimary))
+    }
+
+    @Test func liveDataRunsOnlyWhileTheStandardWindowIsOnScreen() {
+        #expect(PanelController.isOnScreen(isVisible: true, isMiniaturized: false, occlusion: .visible))
+        #expect(!PanelController.isOnScreen(isVisible: true, isMiniaturized: true, occlusion: .visible))
+        #expect(!PanelController.isOnScreen(isVisible: true, isMiniaturized: false, occlusion: []))
+        #expect(!PanelController.isOnScreen(isVisible: false, isMiniaturized: false, occlusion: .visible))
+    }
+
     @Test func panelKeepsOneHeightAcrossPages() async throws {
         let directory = try makeTestTempDir()
         defer { try? FileManager.default.removeItem(at: directory) }

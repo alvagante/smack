@@ -8,6 +8,59 @@ struct ResourceBudgetTests {
         func record(_ args: [String]) { values.append(args) }
     }
 
+    private actor Probes {
+        var values: [String] = []
+        func record(_ host: String, _ port: UInt16) { values.append("\(host):\(port)") }
+    }
+
+    @Test @MainActor func webEndpointChecksProbeEachListenerOnceAndSkipOtherProtocols() async {
+        let probes = Probes()
+        let model = DevServersModel(probe: { host, port in
+            await probes.record(host, port)
+            return port == 3000 ? .http : nil
+        })
+        func server(_ ports: [ListeningPort]) -> [DevServer] {
+            [DevServer(id: "s", process: ProcessIdentity(pid: 10, startTime: .distantPast), processName: "node", ports: ports)]
+        }
+        let all = [obsPort(port: 3000, host: "*"), obsPort(port: 3000, host: "::1", fd: 4), obsPort(port: 5432, fd: 5), obsPort(port: 6006, fd: 6)]
+        await model.checkWebEndpoints(server(all))
+        await model.checkWebEndpoints(server(all))
+        #expect(await probes.values.sorted() == ["127.0.0.1:3000", "127.0.0.1:6006", "::1:3000"])
+        #expect(model.webSchemes.count == 2)
+        // A listener that closes is forgotten, and checked again if it comes back.
+        await model.checkWebEndpoints(server(Array(all.prefix(3))))
+        await model.checkWebEndpoints(server(all))
+        #expect(await probes.values.count == 4)
+    }
+
+    @Test func projectDiscoveryRunsNoCommandsAndInspectionRunsOnlyStatusAndLog() async throws {
+        let commands = Commands()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("smack-budget-project-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let head = folder.appendingPathComponent("repo/.git/HEAD")
+        try FileManager.default.createDirectory(at: head.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("ref: refs/heads/main\n".utf8).write(to: head)
+        let ref = folder.appendingPathComponent("repo/.git/refs/heads/main")
+        try FileManager.default.createDirectory(at: ref.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("abcdef1234567890\n".utf8).write(to: ref)
+
+        let snapshot = ProjectCollector().discover(folders: [folder.path], depth: 2)
+        #expect(snapshot.projects.count == 1)
+        #expect(await commands.values.isEmpty, "discovery reads directory entries and .git files only")
+
+        let inspector = ProjectGitInspector(run: { _, args in
+            await commands.record(args)
+            return args.first == "status"
+                ? .init(status: 0, output: "# branch.head main\n", error: "")
+                : .init(status: 0, output: "abcdef1\u{0}\(1_700_000_000)\u{0}Subject", error: "")
+        })
+        _ = await inspector.inspect(root: folder.appendingPathComponent("repo").path)
+        #expect(await commands.values == [
+            ["status", "--porcelain=v2", "--branch"],
+            ["log", "-1", "--format=%h%x00%ct%x00%s"],
+        ])
+    }
+
     @Test func dockerOnlyCollectsSelectedDetailsIncludingRemoteFailure() async {
         for section in DockerSection.allCases {
             let commands = Commands()

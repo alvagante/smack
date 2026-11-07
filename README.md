@@ -8,13 +8,15 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 
 ## Features
 
+- **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
 - **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top.
 - **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
 - **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs.
 - **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.
 - **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
-- **Dev servers:** local listeners grouped by project, with git branch and Docker Compose context.
-- **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, plus their configuration.
+- **Dev servers:** local listeners grouped by project, with git branch, Docker Compose context and every HTTP(S) endpoint linked on an expandable Summary tile.
+- **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, plus their configuration in a separate Configs view.
+- **Projects:** Git repositories discovered under your Project folders, with a Summary tile of recent projects and clickable ports, a sortable folder-filtered list by name, modified time, size or language, and a detail page for deep git status, clickable listening ports, related dev servers, Docker Compose containers, AI agent sessions and the runtimes each repository pins or carries (virtualenvs, `.tool-versions`, `.nvmrc`, `mise.toml`); Summary rows show ports, running agent sessions, container counts and runtimes per project.
 - **Docker:** containers, images, volumes and networks, with start, stop and restart.
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
 - **Startup items:** login items, launch agents, daemons and cron jobs, each with an on/off switch.
@@ -27,6 +29,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Installed apps:** app sizes and uninstall to the Trash.
 - **Dev environments:** 26 languages and runtimes with versions, paths and packages.
 - **Menu-bar icons:** every menu-bar icon in the panel, including those hidden by the notch.
+- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen.
 - **Quick lookups:** check IP addresses and file hashes on IPinfo, AbuseIPDB, VirusTotal, Shodan and others.
 - **Automation:** `smack://` URLs, a `smack` CLI with JSON/CSV output, and Shortcuts actions. See the [CLI](docs/cli.md) and [URL scheme](docs/url-scheme.md).
 - **Superuser sampling (optional):** a signed helper that also shows other users' processes and files.
@@ -45,7 +48,7 @@ brew install alvagante/tap/smack
 
 Or download `Smack-<version>-macOS-arm64.dmg` from [Releases](../../releases), open it and drag Smack to Applications. Releases are signed and notarized.
 
-Open the panel by hovering over or clicking the notch, or by clicking the menu-bar icon. Quit with ⌘Q.
+Open the panel by hovering over or clicking the notch, or by clicking the menu-bar icon. Quit with ⌘Q. To use Smack as a regular resizable window with a Dock icon, set Settings > General > Window style to Standard Window.
 
 ## Update
 

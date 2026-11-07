@@ -239,13 +239,28 @@ struct ListeningPort: Identifiable, Sendable, Equatable, Codable {
         return .external
     }
 
-    var browserURL: URL? {
+    /// Ports of well-known protocols other than HTTP, never probed or offered as web links.
+    static let nonHTTPPorts: Set<UInt16> = [21, 22, 23, 25, 53, 110, 143, 445, 465, 587, 993, 995, 1433, 1521, 2181,
+        3306, 4317, 5432, 5672, 5900, 6379, 9092, 11211, 27017]
+
+    /// Any TCP listener may serve HTTP; only a probe tells. Well-known other protocols are left out.
+    var mayServeHTTP: Bool { protocolName.uppercased() == "TCP" && !Self.nonHTTPPorts.contains(port) }
+
+    /// Identifies this listener for as long as its process holds it.
+    var probeKey: String { "\(pid)|\(protocolName)|\(localAddress)" }
+
+    /// The address to reach this listener at: wildcard listeners through IPv4 loopback.
+    var probeHost: String {
         let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        let browserHost = normalized.isEmpty || normalized == "*" || normalized == "0.0.0.0" || normalized == "::"
-            ? "127.0.0.1"
-            : normalized.replacingOccurrences(of: "%", with: "%25")
-        let authority = browserHost.contains(":") ? "[\(browserHost)]" : browserHost
-        return URL(string: "http://\(authority):\(port)")
+        return normalized.isEmpty || normalized == "*" || normalized == "0.0.0.0" || normalized == "::" ? "127.0.0.1" : normalized
+    }
+
+    var browserURL: URL? { webURL(port == 443 || port == 8443 ? .https : .http) }
+
+    func webURL(_ scheme: HTTPScheme) -> URL? {
+        let host = probeHost.replacingOccurrences(of: "%", with: "%25")
+        let authority = host.contains(":") ? "[\(host)]" : host
+        return URL(string: "\(scheme.rawValue)://\(authority):\(port)")
     }
 }
 

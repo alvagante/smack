@@ -15,7 +15,12 @@ struct AgentProcessMatcher: Sendable {
             return scriptNames.contains((script as NSString).lastPathComponent) ||
                 scriptPathSuffixes.contains { script.hasSuffix("/" + $0) }
         }
-        return executableNames.contains(executable)
+        if executableNames.contains(executable) { return true }
+        // Native installers run `<command>/versions/<version>`, so the kernel name is the version.
+        guard let path = process.executablePath else { return false }
+        let components = (path as NSString).pathComponents
+        return components.count >= 3 && components[components.count - 2] == "versions" &&
+            executableNames.contains(components[components.count - 3])
     }
 }
 

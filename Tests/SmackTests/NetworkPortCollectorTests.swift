@@ -32,7 +32,7 @@ import Testing
 
     let localhost = snapshot.ports[1]
     #expect(localhost.scope == .localhost)
-    #expect(localhost.browserURL?.absoluteString == "http://[::1]:8443")
+    #expect(localhost.browserURL?.absoluteString == "https://[::1]:8443")
     #expect(localhost.clients[0].remoteAddress == "[::1]:5555")
 
     let external = snapshot.ports[2]
@@ -128,4 +128,30 @@ import Testing
     let model = NetworkPortsViewModel()
     #expect(model.mode == .allConnections)
     #expect(model.collapsedConnectionGroups.isEmpty)
+}
+
+@Test func listenersMayServeHTTPExceptWellKnownOtherProtocols() {
+    var listener = ListeningPort(id: "web", pid: 42, descriptor: 1, processName: "node",
+        protocolName: "TCP", localAddress: "*:3000", host: "*", port: 3000, clients: [])
+    #expect(listener.probeHost == "127.0.0.1")
+    #expect(listener.webURL(.http)?.absoluteString == "http://127.0.0.1:3000")
+    #expect(listener.webURL(.https)?.absoluteString == "https://127.0.0.1:3000")
+    // Tool-chosen ports may serve HTTP; only a probe tells, so they are candidates.
+    for port: UInt16 in [3000, 4182, 6006, 35729, 49374, 54323] {
+        listener.port = port
+        #expect(listener.mayServeHTTP)
+    }
+    for port: UInt16 in [22, 3306, 4317, 5432, 6379, 27017] {
+        listener.port = port
+        #expect(!listener.mayServeHTTP)
+    }
+    listener.host = "::1"
+    listener.port = 8443
+    #expect(listener.probeHost == "::1")
+    #expect(listener.webURL(.https)?.absoluteString == "https://[::1]:8443")
+    #expect(listener.probeKey != ListeningPort(id: "web", pid: 43, descriptor: 1, processName: "node", protocolName: "TCP",
+        localAddress: "[::1]:8443", host: "::1", port: 8443, clients: []).probeKey)
+    listener.port = 8080
+    listener.protocolName = "UDP"
+    #expect(!listener.mayServeHTTP)
 }

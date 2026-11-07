@@ -14,6 +14,13 @@ enum PanelTrigger: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// How the Panel is shown: under the menu bar, or as a Standard Window with a Dock icon.
+enum WindowStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case panel = "Menu-bar Panel"
+    case standardWindow = "Standard Window"
+    var id: String { rawValue }
+}
+
 /// Auditory feedback options played when the monitoring panel is presented.
 enum PanelSound: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Procedurally synthesized audio effect resembling a physical slap and thump.
@@ -165,6 +172,7 @@ enum SummaryPage: String, Codable, CaseIterable, Identifiable, Sendable {
     case docker = "Docker"
     case homebrew = "Homebrew"
     case devEnvironments = "Dev environments"
+    case projects = "Projects"
     case agents = "AI agents"
     case userHome = "User home"
     case installedApps = "Installed apps"
@@ -261,6 +269,7 @@ struct CollectionSettings: Codable, Equatable, Sendable {
 
 /// Panel behavior and look.
 struct PanelSettings: Codable, Equatable, Sendable {
+    var windowStyle: WindowStyle = .panel
     var trigger: PanelTrigger = .hover
     var hoverDelay: TimeInterval = 0.3
     var hoverGracePeriod: TimeInterval = 0.5
@@ -289,6 +298,7 @@ struct PanelSettings: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Self()
+        windowStyle = c.value(.windowStyle, or: d.windowStyle)
         trigger = c.value(.trigger, or: d.trigger)
         hoverDelay = c.value(.hoverDelay, or: d.hoverDelay)
         hoverGracePeriod = c.value(.hoverGracePeriod, or: d.hoverGracePeriod)
