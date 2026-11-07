@@ -88,6 +88,18 @@ _Avoid_: Screen, tab, route
 A Page about one Application or one Process, organized in tabs.
 _Avoid_: Inspector, info view
 
+**Page Category**:
+One group of Pages (Performance, Health, Activity, Environment, Smack), shared by the sidebar sections and the Summary tiles. Each owns a hue range and each of its Pages a shade of it, used for that Page's icon everywhere.
+_Avoid_: Section, group
+
+**Summary Tile**:
+One area's entry on Summary, colored by its Page Category: the Page it opens, its key figure, and optionally a live visual drawn from data already collected. Tiles of every category share one grid.
+_Avoid_: Card, widget, row
+
+**Summary Concern**:
+A condition worth attention right now (Thermal State, memory pressure, low battery, security findings, busy CPU), derived from Live Data and shown at the top of Summary with a link to its Page.
+_Avoid_: Alert (a user-configured rule), warning
+
 **Page History**:
 The stack of previously visited Pages behind the Previous page button, cleared on returning to Summary.
 _Avoid_: Back stack, breadcrumbs (which belong to the Storage Explorer)

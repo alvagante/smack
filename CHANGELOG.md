@@ -6,6 +6,8 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- Page icons are colored by Page Category: Performance in blues, Health in greens, Activity in oranges, Environment in purples, each Page a distinct shade. The sidebar, its section headers, Summary tiles and page headers use the same color.
+- Summary is one grid of live tiles instead of rows of text grouped in sections, filling the window width with 1 to 8 columns. Each tile shows its key figure and, where it has one, a live visual: per-core CPU bars, memory composition, mirrored receive/send and read/write charts, volume fill, security check dots, the busiest applications, running AI agent sessions, Docker container states, Homebrew updates, dev server ports and detected languages. The header lists Summary Concerns (Thermal State, memory pressure, low battery, security findings, busy CPU), each linking to its Page, or "All quiet". Tiles use only Live Data and inventories Smack already collects: no new sampling, subprocesses, timers or animations.
 - **AI Agents:** Agent Sessions are a view of their own, opened by default while one runs. Each session shows Working or Idle, a ticking uptime, CPU, memory, MCP servers and ports, with a CPU sparkline; the selected one adds CPU, memory, disk and network charts, nested sessions, per-process CPU and memory with links to the Process Detail Page, paged recent commands, network and log. Recently ended sessions are listed apart.
   - Cost (estimated, release measurement pending): no new collection, subprocesses or disk writes. Charts reuse the totals the session tracker already computes, kept in memory only (120 points per live session, about 4 KB each). The agent browser should no longer redraw on every process sample.
 

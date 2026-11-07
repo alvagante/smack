@@ -6,7 +6,7 @@ struct UserHomeSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            SummaryNavigationRow(route: .userHome, value: "Browse", detail: "Settings, dotfiles and configurations", open: open)
+            SummaryTile(route: .userHome, headline: "Browse", caption: "Settings, dotfiles and configurations", open: open)
         }
     }
 }
@@ -38,7 +38,7 @@ struct UserHomeDetailView: View {
         VStack(spacing: 0) {
             if rootDirectory == nil {
                 DetailPageHeader {
-                    ResourceTitle(title: rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder", color: .pink,
+                    ResourceTitle(title: rootDirectory?.lastPathComponent ?? "User home", systemImage: rootDirectory == nil ? "house" : "folder", color: AppRoute.userHome.tint,
                                   subtitle: (rootDirectory ?? model.collector.home).path)
                 } actions: {
                     if model.loading { ProgressView().controlSize(.small) }

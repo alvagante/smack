@@ -104,33 +104,13 @@ struct ThermalIndicator: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                thermalLight(.green, active: condition == .nominal)
-                thermalLight(.yellow, active: condition == .fair)
-                thermalLight(.red, active: condition == .serious || condition == .critical)
-            }
+            ThermalLights(condition: condition)
             Text(condition.rawValue.capitalized)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(ThermalLights.color(condition))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Thermal State: \(condition.rawValue)")
-    }
-
-    private var color: Color {
-        switch condition {
-        case .nominal: .green
-        case .fair: .yellow
-        case .serious, .critical: .red
-        case .unavailable: .secondary
-        }
-    }
-
-    private func thermalLight(_ color: Color, active: Bool) -> some View {
-        Circle()
-            .fill(active ? color : Color.secondary.opacity(0.16))
-            .frame(width: 13, height: 13)
-            .shadow(color: active ? color.opacity(0.55) : .clear, radius: 5)
     }
 }
 

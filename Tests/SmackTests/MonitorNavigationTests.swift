@@ -32,6 +32,29 @@ import Testing
         #expect(sections.allSatisfy { !$0.routes.isEmpty })
     }
 
+    @Test func sidebarSectionsAreRouteCategories() {
+        let sections = MonitorNavigation.sections(settings: CollectionSettings(), hasBattery: true).dropFirst()
+        #expect(sections.map(\.title) == RouteCategory.allCases.map(\.title))
+        for (section, category) in zip(sections, RouteCategory.allCases) {
+            #expect(section.routes.allSatisfy { $0.category == category })
+        }
+    }
+
+    @Test func eachCategoryHasItsOwnHueAndEachPageItsOwnShade() {
+        let colored = RouteCategory.allCases.filter { $0 != .smack }
+        for category in colored {
+            let tones = category.catalog.indices.map(category.tone)
+            #expect(Set(tones.map(\.hue)).count == tones.count, "\(category) repeats a hue")
+            #expect(tones.allSatisfy { category.hues.contains($0.hue) })
+        }
+        for (index, category) in colored.enumerated() {
+            for other in colored.dropFirst(index + 1) { #expect(!category.hues.overlaps(other.hues)) }
+        }
+        #expect(AppRoute.application("app").category == .activity)
+        #expect(AppRoute.process("p").category == .activity)
+        #expect(AppRoute.summary.category == nil)
+    }
+
     @Test func detailPagesRetainTheirParentSelection() {
         #expect(AppRoute.application("app").sidebarRoute == .applications)
         #expect(AppRoute.process("process").sidebarRoute == .applications)

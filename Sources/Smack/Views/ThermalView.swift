@@ -16,7 +16,7 @@ struct ThermalView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Thermal State", systemImage: "thermometer.medium", color: .red,
+                ResourceTitle(title: "Thermal State", systemImage: "thermometer.medium", color: AppRoute.resource(.thermal).tint,
                               subtitle: "Pressure \((store.system?.thermalCondition ?? .unavailable).rawValue.capitalized)")
             } actions: {
                 EmptyView()

@@ -7,9 +7,18 @@ struct HomebrewSummaryTile: View {
 
     var body: some View {
         if model.installed {
-            SummaryNavigationRow(route: .homebrew,
-                value: model.snapshot?.packages.map { "\($0.count) installed" } ?? (model.loading ? "Collecting…" : "Unavailable"),
-                detail: model.snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable", open: open)
+            let snapshot = model.snapshot
+            let outdated = (snapshot?.packages ?? []).filter(\.isOutdated).map(\.name)
+            let services = snapshot?.services.map { $0.count { $0.status == "started" } }
+            SummaryTile(route: .homebrew,
+                headline: snapshot?.packages.map { "\($0.count) installed" } ?? (model.loading ? "Collecting…" : "Unavailable"),
+                caption: [snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable",
+                          services.map { "\($0) services started" }].compactMap { $0 }.joined(separator: " · "),
+                tone: outdated.isEmpty ? nil : .orange, open: open) {
+                if snapshot?.updatesKnown == true, !outdated.isEmpty {
+                    TagChips(tags: outdated, color: .orange)
+                }
+            }
         }
     }
 }
@@ -108,7 +117,7 @@ struct HomebrewDetailView: View {
 
     private var header: some View {
         DetailPageHeader {
-            ResourceTitle(title: "Homebrew", systemImage: "mug", color: .orange, subtitle: model.snapshot.map { snapshot in
+            ResourceTitle(title: "Homebrew", systemImage: "mug", color: AppRoute.homebrew.tint, subtitle: model.snapshot.map { snapshot in
                 let counts = snapshot.packages.map { packages in
                     "\(packages.filter { $0.kind == .formula }.count) tools · \(packages.filter { $0.kind == .cask }.count) apps · "
                 } ?? ""

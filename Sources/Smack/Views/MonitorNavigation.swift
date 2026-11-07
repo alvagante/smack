@@ -4,27 +4,74 @@ struct MonitorNavigationSection: Identifiable {
     var id: String { title }
     let title: String
     let routes: [AppRoute]
+    var category: RouteCategory? = nil
 }
 
 /// One navigation catalogue keeps the sidebar, page titles and detail-page selection in agreement.
 enum MonitorNavigation {
     static func sections(settings: CollectionSettings, hasBattery: Bool) -> [MonitorNavigationSection] {
-        var health: [AppRoute] = [.resource(.storage), .resource(.thermal)]
-        if hasBattery { health.append(.resource(.battery)) }
-        if Capabilities.supportsPostureChecks { health.append(.security) }
-        var activity: [AppRoute] = [.applications, .timeline, .history, .insights]
-        if Capabilities.supportsNetworkPortInspection { activity.append(.networkPorts) }
-        if Capabilities.supportsStartupItems { activity.append(.startupItems) }
-        activity.append(.baseline)
-        let environment: [AppRoute] = (Capabilities.isSandboxed ? [] : SummaryPage.allCases.filter(settings.shows).map(\.route)) + [.systemDetails]
-        return [
-            MonitorNavigationSection(title: "", routes: [.summary]),
-            MonitorNavigationSection(title: "Performance", routes: [.resource(.cpu), .resource(.gpu), .resource(.memory), .resource(.network), .resource(.disk)]),
-            MonitorNavigationSection(title: "Health", routes: health),
-            MonitorNavigationSection(title: "Activity", routes: activity),
-            MonitorNavigationSection(title: "Environment", routes: environment),
-            MonitorNavigationSection(title: "Smack", routes: [.settings])
-        ].filter { !$0.routes.isEmpty }
+        [MonitorNavigationSection(title: "", routes: [.summary])] + RouteCategory.allCases.map { category in
+            MonitorNavigationSection(title: category.title, routes: category.catalog.filter { route in
+                switch route {
+                case .resource(.battery): hasBattery
+                case .security: Capabilities.supportsPostureChecks
+                case .networkPorts: Capabilities.supportsNetworkPortInspection
+                case .startupItems: Capabilities.supportsStartupItems
+                default: SummaryPage.allCases.first { $0.route == route }.map { !Capabilities.isSandboxed && settings.shows($0) } ?? true
+                }
+            }, category: category)
+        }.filter { !$0.routes.isEmpty }
+    }
+}
+
+/// The groups of Pages shared by the sidebar and Summary. Each owns a hue range; its Pages take shades across it.
+enum RouteCategory: CaseIterable {
+    case performance, health, activity, environment, smack
+
+    var title: String {
+        switch self {
+        case .performance: "Performance"
+        case .health: "Health"
+        case .activity: "Activity"
+        case .environment: "Environment"
+        case .smack: "Smack"
+        }
+    }
+
+    /// Every Page the category can list, in sidebar order. A Page's shade comes from its place here,
+    /// so hiding another Page never recolors it.
+    var catalog: [AppRoute] {
+        switch self {
+        case .performance: [.resource(.cpu), .resource(.gpu), .resource(.memory), .resource(.network), .resource(.disk)]
+        case .health: [.resource(.storage), .resource(.thermal), .resource(.battery), .security]
+        case .activity: [.applications, .timeline, .history, .insights, .networkPorts, .startupItems, .baseline]
+        case .environment: SummaryPage.allCases.map(\.route) + [.systemDetails]
+        case .smack: [.settings]
+        }
+    }
+
+    /// Hue range on the color wheel, 0 to 1; ranges never overlap.
+    var hues: ClosedRange<Double> {
+        switch self {
+        case .performance: 0.53...0.66
+        case .health: 0.27...0.44
+        case .activity: 0.02...0.12
+        case .environment: 0.74...0.92
+        case .smack: 0...0
+        }
+    }
+
+    /// Shade of the Page at `index` in `catalog`: hues spread evenly, alternating brightness separates neighbors.
+    func tone(_ index: Int) -> (hue: Double, saturation: Double, brightness: Double) {
+        guard self != .smack else { return (0, 0, 0.56) }
+        let step = catalog.count > 1 ? Double(index) / Double(catalog.count - 1) : 0.5
+        return (hues.lowerBound + (hues.upperBound - hues.lowerBound) * step, 0.72, index.isMultiple(of: 2) ? 0.92 : 0.8)
+    }
+
+    /// The middle shade, for headers that stand for the whole category.
+    var color: Color {
+        guard self != .smack else { return .gray }
+        return Color(hue: (hues.lowerBound + hues.upperBound) / 2, saturation: 0.72, brightness: 0.86)
     }
 }
 
@@ -113,21 +160,16 @@ extension AppRoute {
         }
     }
 
+    /// The category a Page belongs to; detail pages belong to their parent's. Nil for Summary and Unavailable.
+    var category: RouteCategory? {
+        guard let route = sidebarRoute else { return nil }
+        return RouteCategory.allCases.first { $0.catalog.contains(route) }
+    }
+
     var tint: Color {
-        switch self {
-        case .resource(.memory), .agents: .purple
-        case .resource(.network), .networkPorts: .cyan
-        case .resource(.disk), .homebrew: .orange
-        case .resource(.battery), .security: .green
-        case .resource(.thermal): .red
-        case .resource(.storage), .resource(.gpu), .baseline: .indigo
-        case .timeline, .history, .devEnvironments: .teal
-        case .userHome: .pink
-        case .startupItems: .orange
-        case .insights: .yellow
-        case .settings, .systemDetails, .unavailable: .gray
-        default: .blue
-        }
+        guard let route = sidebarRoute, let category, let index = category.catalog.firstIndex(of: route) else { return .gray }
+        let tone = category.tone(index)
+        return Color(hue: tone.hue, saturation: tone.saturation, brightness: tone.brightness)
     }
 }
 
@@ -152,7 +194,7 @@ struct MonitorSidebar: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                 ForEach(MonitorNavigation.sections(settings: settingsStore.settings, hasBattery: store.system?.battery?.isPresent == true)) { section in
-                    if !section.title.isEmpty { SidebarHeader(title: section.title) }
+                    if !section.title.isEmpty { SidebarHeader(title: section.title, color: section.category?.color) }
                     ForEach(section.routes, id: \.self) { route in
                         Button { store.route = route } label: {
                             HStack(spacing: SidebarStyle.iconSpacing) {

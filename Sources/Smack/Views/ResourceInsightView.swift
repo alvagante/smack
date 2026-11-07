@@ -221,15 +221,15 @@ struct ResourceInsightView: View {
         case .cpu:
             CPUTitle(cpu: system?.cpu, thermal: system?.thermalCondition, topology: .current)
         case .memory:
-            ResourceTitle(title: "Memory", systemImage: "memorychip", color: .purple,
+            ResourceTitle(title: "Memory", systemImage: "memorychip", color: AppRoute.resource(.memory).tint,
                           subtitle: system.map { "\(Formatting.bytes($0.memory.totalBytes)) of memory" }, status: MemoryReadings.status(system?.memory.pressure))
         case .network:
-            ResourceTitle(title: "Network", systemImage: "network", color: .cyan, subtitle: system.map { interfaceSummary($0.interfaces) })
+            ResourceTitle(title: "Network", systemImage: "network", color: AppRoute.resource(.network).tint, subtitle: system.map { interfaceSummary($0.interfaces) })
         case .gpu:
-            ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: .indigo,
+            ResourceTitle(title: "GPU", systemImage: "cpu.fill", color: AppRoute.resource(.gpu).tint,
                           subtitle: GPUReadings.subtitle(name: system?.gpuName, cores: system?.gpuCoreCount), status: GPUReadings.status(system?.gpu))
         case .disk:
-            ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: .orange,
+            ResourceTitle(title: "Disk Activity", systemImage: "internaldrive", color: AppRoute.resource(.disk).tint,
                           subtitle: system.map { "\(DiskReadings.devices($0.disks).count) disks · \($0.volumes.count) volumes" })
         }
     }

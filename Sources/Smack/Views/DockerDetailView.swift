@@ -7,9 +7,18 @@ struct DockerSummaryTile: View {
 
     var body: some View {
         if model.installed {
-            SummaryNavigationRow(route: .docker,
-                value: model.snapshot?.runningCount.map { "\($0) running" } ?? (model.loading ? "Collecting…" : "Unavailable"),
-                detail: model.snapshot?.openPortCount.map { "\($0) open ports" } ?? "Engine unreachable", open: open)
+            let snapshot = model.snapshot
+            let containers = (snapshot?.containers ?? []).sorted { $0.isRunning && !$1.isRunning }
+            SummaryTile(route: .docker,
+                headline: snapshot?.runningCount.map { "\($0) running" } ?? (model.loading ? "Collecting…" : "Unavailable"),
+                caption: snapshot?.containers == nil ? "Engine unreachable"
+                    : [snapshot?.stoppedCount.map { "\($0) stopped" }, snapshot?.openPortCount.map { "\($0) open ports" },
+                       snapshot?.containerMemoryBytes.map { Formatting.bytes($0) }].compactMap { $0 }.joined(separator: " · "),
+                open: open) {
+                if !containers.isEmpty {
+                    StatusDots(colors: containers.map { $0.isRunning ? .green : .secondary.opacity(0.3) })
+                }
+            }
         }
     }
 }
@@ -70,7 +79,7 @@ struct DockerDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader {
-                ResourceTitle(title: "Docker", systemImage: "shippingbox", color: .blue,
+                ResourceTitle(title: "Docker", systemImage: "shippingbox", color: AppRoute.docker.tint,
                               subtitle: model.snapshot.map { "Checked " + $0.timestamp.formatted(date: .omitted, time: .shortened) })
             } actions: {
                 if model.loading { ProgressView().controlSize(.small) }

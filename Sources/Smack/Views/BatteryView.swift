@@ -47,7 +47,7 @@ struct BatteryView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Battery", systemImage: "battery.100", color: .green, status: status)
+                ResourceTitle(title: "Battery", systemImage: "battery.100", color: AppRoute.resource(.battery).tint, status: status)
             } actions: {
                 if battery != nil, !Capabilities.isSandboxed {
                     RefreshButton(isLoading: model.loading, hint: "Read battery history again") { Task { await model.load() } }

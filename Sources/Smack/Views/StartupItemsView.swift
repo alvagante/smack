@@ -6,10 +6,17 @@ struct StartupSummaryCard: View {
     var open: () -> Void
 
     var body: some View {
-        SummaryNavigationRow(route: .startupItems,
-            value: model.inventory.map { inventory in
-                "\(inventory.items.filter { $0.category != .apple && $0.isEnabled }.count) enabled"
-            } ?? "Review items", detail: "Login items, agents, daemons and cron jobs", open: open)
+        let items = model.inventory?.items.filter { $0.category != .apple }
+        SummaryTile(route: .startupItems,
+            headline: items.map { "\($0.count(where: \.isEnabled)) enabled" } ?? "Review items",
+            caption: items.map { "\($0.count { $0.pid != nil }) running · \($0.count { !$0.isEnabled }) disabled" } ?? "Login items, agents, daemons and cron jobs",
+            open: open) {
+            if let items, !items.isEmpty {
+                SegmentBar(segments: [.init(value: Double(items.count { $0.isEnabled && $0.pid != nil }), color: .green),
+                                      .init(value: Double(items.count { $0.isEnabled && $0.pid == nil }), color: .yellow)],
+                           total: Double(items.count))
+            }
+        }
     }
 }
 
@@ -29,7 +36,7 @@ struct StartupItemsView: View {
         let items = visibleItems
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Startup", systemImage: "sunrise", color: .yellow, subtitle: "Login items, launch agents and daemons")
+                ResourceTitle(title: "Startup", systemImage: "sunrise", color: AppRoute.startupItems.tint, subtitle: "Login items, launch agents and daemons")
             } actions: {
                 if let timestamp = model.inventory?.timestamp {
                     Text(timestamp, style: .time)

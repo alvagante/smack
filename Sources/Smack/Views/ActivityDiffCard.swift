@@ -12,35 +12,28 @@ struct ActivityDiffCard: View {
     }
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 12) {
-                    ResourceIcon(systemImage: AppRoute.timeline.systemImage, color: AppRoute.timeline.tint, size: 28)
-                    Text("Timeline").font(.body.weight(.medium))
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+        SummaryTile(route: .timeline, headline: headline, caption: activity.activityDiff == nil ? nil : subtitle.prefix(1).uppercased() + subtitle.dropFirst(),
+                    help: "Events and peaks \(subtitle). Click for the full timeline.", open: open) {
+            VStack(alignment: .leading, spacing: 3) {
+                if activity.activityDiffUnavailable {
+                    Label("Change summary unavailable", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if let diff = activity.activityDiff {
+                    bullets(diff)
+                    peaks(diff)
+                } else {
+                    ProgressView().controlSize(.small)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    if activity.activityDiffUnavailable {
-                        Label("Change summary unavailable", systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else if let diff = activity.activityDiff {
-                        bullets(diff)
-                        peaks(diff)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: .infinity, alignment: .topLeading)
-            .padding(16)
-            .monitorSurface()
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("Timeline. Recent changes")
-        .help("Events and peaks \(subtitle). Click for the full timeline.")
+    }
+
+    private var headline: String {
+        guard let diff = activity.activityDiff else { return activity.activityDiffUnavailable ? "Unavailable" : "Collecting…" }
+        let count = diff.changes.count + diff.overflowCount
+        return count == 0 ? "No changes" : "\(count) \(count == 1 ? "change" : "changes")"
     }
 
     private var subtitle: String {

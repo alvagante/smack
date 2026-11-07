@@ -8,7 +8,7 @@ struct SystemDetailsView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "System Details", systemImage: "info.circle", color: .gray,
+                ResourceTitle(title: "System Details", systemImage: "info.circle", color: AppRoute.systemDetails.tint,
                               subtitle: SystemInformation.modelName ?? SystemInformation.modelIdentifier)
             } actions: {
                 EmptyView()

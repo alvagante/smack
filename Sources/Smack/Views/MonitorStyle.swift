@@ -29,11 +29,12 @@ enum SidebarStyle {
 struct SidebarHeader: View {
     let title: String
     var isFirst = false
+    var color: Color? = nil
 
     var body: some View {
         Text(title)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
             .lineLimit(1)
             .padding(.horizontal, SidebarStyle.rowInset)
             .padding(.top, isFirst ? 0 : SidebarStyle.groupSpacing)
