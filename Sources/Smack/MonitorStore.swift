@@ -188,6 +188,8 @@ final class MonitorStore: ObservableObject {
     private let scheduler: CollectionScheduler
     private var networkPortsTask: Task<Void, Never>?
     private var panelVisible = false
+    /// Observable copy of `panelVisible`, so on-screen work such as the Session Timeline stops with the Panel.
+    let panelVisibility = PanelVisibility(visible: false)
     private var settingsObservation: AnyCancellable?
     private var appliedPages: Set<SummaryPage> = []
     private var securityMonitoringStarted = false
@@ -309,6 +311,7 @@ final class MonitorStore: ObservableObject {
         // Only a real transition counts: the launch-time hide must not overwrite the previous session's last look.
         guard visible != panelVisible else { return }
         panelVisible = visible
+        panelVisibility.visible = visible
         setPageMonitorsVisible(visible)
         updateDevServerVisibility()
         activityFeed.panelVisibilityChanged(visible) { [weak self] in self?.processes }

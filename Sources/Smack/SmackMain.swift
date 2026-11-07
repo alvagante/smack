@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingNavigationURL: URL?
     private var statusItem: NSStatusItem!
     private var panelController: PanelController?
+    private var onboarding: OnboardingWindowController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
     private var history: HistoryRepository?
@@ -236,7 +237,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let nativeMenuBarStore = NativeMenuBarStore()
             panelController = PanelController(store: store, nativeMenuBarStore: nativeMenuBarStore, statusItem: statusItem)
             store.setVisible(false)
-            if let url = pendingNavigationURL {
+            if Onboarding.isPending() {
+                // A link that launched Smack waits until Onboarding is done; the Panel then opens either way,
+                // so the user sees where it lives with the Window style just chosen.
+                let onboarding = OnboardingWindowController(store: store) { [weak self] in
+                    guard let self else { return }
+                    self.onboarding = nil
+                    if let url = self.pendingNavigationURL {
+                        self.pendingNavigationURL = nil
+                        self.openNavigationURL(url)
+                    } else {
+                        self.panelController?.showPinned()
+                    }
+                }
+                self.onboarding = onboarding
+                onboarding.show()
+            } else if let url = pendingNavigationURL {
                 pendingNavigationURL = nil
                 openNavigationURL(url)
             } else if CommandLine.arguments.contains("--open-panel") || settingsStore.settings.panel.windowStyle == .standardWindow {

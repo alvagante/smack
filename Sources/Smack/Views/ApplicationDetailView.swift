@@ -182,7 +182,7 @@ struct ApplicationDetailView: View {
                 if let start = ApplicationReadings.startTime(app) {
                     Text("Running for \(CPUReadings.uptime(Date().timeIntervalSince(start)))")
                         .font(.caption2).foregroundStyle(.secondary)
-                        .help("Since \(start.formatted(date: .abbreviated, time: .standard)), when its oldest running process started.")
+                        .help("Since \(Formatting.dated(start.formatted(date: .abbreviated, time: .standard), start)), when its oldest running process started.")
                 }
             }
         }

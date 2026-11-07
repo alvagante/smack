@@ -162,8 +162,9 @@ struct ProjectSummaryRows: View {
             }
             Spacer(minLength: 4)
             if let modified = project.modifiedAt {
-                Text(modified.formatted(date: .abbreviated, time: .omitted))
+                Text(Formatting.relative(modified))
                     .font(.caption2).foregroundStyle(.tertiary).fixedSize()
+                    .help(modified.formatted(date: .abbreviated, time: .shortened))
             }
             if let commit = project.git?.commit {
                 Text(String(commit.prefix(7))).font(.caption.monospaced()).foregroundStyle(.tertiary).fixedSize()
@@ -196,14 +197,24 @@ private struct ProjectChip: View {
 struct ProjectsView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var model: ProjectsMonitor
+    @ObservedObject private var sessions: AgentSessionsModel
+    @ObservedObject private var devServers: DevServersModel
     @State private var query = ""
-    @State private var sort: ProjectSort = .name
-    @State private var ascending = ProjectSort.name.startsAscending
+    @State private var sort: ProjectSort = .modified
+    @State private var ascending = ProjectSort.modified.startsAscending
     @State private var folderFilter: String?
 
     init(store: MonitorStore) {
         self.store = store
         model = store.projectsModel
+        sessions = store.agentsModel.live
+        devServers = store.devServersModel
+    }
+
+    private var starts: [String: Date] {
+        ProjectRelation.index(roots: model.snapshot?.projects.map(\.root) ?? [],
+                              servers: devServers.devServers ?? [], sessions: sessions.sessions)
+            .compactMapValues(\.latestStartedAt)
     }
 
     private var projects: [ProjectRecord] {
@@ -212,7 +223,7 @@ struct ProjectsView: View {
             (query.isEmpty || "\(project.name) \(project.root) \(project.kind?.rawValue ?? "") \(project.git?.branch ?? "")"
                 .localizedCaseInsensitiveContains(query))
         }
-        return ProjectOrder.sorted(filtered, by: sort, ascending: ascending, sizes: model.sizes)
+        return ProjectOrder.sorted(filtered, by: sort, ascending: ascending, sizes: model.sizes, statuses: model.statuses, starts: sort == .started ? starts : [:])
     }
 
     private var folderPaths: [String] {
@@ -245,7 +256,7 @@ struct ProjectsView: View {
         VStack(spacing: 0) {
             DetailPageHeader {
                 ResourceTitle(title: "Projects", systemImage: "folder", color: AppRoute.projects.tint,
-                    subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } ?? "Git repositories under your project folders")
+                    subtitle: model.snapshot.map { "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp))" } ?? "Git repositories under your project folders")
             } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
                 ToolbarIconButton(title: "Add project folder…", systemImage: "folder.badge.plus", color: .blue, action: addFolder)
@@ -260,32 +271,27 @@ struct ProjectsView: View {
                     ToolbarIconButton(title: "Measure project sizes", systemImage: "internaldrive", color: .teal) { model.startMeasuring() }
                         .disabled(model.loading || projects.isEmpty || !model.hasUnmeasuredProjects)
                 }
-                RefreshButton { Task { await model.refresh() } }.disabled(model.loading || model.measuring)
+                if model.loadingStatuses {
+                    ToolbarIconButton(title: "Stop reading Git status", systemImage: "stop.fill", color: .orange) { model.cancelStatusLoading() }
+                } else {
+                    ToolbarIconButton(title: "Load Git status", systemImage: "checkmark.circle", color: .green) { model.startLoadingStatuses() }
+                        .disabled(model.loading || projects.isEmpty || !model.hasUnloadedStatuses)
+                }
+                RefreshButton { Task { await model.refresh() } }.disabled(model.loading || model.measuring || model.loadingStatuses)
             } overview: {
                 overview
             }
             Divider()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    searchField
-                    folderMenu
-                    sortMenu
-                    directionButton
-                    Spacer(minLength: 0)
-                    measureStatus
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    searchField
-                    HStack(spacing: 10) {
-                        folderMenu
-                        sortMenu
-                        directionButton
-                        Spacer(minLength: 0)
-                        measureStatus
-                    }
-                }
+            HStack(spacing: 10) {
+                searchField
+                folderMenu
+                Spacer(minLength: 0)
+                measureStatus
             }
             .padding([.horizontal, .bottom], MonitorStyle.inset)
+            sortButtons
+                .padding(.horizontal, MonitorStyle.inset)
+                .padding(.bottom, 8)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     if let warnings = model.snapshot?.warnings, !warnings.isEmpty {
@@ -308,13 +314,11 @@ struct ProjectsView: View {
                                 ? "Repositories appear here when a folder contains a .git entry, up to \(model.depth) levels below a project folder."
                                 : "Choose another Project folder or All folders."))
                     } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
-                                if index > 0 { Divider().padding(.leading, 52) }
-                                row(project)
-                            }
-                        }.monitorSurface()
-                        Text("Discovery reads directory entries and .git files only. Git status, ahead/behind counts and the last commit load when a repository is opened. Sizes are measured only when you ask.")
+                        ViewThatFits(in: .horizontal) {
+                            table.frame(minWidth: Self.tableWidth)
+                            ScrollView(.horizontal) { table.frame(width: Self.tableWidth) }
+                        }
+                        Text("Discovery reads directory entries and .git files only. Git status and sizes are read only when you ask or sort by them; the last commit loads when a repository is opened.")
                             .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
                     }
                 }.padding(MonitorStyle.inset)
@@ -322,10 +326,14 @@ struct ProjectsView: View {
         }
         .background(MonitorStyle.page)
         .task { if model.snapshot == nil { await model.refresh() } }
-        .onDisappear { model.cancelMeasuring() }
+        .onDisappear {
+            model.cancelMeasuring()
+            model.cancelStatusLoading()
+        }
         .onChange(of: sort) { _, value in
             ascending = value.startsAscending
             if value == .size, model.hasUnmeasuredProjects { model.startMeasuring() }
+            if value == .status, model.hasUnloadedStatuses { model.startLoadingStatuses() }
         }
         .onChange(of: model.folders) { _, folders in
             if let selected = folderFilter, !folders.contains(selected) { folderFilter = nil }
@@ -335,6 +343,39 @@ struct ProjectsView: View {
     private var searchField: some View {
         TextField("Filter repositories, paths or branches", text: $query)
             .textFieldStyle(.roundedBorder).frame(maxWidth: 300)
+    }
+
+    private var sortButtons: some View {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            Text("Order by").font(.caption).foregroundStyle(.secondary)
+            ForEach(ProjectSort.allCases) { option in
+                Button { selectSort(option) } label: {
+                    HStack(spacing: 4) {
+                        Label(option.rawValue, systemImage: option.systemImage)
+                        if sort == option {
+                            Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                    }
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .foregroundStyle(sort == option ? AppRoute.projects.tint : Color.secondary)
+                    .background(sort == option ? AppRoute.projects.tint.opacity(0.14) : Color.primary.opacity(0.05), in: Capsule())
+                    .overlay(Capsule().strokeBorder(sort == option ? AppRoute.projects.tint.opacity(0.7) : .clear))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(sort == option ? .isSelected : [])
+                .accessibilityValue(sort == option ? (ascending ? "Ascending" : "Descending") : "Not selected")
+                .help(option == .modified
+                    ? "Sort by project folder modification date. Click again to reverse."
+                    : "Sort by \(option.rawValue). Click again to reverse.")
+            }
+        }
+    }
+
+    private func selectSort(_ option: ProjectSort) {
+        if sort == option { ascending.toggle() } else { sort = option }
     }
 
     private var folderMenu: some View {
@@ -351,34 +392,18 @@ struct ProjectsView: View {
         .help("Filter by Project folder")
     }
 
-    private var sortMenu: some View {
-        Menu {
-            Picker("Sort", selection: $sort) {
-                ForEach(ProjectSort.allCases) { option in
-                    Label(option.rawValue, systemImage: option.systemImage).tag(option)
-                }
-            }
-        } label: {
-            Label("Sort: \(sort.rawValue)", systemImage: "arrow.up.arrow.down")
-        }
-        .help("Sort repositories")
-    }
-
-    private var directionButton: some View {
-        Button { ascending.toggle() } label: {
-            Image(systemName: ascending ? "arrow.up" : "arrow.down").frame(width: 24, height: 20)
-        }
-        .buttonStyle(.bordered)
-        .help(ascending ? "Ascending" : "Descending")
-    }
-
     @ViewBuilder private var measureStatus: some View {
         if model.measuring {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("\(model.measured.count) of \(model.snapshot?.projects.count ?? 0) measured")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
+            progress("\(model.measured.count) of \(model.snapshot?.projects.count ?? 0) measured")
+        } else if model.loadingStatuses {
+            progress("\(model.statuses.count) of \(model.snapshot?.projects.count ?? 0) read")
+        }
+    }
+
+    private func progress(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(text).font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
     }
 
@@ -391,47 +416,132 @@ struct ProjectsView: View {
         return model.sizes[project.root].map(Formatting.bytes) ?? "Unavailable"
     }
 
-    private func row(_ project: ProjectRecord) -> some View {
-        Button { store.route = .project(project.root) } label: {
-            HStack(alignment: .center, spacing: 12) {
-                ResourceIcon(systemImage: "folder", color: AppRoute.projects.tint, size: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(project.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-                        if let kind = project.kind {
-                            DetailBadge(text: kind.rawValue.capitalized, color: AppRoute.projects.tint)
-                        }
-                        if project.git?.isWorktree == true { DetailBadge(text: "Worktree", color: .purple) }
-                        if project.git == nil { DetailBadge(text: "Git unavailable", color: .orange) }
-                        Spacer(minLength: 4)
-                        Text(sizeLabel(project)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                            .lineLimit(1).minimumScaleFactor(0.7).frame(width: 76, alignment: .trailing)
-                            .help(model.measured.contains(project.root) ? "Allocated size" : "Measure sizes to sort by size")
-                    }
-                    HStack(spacing: 10) {
-                        if let branch = project.git?.branch {
-                            Label(branch, systemImage: "arrow.triangle.branch").lineLimit(1).truncationMode(.middle)
-                        } else if project.git != nil {
-                            Label("Detached HEAD", systemImage: "arrow.triangle.branch")
-                        }
-                        Label(folderLabel(project.folder), systemImage: "folder").lineLimit(1).truncationMode(.middle)
-                        if let modified = project.modifiedAt {
-                            Text("Modified \(modified.formatted(date: .abbreviated, time: .omitted))")
-                        }
-                        Spacer(minLength: 4)
-                        if let commit = project.git?.commit {
-                            Text(String(commit.prefix(9))).font(.caption.monospaced())
-                        }
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                }
-                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+    private static let tableWidth: CGFloat = 934
+
+    private var table: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                header(.name).frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                header(.language).frame(width: 72, alignment: .leading)
+                header(.branch).frame(width: 110, alignment: .leading)
+                header(.status).frame(width: 100, alignment: .leading)
+                header(.location).frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                header(.modified).frame(width: 110, alignment: .leading)
+                header(.started).frame(width: 100, alignment: .leading)
+                header(.size, alignment: .trailing).frame(width: 66, alignment: .trailing)
+                Color.clear.frame(width: 10, height: 1)
             }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            Divider()
+            let starts = starts
+            LazyVStack(spacing: 0) {
+                ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
+                    if index > 0 { Divider().padding(.leading, 12) }
+                    row(project, startedAt: starts[project.root])
+                }
+            }
+        }
+        .monitorSurface()
+    }
+
+    private func header(_ option: ProjectSort, alignment: Alignment = .leading) -> some View {
+        Button { selectSort(option) } label: {
+            HStack(spacing: 3) {
+                Text(option.rawValue)
+                if sort == option {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(sort == option ? Color.primary : Color.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Sort by \(option.rawValue)")
+        .accessibilityLabel("Sort by \(option.rawValue)")
+    }
+
+    private func row(_ project: ProjectRecord, startedAt: Date?) -> some View {
+        Button { store.route = .project(project.root) } label: {
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill").font(.caption).foregroundStyle(AppRoute.projects.tint)
+                    Text(project.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                    if project.git?.isWorktree == true { DetailBadge(text: "Worktree", color: .purple) }
+                }
+                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                Text(project.kind?.rawValue.capitalized ?? "–").lineLimit(1)
+                    .frame(width: 72, alignment: .leading)
+                branchCell(project).frame(width: 110, alignment: .leading)
+                statusCell(project).frame(width: 100, alignment: .leading)
+                Text(folderLabel(project.location)).lineLimit(1).truncationMode(.head)
+                    .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                modifiedCell(project).frame(width: 110, alignment: .leading)
+                Group {
+                    if let startedAt {
+                        Text(Formatting.relative(startedAt))
+                            .help("Latest running agent or dev-server session: " + startedAt.formatted(date: .abbreviated, time: .shortened))
+                    } else {
+                        Text("Unavailable").help("No running agent or dev-server session")
+                    }
+                }
+                .lineLimit(1).frame(width: 100, alignment: .leading)
+                Text(sizeLabel(project)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(width: 66, alignment: .trailing)
+                    .help(model.measured.contains(project.root) ? "Allocated size" : "Measure sizes to sort by size")
+                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+                    .frame(width: 10)
+            }
+            .font(.caption).foregroundStyle(.secondary)
             .padding(.horizontal, 12).padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(project.root)
+    }
+
+    @ViewBuilder private func branchCell(_ project: ProjectRecord) -> some View {
+        if let branch = project.git?.branch {
+            Text(branch).lineLimit(1).truncationMode(.middle)
+                .help([branch, project.git?.commit.map { String($0.prefix(9)) }].compactMap { $0 }.joined(separator: " · "))
+        } else if project.git != nil {
+            Text("Detached HEAD").lineLimit(1)
+        } else {
+            Text("Unavailable").foregroundStyle(.orange).lineLimit(1)
+        }
+    }
+
+    @ViewBuilder private func modifiedCell(_ project: ProjectRecord) -> some View {
+        if let modified = project.modifiedAt {
+            Text(Formatting.relative(modified)).lineLimit(1)
+                .help(modified.formatted(date: .abbreviated, time: .shortened))
+        } else {
+            Text("–")
+        }
+    }
+
+    @ViewBuilder private func statusCell(_ project: ProjectRecord) -> some View {
+        if let report = model.statuses[project.root] {
+            if report.failed {
+                Text("Unavailable").foregroundStyle(.orange).lineLimit(1).help(report.message ?? "Git is unavailable for this repository.")
+            } else if !report.isDirty && report.ahead == 0 && report.behind == 0 {
+                Label("Clean", systemImage: "checkmark.circle.fill").foregroundStyle(.green).lineLimit(1)
+                    .help(report.upstream.map { "Clean, in sync with \($0)" } ?? "Clean, no upstream branch")
+            } else {
+                HStack(spacing: 5) {
+                    if report.conflicted > 0 { Text("\(report.conflicted) conflict").foregroundStyle(.red) }
+                    if report.changes > report.conflicted { Text("\(report.changes - report.conflicted) changed").foregroundStyle(.orange) }
+                    if report.ahead > 0 { Text("↑\(report.ahead)").foregroundStyle(.blue) }
+                    if report.behind > 0 { Text("↓\(report.behind)").foregroundStyle(.purple) }
+                }
+                .lineLimit(1).minimumScaleFactor(0.7).monospacedDigit()
+                .help("\(report.staged) staged, \(report.unstaged) unstaged, \(report.untracked) untracked, \(report.conflicted) conflicted · ahead \(report.ahead), behind \(report.behind)")
+            }
+        } else {
+            Text("–").help("Load Git status to read this repository")
+        }
     }
 
     private func addFolder() {
@@ -448,6 +558,8 @@ struct ProjectsView: View {
 
 enum ProjectSection: String, CaseIterable, Identifiable, Hashable {
     case overview = "Overview"
+    case files = "Files"
+    case history = "Git history"
     case devServers = "Dev servers"
     case docker = "Docker"
     case agents = "Agent sessions"
@@ -459,6 +571,8 @@ enum ProjectSection: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .overview: "folder"
+        case .files: "doc.text"
+        case .history: "clock.arrow.circlepath"
         case .devServers: "server.rack"
         case .docker: "shippingbox"
         case .agents: "sparkles"
@@ -468,7 +582,7 @@ enum ProjectSection: String, CaseIterable, Identifiable, Hashable {
 
     var color: Color {
         switch self {
-        case .overview: AppRoute.projects.tint
+        case .overview, .files, .history: AppRoute.projects.tint
         case .devServers: AppRoute.devServers.tint
         case .docker: AppRoute.docker.tint
         case .agents: AppRoute.agents.tint
@@ -514,7 +628,7 @@ struct ProjectDetailView: View {
 
     private func count(_ section: ProjectSection) -> Int? {
         switch section {
-        case .overview: nil
+        case .overview, .files, .history: nil
         case .devServers: servers.count
         case .docker: containers.count
         case .agents: sessions.count
@@ -529,7 +643,7 @@ struct ProjectDetailView: View {
     var body: some View {
         Group {
             if let project {
-                DetailSectionLayout(groups: groups, selection: $section) {
+                DetailSectionLayout(groups: groups, selection: $section, scrolls: section != .files && section != .history) {
                     header(project)
                 } content: {
                     content(project)
@@ -585,7 +699,7 @@ struct ProjectDetailView: View {
             ResourceStat(title: "Ahead / behind", systemImage: "arrow.up.arrow.down",
                          value: report.flatMap { $0.failed ? nil : "\($0.ahead) / \($0.behind)" } ?? (projects.inspecting == root ? "Reading…" : "Unavailable")),
             ResourceStat(title: "Last commit", systemImage: "clock",
-                         value: report.flatMap { $0.failed ? nil : $0.lastCommit?.formatted(date: .abbreviated, time: .omitted) }
+                         value: report.flatMap { report in report.failed ? nil : report.lastCommit.map { Formatting.dated($0.formatted(date: .abbreviated, time: .omitted), $0) } }
                             ?? (projects.inspecting == root ? "Reading…" : "Unavailable")),
             ResourceStat(title: "Dev servers", systemImage: "server.rack", value: String(servers.count)),
             ResourceStat(title: "Ports", systemImage: "network", value: String(servers.reduce(0) { $0 + $1.portPairs.count })),
@@ -597,6 +711,10 @@ struct ProjectDetailView: View {
         switch section {
         case .overview:
             OverviewSection(project: project, report: report, inspecting: projects.inspecting == root, servers: servers)
+        case .files:
+            ProjectFilesView(root: root).id(root)
+        case .history:
+            ProjectHistoryView(root: root).id(root)
         case .devServers:
             related("Dev servers", systemImage: "server.rack", color: AppRoute.devServers.tint,
                     caption: "Listening processes whose working directory belongs to this repository.",
@@ -773,7 +891,7 @@ private struct OverviewSection: View {
                     if let subject = report.lastSubject {
                         DetailFactGrid(facts: [
                             DetailFact(title: "Last commit", value: report.lastCommit.map { date in
-                                "\(subject) · \(date.formatted(date: .abbreviated, time: .shortened))"
+                                "\(subject) · \(Formatting.dated(date.formatted(date: .abbreviated, time: .shortened), date))"
                             } ?? subject, systemImage: "clock", tone: .blue),
                             DetailFact(title: "Upstream", value: report.upstream ?? "No upstream", systemImage: "arrow.triangle.branch"),
                         ])
@@ -832,7 +950,7 @@ private struct OverviewSection: View {
             facts.append(DetailFact(title: "Worktree", value: "Linked worktree", systemImage: "arrow.triangle.branch", tone: .purple))
         }
         if let modified = project.modifiedAt {
-            facts.append(DetailFact(title: "Modified", value: modified.formatted(date: .abbreviated, time: .shortened), systemImage: "clock"))
+            facts.append(DetailFact(title: "Modified", value: Formatting.dated(modified.formatted(date: .abbreviated, time: .shortened), modified), systemImage: "clock"))
         }
         return facts
     }

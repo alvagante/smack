@@ -84,6 +84,10 @@ _Avoid_: Always on top, sticky
 The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen.
 _Avoid_: Main window, app mode
 
+**Onboarding**:
+The one-time window shown on first launch, and after an upgrade that raises its revision, where the user picks the Window style, Project Folders and a few basic Settings, prefilled from the current values. Finishing unchanged changes nothing; skipping or closing it is final.
+_Avoid_: Setup assistant, welcome screen, wizard
+
 **Page**:
 One destination shown in the Panel, such as Summary, a Resource Insight, a Detail Page, or an inventory page.
 _Avoid_: Screen, tab, route
@@ -311,7 +315,7 @@ A user-chosen root scanned for Projects, also used to find project-local runtime
 _Avoid_: Workspace folder, source root
 
 **Project**:
-A Git repository discovered under a Project Folder, shown with its branch and commit and opened as a Detail Page with git status plus its related dev servers, Docker Compose containers, Agent Sessions and Project Runtimes.
+A Git repository discovered under a Project Folder, shown with its branch and commit and opened as a Detail Page with git status, on-demand file browsing and local commit history plus its related dev servers, Docker Compose containers, Agent Sessions and Project Runtimes.
 _Avoid_: Repo (in the interface), workspace
 
 **Project Runtime**:
@@ -325,6 +329,14 @@ _Avoid_: Assistant, bot, Privileged Helper
 **Agent Session**:
 One running AI Agent process tree, rooted at the agent's process, with its MCP servers, helpers, recent commands, network and log; Working or Idle from its CPU, kept ten minutes as Recently ended after it exits.
 _Avoid_: Session alone, conversation, chat
+
+**Transcript**:
+What an AI Agent records of one session in its own files: Claude Code and Codex JSONL, OpenCode session rows. Read only while the Session Timeline or History is on screen, never copied or written.
+_Avoid_: Log (the session's log file entry), chat history
+
+**Session Timeline**:
+One Agent Session's Transcript and observed processes in time order on lanes (prompts, answers, thinking, commands, MCP, files, web, tools, subagents, context, processes), live while the session runs and replayed from History afterwards.
+_Avoid_: Timeline alone (the Activity Timeline), trace, log
 
 **User Home Area**:
 One category of the user's home browsed as a unit: dotfiles, XDG configuration, preferences, application support, launch agents, app and group containers, or Library.
@@ -387,7 +399,7 @@ Settings mirrors macOS System Settings: a sidebar of Settings Panes, each a grou
 | Security | Posture checks, persistence monitoring, security and Startup Item events |
 | Development | Dev servers (Show on Summary, background collection, terminal, editor), Development Environments, Homebrew |
 | Docker | Show on Summary, refresh, live statistics |
-| AI Agents | Show on Summary, agents to look for, custom folders, session events and command line reveal |
+| AI Agents | Show on Summary, agents to look for, custom folders, session events, command line reveal and transcript reading |
 | Other Pages | Show on Summary for Installed Apps and User Home |
 | Alerts | Evaluation master switch, rules, alert events |
 | Activity Timeline | The recording master switch, retention and row cap; per-feature event switches live in each feature pane |

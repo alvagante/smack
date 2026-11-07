@@ -62,4 +62,36 @@ enum Formatting {
     static func date(_ value: Date) -> String {
         value.formatted(date: .omitted, time: .standard)
     }
+
+    /// Human-readable timestamp for session lists and command rows:
+    /// - Same calendar day → "14:03"
+    /// - Same calendar week → "Mon 14:03"
+    /// - Older → "Nov 5 · 14:03"
+    static func sessionDate(_ value: Date, relativeTo now: Date = Date()) -> String {
+        let cal = Calendar.current
+        if cal.isDate(value, inSameDayAs: now) {
+            return value.formatted(date: .omitted, time: .shortened)
+        }
+        let startOfWeek = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
+        if value >= startOfWeek {
+            return value.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        }
+        return value.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+
+    /// Elapsed time in words: "now", "30 seconds ago", "2 hours ago", "in 10 minutes".
+    /// Computed when the view renders; it does not tick on its own.
+    static func relative(_ value: Date, to now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String {
+        if abs(value.timeIntervalSince(now)) < 5 { return String(localized: "now") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = locale
+        formatter.unitsStyle = .full
+        formatter.dateTimeStyle = .numeric
+        return formatter.localizedString(for: value, relativeTo: now)
+    }
+
+    /// An already formatted date followed by its relative time: "14:03 (2 minutes ago)".
+    static func dated(_ absolute: String, _ value: Date, to now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String {
+        "\(absolute) (\(relative(value, to: now, locale: locale)))"
+    }
 }

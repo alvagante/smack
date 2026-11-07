@@ -121,7 +121,7 @@ struct HomebrewDetailView: View {
                 let counts = snapshot.packages.map { packages in
                     "\(packages.filter { $0.kind == .formula }.count) tools · \(packages.filter { $0.kind == .cask }.count) apps · "
                 } ?? ""
-                return counts + "Checked \(snapshot.timestamp.formatted(date: .omitted, time: .shortened))"
+                return counts + "Checked \(Formatting.dated(snapshot.timestamp.formatted(date: .omitted, time: .shortened), snapshot.timestamp))"
             })
         } actions: {
             if blocked { ProgressView().controlSize(.small) }

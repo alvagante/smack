@@ -14,7 +14,7 @@ and Agent Sessions into one page.
 In:
 
 - A **Projects** Summary Tile and sidebar Page listing Git repositories under the user's Project Folders.
-- A Project Detail Page with five sections: Overview, Dev servers, Docker, Agent sessions, Runtimes.
+- A Project Detail Page with seven sections: Overview, Files, Git history, Dev servers, Docker, Agent sessions, Runtimes.
 - Project Runtimes read from root markers during discovery.
 - Cheap git state during discovery: branch, commit, worktree, kind, last modification.
 - Deep git state only for the repository whose Detail Page is open: working tree changes, ahead/behind, upstream,
@@ -23,7 +23,7 @@ In:
 Out:
 
 - Creating, cloning, fetching or modifying repositories.
-- GitHub/GitLab remote data, commit graphs, diffs or file contents.
+- GitHub/GitLab remote data or commit graphs.
 - Background collection while the Panel is closed or while Projects is hidden from Summary.
 - A separate Project Folder setting: the existing Development environment Project Folders are reused.
 
@@ -89,7 +89,7 @@ Agents Summary tile) so project pages can show sessions when AI Agents is hidden
 - **Projects Page:** a compact, sortable list (name, modified time, measured size, language) with search and a
   Project folder filter. Each row shows the folder, branch, kind, modification date and size; clicking opens the
   Detail Page. Add Project Folder opens an `NSOpenPanel` and persists into the shared Project Folders setting.
-- **Project Detail Page:** `DetailSectionLayout` submenu with Overview, Dev servers, Docker and Agent sessions. The
+- **Project Detail Page:** `DetailSectionLayout` submenu with Overview, Files, Git history, Dev servers, Docker, Agent sessions and Runtimes. The
   Overview shows the repository facts, the working tree and every listening port with its process, PID and scope;
   HTTP endpoints are clickable. The header shows working-tree changes, branch, ahead/behind, last commit, dev server,
   port and session counts; actions reveal the folder, open Terminal or Editor, and refresh git state.
@@ -119,3 +119,21 @@ while the Panel is closed.
 - Runtime markers parse every supported format and are read at the repository root only.
 - The relation index joins servers, containers, sessions and environments by path and rejects sibling prefixes.
 - A section requested from Summary is taken once by the Detail Page.
+
+## Files and Git history
+
+Files reuses the User Home browser rooted at the Project, including folder navigation, filtering, metadata,
+copy and line wrapping. One directory is read at a time, capped at 5,000 entries or one second, with file
+previews capped at 1 MiB. Symbolic links follow the existing browser behavior.
+
+Git history is independent of overview inspection. Opening it or choosing its Refresh runs three local commands:
+log (latest 100 commits reachable from HEAD), for-each-ref (up to 200 branches and tags) and remote -v.
+Selecting a commit runs show with fuller metadata, statistics and a patch, with external diff and textconv disabled.
+Only hexadecimal object IDs can be passed to show. Every command reuses the inspector's eight-second timeout,
+2 MB output cap, cancellation and disabled optional locks/fsmonitor. Truncated output is labeled.
+
+Estimated incremental cost: three subprocesses per history open/refresh and one per selected commit; at most
+6 MB raw history output and 2 MB raw patch output, plus decoded strings and view storage. No recursive index,
+watcher, timer, network request or disk write. Nothing runs with these sections closed. No Setting or
+PerformancePreset change: all work is explicitly on demand. The ten-minute release comparison against main,
+with the Panel closed and open, has not been performed.

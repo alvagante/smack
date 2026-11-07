@@ -94,9 +94,9 @@ struct SecurityView: View {
                 ResourceTitle(title: "Security", systemImage: "shield", color: AppRoute.security.tint, subtitle: "macOS security and privacy settings")
             } actions: {
                 if let timestamp = store.posture?.timestamp {
-                    Text(Calendar.current.isDateInToday(timestamp)
+                    Text(Formatting.dated(Calendar.current.isDateInToday(timestamp)
                          ? timestamp.formatted(date: .omitted, time: .shortened)
-                         : timestamp.formatted(date: .abbreviated, time: .shortened))
+                         : timestamp.formatted(date: .abbreviated, time: .shortened), timestamp))
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)

@@ -187,7 +187,7 @@ struct BaselineView: View {
         Picker("Baseline", selection: $model.baseID) {
             Text("Choose baseline").tag("")
             ForEach(model.rows, id: \.0) { url, doc in
-                Text(doc.name + " (" + doc.capturedAt.formatted(date: .abbreviated, time: .shortened) + ")").tag(url.lastPathComponent)
+                Text(doc.name + " (" + Formatting.dated(doc.capturedAt.formatted(date: .abbreviated, time: .shortened), doc.capturedAt) + ")").tag(url.lastPathComponent)
             }
         }
     }

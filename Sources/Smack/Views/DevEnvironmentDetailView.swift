@@ -58,7 +58,7 @@ struct DevEnvironmentDetailView: View {
         VStack(spacing: 0) {
             DetailPageHeader {
                 ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: AppRoute.devEnvironments.tint,
-                              subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" })
+                              subtitle: model.snapshot.map { "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp))" })
             } actions: {
                 if model.loading { ProgressView().controlSize(.small) }
                 ToolbarIconButton(title: "Discovery scope and limitations", systemImage: "info.circle", color: .teal) { showingDiscoveryScope.toggle() }

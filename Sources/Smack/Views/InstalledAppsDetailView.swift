@@ -106,7 +106,7 @@ struct InstalledAppsDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
                 ResourceTitle(title: "Installed apps", systemImage: "square.grid.3x3", color: AppRoute.installedApps.tint, subtitle: model.snapshot.map {
-                    "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened)) · /Applications and ~/Applications"
+                    "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp)) · /Applications and ~/Applications"
                 })
             } actions: {
                 if model.loading || model.measuring || model.busy { ProgressView().controlSize(.small) }

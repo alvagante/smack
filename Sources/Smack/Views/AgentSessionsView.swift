@@ -6,11 +6,18 @@ import SwiftUI
 struct AgentSessionsView: View {
     @ObservedObject var live: AgentSessionsModel
     @ObservedObject var store: MonitorStore
+    @ObservedObject var history: TranscriptHistoryModel
+    let historyMaxAge: TimeInterval
     @State private var selectedID: String?
+    /// A past transcript from History; shown instead of a tracked session while set.
+    @State private var selectedPast: String?
 
-    init(live: AgentSessionsModel, store: MonitorStore, selectedID: String? = nil) {
+    init(live: AgentSessionsModel, store: MonitorStore, history: TranscriptHistoryModel, historyMaxAge: TimeInterval,
+         selectedID: String? = nil) {
         self.live = live
         self.store = store
+        self.history = history
+        self.historyMaxAge = historyMaxAge
         _selectedID = State(initialValue: selectedID)
     }
 
@@ -27,24 +34,39 @@ struct AgentSessionsView: View {
     }
 
     @ViewBuilder private func content(_ list: AgentSessionList, selected: AgentSession?) -> some View {
-        if let selected {
+        let transcripts = store.settingsStore.settings.devTools.readSessionTranscripts
+        let past = transcripts ? selectedPast.flatMap { id in history.result.items.first { $0.id == id } } : nil
+        let highlighted = past == nil ? selected?.id : nil
+        if selected != nil || transcripts {
             HStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
                         ForEach(list.live) { entry in
-                            card(entry.session, selected: selected.id).padding(.leading, CGFloat(entry.depth) * 14)
+                            card(entry.session, selected: highlighted).padding(.leading, CGFloat(entry.depth) * 14)
                         }
                         if !list.ended.isEmpty {
                             Text("Recently ended").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                 .padding(.horizontal, SidebarStyle.rowInset).padding(.top, 10)
-                            ForEach(list.ended) { card($0, selected: selected.id) }
+                            ForEach(list.ended) { card($0, selected: highlighted) }
+                        }
+                        if transcripts {
+                            AgentTranscriptHistorySection(history: history, maxAge: historyMaxAge, selected: past?.id) { selectedPast = $0 }
                         }
                     }.padding(SidebarStyle.padding)
                 }.frame(width: 280)
                 Divider()
-                AgentSessionDetail(session: selected, points: live.history.points(for: selected.id),
-                                   sessions: live.sessions, store: store) { selectedID = $0 }
-                    .id(selected.id)
+                if let past {
+                    PastSessionDetail(transcript: past, store: store)
+                        .id(past.id)
+                } else if let selected {
+                    AgentSessionDetail(session: selected, points: live.history.points(for: selected.id),
+                                       sessions: live.sessions, store: store) { selectedID = $0 }
+                        .id(selected.id)
+                } else {
+                    ContentUnavailableView("No running agents", systemImage: "terminal",
+                        description: Text("Sessions appear here while an AI Agent runs. Pick one from History to replay its timeline."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         } else {
             ContentUnavailableView("No running agents", systemImage: "terminal",
@@ -53,8 +75,11 @@ struct AgentSessionsView: View {
         }
     }
 
-    private func card(_ session: AgentSession, selected: String) -> some View {
-        Button { selectedID = session.id } label: {
+    private func card(_ session: AgentSession, selected: String?) -> some View {
+        Button {
+            selectedID = session.id
+            selectedPast = nil
+        } label: {
             AgentSessionCard(session: session, points: live.history.points(for: session.id))
         }.buttonStyle(DetailNavigationStyle(selected: session.id == selected))
     }
@@ -95,7 +120,10 @@ private struct AgentSessionCard: View {
                 Circle().fill(session.activity.color).frame(width: 7, height: 7).help(session.activity.title)
                 Text(session.agentName).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 4)
-                SessionUptime(session: session).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    SessionUptime(session: session).font(.caption).monospacedDigit()
+                    Text(Formatting.sessionDate(session.startedAt)).font(.caption2).monospacedDigit()
+                }.foregroundStyle(.secondary)
             }
             HStack(spacing: 4) {
                 Image(systemName: session.project == nil ? "questionmark.folder" : "folder.fill")
@@ -139,11 +167,36 @@ struct AgentSessionDetail: View {
     @State private var inspection: ProcessMetrics?
     @State private var commandLine: String?
     @State private var commandLimit = Self.commandPage
+    @AppStorage(AgentSessionTab.storageKey) private var tab = AgentSessionTab.details
 
     private static let commandPage = 25
     private var networkOn: Bool { store.settingsStore.settings.sampling.processNetworkRateEnabled }
 
     var body: some View {
+        Group {
+            if tab == .timeline {
+                VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+                    header
+                    SessionTimelineView(session: session, points: points,
+                                        transcripts: store.settingsStore.settings.devTools.readSessionTranscripts,
+                                        interval: store.settingsStore.settings.sampling.liveRefreshSeconds,
+                                        visibility: store.panelVisibility)
+                }
+                .padding(MonitorStyle.inset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                details
+            }
+        }
+        .sheet(item: $inspection) { process in
+            VStack {
+                ProcessInspectionView(store: store, process: process, tab: .fileActivity)
+                Button("Close") { inspection = nil }.padding()
+            }.frame(width: 800, height: 550)
+        }
+    }
+
+    private var details: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                 header
@@ -155,12 +208,6 @@ struct AgentSessionDetail: View {
                 network
                 log
             }.padding(MonitorStyle.inset).frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .sheet(item: $inspection) { process in
-            VStack {
-                ProcessInspectionView(store: store, process: process, tab: .fileActivity)
-                Button("Close") { inspection = nil }.padding()
-            }.frame(width: 800, height: 550)
         }
     }
 
@@ -176,6 +223,7 @@ struct AgentSessionDetail: View {
                     status: ResourceStatus(title: session.activity.title, color: session.activity.color,
                         help: "Working when the session's processes use at least \(Int(AgentSessionActivity.workingCPU))% CPU."))
                 Spacer(minLength: 8)
+                AgentSessionTabSwitch(tab: $tab)
                 if let root {
                     ToolbarIconButton(title: "Capture file activity", systemImage: "doc.text.magnifyingglass", color: .blue) { inspection = root }
                     ToolbarIconButton(title: "Open process", systemImage: "arrow.up.forward.square", color: .blue) { store.route = .process(root.id) }
@@ -227,8 +275,8 @@ struct AgentSessionDetail: View {
             if let commit = session.project?.git?.commit { row("Commit", commit) }
             if session.project?.git?.isWorktree == true { row("Worktree", "Linked worktree") }
             if let kind = session.project?.kind { row("Kind", kind.rawValue.capitalized) }
-            row("Started", session.startedAt.formatted(date: .abbreviated, time: .standard))
-            if let ended = session.endedAt { row("Ended", ended.formatted(date: .abbreviated, time: .standard)) }
+            row("Started", Formatting.dated(session.startedAt.formatted(date: .abbreviated, time: .standard), session.startedAt))
+            if let ended = session.endedAt { row("Ended", Formatting.dated(ended.formatted(date: .abbreviated, time: .standard), ended)) }
             if let id = session.parentSession {
                 HStack {
                     Text("Started by").foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
@@ -299,7 +347,7 @@ struct AgentSessionDetail: View {
                                 .help(command.executablePath ?? command.name)
                             Spacer(minLength: 8)
                             Text(Formatting.duration(command.duration)).monospacedDigit()
-                            Text(command.exitedAt.formatted(date: .omitted, time: .standard)).monospacedDigit()
+                            Text(Formatting.sessionDate(command.exitedAt)).monospacedDigit()
                         }.font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -343,7 +391,7 @@ struct AgentSessionDetail: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: log.path)])
                     }
                 }
-                Text("\(Formatting.bytes(UInt64(max(0, log.size)))) · Updated \(log.modifiedAt.formatted(date: .omitted, time: .standard))")
+                Text("\(Formatting.bytes(UInt64(max(0, log.size)))) · Updated \(Formatting.dated(log.modifiedAt.formatted(date: .omitted, time: .standard), log.modifiedAt))")
                     .font(.caption).foregroundStyle(.secondary)
                 if sharesLog {
                     Label("Another \(session.agentName) session runs in this project; this may be its log.", systemImage: "exclamationmark.triangle.fill")

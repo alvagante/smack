@@ -73,7 +73,7 @@ struct AgentDetailView: View {
         VStack(spacing: 0) {
             DetailPageHeader {
                 ResourceTitle(title: "AI agents", systemImage: "sparkles", color: AppRoute.agents.tint,
-                              subtitle: mode == .configs ? model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } : nil)
+                              subtitle: mode == .configs ? model.snapshot.map { "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp))" } : nil)
             } actions: {
                 AgentPageModePicker(live: model.live, mode: $mode)
                 if mode == .configs {
@@ -85,7 +85,8 @@ struct AgentDetailView: View {
             }
             Divider()
             if mode == .sessions {
-                AgentSessionsView(live: model.live, store: store, selectedID: session)
+                AgentSessionsView(live: model.live, store: store, history: model.transcripts,
+                                  historyMaxAge: model.cache.slowInventory, selectedID: session)
             } else {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {

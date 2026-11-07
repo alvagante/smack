@@ -175,7 +175,8 @@ struct ApplicationListView: View {
                                                               currentUser: NSUserName(), context: context)
                 let shown = rows(entries.applications)
                 List {
-                    Section(scope == .apps ? "Apps" : "Applications") {
+                    // No section title: the page and the column header already say what the rows are; the background section keeps its label.
+                    Section {
                         ForEach(shown) { row($0) }
                         if scope == .apps, shown.isEmpty, !model.query.isEmpty { switchToAllHint(userApplications) }
                     }
@@ -408,7 +409,7 @@ struct ProcessDetailView: View {
                     Text(subtitle.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1).textSelection(.enabled)
                     Text("Running for \(CPUReadings.uptime(Date().timeIntervalSince(process.identity.startTime)))")
                         .font(.caption2).foregroundStyle(.secondary)
-                        .help("Since \(process.identity.startTime.formatted(date: .abbreviated, time: .standard))")
+                        .help("Since \(Formatting.dated(process.identity.startTime.formatted(date: .abbreviated, time: .standard), process.identity.startTime))")
                 }
             }
         } actions: {
@@ -529,7 +530,7 @@ struct ProcessDetailView: View {
                        help: user == "root" ? "Runs with superuser privileges." : nil),
             DetailFact(title: "Parent", value: parent.map { "\($0.name) (\($0.identity.pid))" } ?? process.parentPID.map { "PID \($0)" } ?? "Unavailable",
                        systemImage: "arrow.up.left", tone: .teal),
-            DetailFact(title: "Started", value: process.identity.startTime.formatted(date: .abbreviated, time: .standard), systemImage: "clock", tone: .indigo),
+            DetailFact(title: "Started", value: Formatting.dated(process.identity.startTime.formatted(date: .abbreviated, time: .standard), process.identity.startTime), systemImage: "clock", tone: .indigo),
         ]
         if let bundle = process.bundleIdentifier {
             facts.append(DetailFact(title: "Bundle ID", value: bundle, systemImage: "shippingbox", tone: .blue, monospaced: true))

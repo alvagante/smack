@@ -123,6 +123,8 @@ struct AgentCollector: Sendable {
 @MainActor
 final class AgentMonitor: ObservableObject {
     let live = AgentSessionsModel()
+    /// Past Agent Session transcripts for the History list, kept for the Inventory Cache period.
+    let transcripts = TranscriptHistoryModel()
     /// Read without observing; views that show sessions observe `live`.
     var sessions: [AgentSession] {
         get { live.sessions }

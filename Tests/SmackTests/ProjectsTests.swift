@@ -168,6 +168,90 @@ private actor ProjectCommands {
             "unmeasured repositories stay last in either direction")
 }
 
+@Test func projectActivityOrderKeepsUnavailableDatesLastInBothDirections() {
+    func project(_ name: String, modified: TimeInterval?) -> ProjectRecord {
+        ProjectRecord(root: "/tmp/\(name)", name: name, kind: nil, git: nil,
+                      modifiedAt: modified.map { Date(timeIntervalSince1970: $0) }, folder: "/tmp")
+    }
+    let projects = [project("unknown", modified: nil), project("project10", modified: 300),
+                    project("old", modified: 100), project("project2", modified: 300)]
+    #expect(ProjectOrder.sorted(projects, by: .modified, ascending: false, sizes: [:]).map(\.name)
+            == ["project2", "project10", "old", "unknown"])
+    #expect(ProjectOrder.sorted(projects, by: .modified, ascending: true, sizes: [:]).map(\.name)
+            == ["old", "project2", "project10", "unknown"])
+}
+
+@Test func projectStartTimeUsesLatestRunningAgentOrServerAndSortsMissingLast() {
+    let identity = ProcessIdentity(pid: 10, startTime: Date(timeIntervalSince1970: 100))
+    let running = AgentSession(agentID: "claude", root: identity, startedAt: Date(timeIntervalSince1970: 200))
+    var ended = running
+    ended.startedAt = Date(timeIntervalSince1970: 900)
+    ended.endedAt = Date(timeIntervalSince1970: 950)
+    let server = DevServer(id: "server", process: identity, processName: "node", ports: [])
+    #expect(ProjectLinks().latestStartedAt == nil)
+    #expect(ProjectLinks(servers: [server], sessions: [ended]).latestStartedAt == identity.startTime)
+    #expect(ProjectLinks(servers: [server], sessions: [running, ended]).latestStartedAt == running.startedAt)
+    func project(_ name: String) -> ProjectRecord {
+        ProjectRecord(root: "/work/\(name)", name: name, kind: nil, git: nil, modifiedAt: nil, folder: "/work")
+    }
+    let projects = [project("unknown"), project("older"), project("newer")]
+    let starts = ["/work/older": identity.startTime, "/work/newer": running.startedAt]
+    #expect(ProjectOrder.sorted(projects, by: .started, ascending: false, sizes: [:], starts: starts).map(\.name)
+            == ["newer", "older", "unknown"])
+    #expect(ProjectOrder.sorted(projects, by: .started, ascending: true, sizes: [:], starts: starts).map(\.name)
+            == ["older", "newer", "unknown"])
+}
+
+@Test func projectOrderSortsByLocationBranchAndStatusWithUnknownStatusLast() {
+    func project(_ name: String, folder: String, branch: String) -> ProjectRecord {
+        ProjectRecord(root: "\(folder)/\(name)", name: name, kind: nil,
+                      git: GitHead(branch: branch, commit: "abcdef123456", isWorktree: false), modifiedAt: nil, folder: folder)
+    }
+    let alpha = project("alpha", folder: "/work/b", branch: "main")
+    let beta = project("beta", folder: "/work/a", branch: "devel")
+    let gamma = project("gamma", folder: "/work/c", branch: "feature")
+    let projects = [alpha, beta, gamma]
+    #expect(alpha.location == "/work/b")
+    #expect(ProjectOrder.sorted(projects, by: .location, ascending: true, sizes: [:]).map(\.name) == ["beta", "alpha", "gamma"])
+    #expect(ProjectOrder.sorted(projects, by: .branch, ascending: true, sizes: [:]).map(\.name) == ["beta", "gamma", "alpha"])
+
+    let statuses = [alpha.root: ProjectGitReport(staged: 1, unstaged: 1), beta.root: ProjectGitReport(ahead: 2)]
+    #expect(ProjectOrder.sorted(projects, by: .status, ascending: false, sizes: [:], statuses: statuses).map(\.name) == ["alpha", "beta", "gamma"])
+    #expect(ProjectOrder.sorted(projects, by: .status, ascending: true, sizes: [:], statuses: statuses).map(\.name) == ["beta", "alpha", "gamma"])
+}
+
+@Test @MainActor func projectGitStatusLoadsOnlyOnRequestWithStatusCommandOnlyAndIsInvalidatedByRefresh() async throws {
+    let records = (1...3).map { index in
+        ProjectRecord(root: "/tmp/status-\(index)", name: "status-\(index)", kind: nil,
+                      git: GitHead(branch: "main", commit: "abcdef123456", isWorktree: false), modifiedAt: nil, folder: "/tmp")
+    }
+    let commands = ProjectCommands()
+    let monitor = ProjectsMonitor(
+        inspector: ProjectGitInspector(run: { root, arguments in
+            await commands.record(root: root, arguments: arguments)
+            return .init(status: 0, output: root.hasSuffix("2") ? "# branch.head main\n? new.txt\n" : "# branch.head main\n", error: "")
+        }),
+        discover: { _, _ in ProjectDiscovery(projects: records, warnings: [], timestamp: Date()) })
+    monitor.configure(folders: ["/tmp"], depth: 2, cache: .standard)
+    await monitor.refresh()
+    #expect(await commands.values.isEmpty, "discovery never runs git")
+    #expect(monitor.hasUnloadedStatuses)
+
+    await monitor.loadStatuses()
+    let calls = await commands.values
+    #expect(calls.count == 3)
+    #expect(calls.allSatisfy { $0.arguments == ["status", "--porcelain=v2", "--branch"] }, "no git log for the table")
+    #expect(monitor.statuses[records[1].root]?.untracked == 1)
+    #expect(monitor.statuses[records[0].root]?.isDirty == false)
+    #expect(!monitor.hasUnloadedStatuses)
+
+    await monitor.loadStatuses()
+    #expect(await commands.values.count == 3, "loaded statuses are not read twice")
+
+    await monitor.refresh()
+    #expect(monitor.statuses.isEmpty, "discovery invalidates statuses")
+}
+
 @Test @MainActor func projectSizesAreMeasuredOnlyOnRequest() async throws {
     let records = (1...3).map { index in
         ProjectRecord(root: "/tmp/size-\(index)", name: "size-\(index)", kind: .swift,
@@ -361,4 +445,45 @@ private actor ProjectCommands {
     #expect(store.takeProjectSection() == nil)
     store.openProject("/repo")
     #expect(store.takeProjectSection() == .overview)
+}
+
+@Test func projectHistoryReadsCommitsRefsAndRemotes() async throws {
+    let inspector = ProjectHistoryInspector(run: { _, args in
+        switch args.first {
+        case "log": .init(status: 0, output: "abc123\0Ada\01700000000\0Fix parser\0HEAD -> main\n", error: "")
+        case "for-each-ref": .init(status: 0, output: "refs/heads/main abc123\nrefs/tags/v1 abc123", error: "")
+        case "remote": .init(status: 0, output: "origin git@example.com:project.git (fetch)", error: "")
+        default: .unavailable("Unexpected command")
+        }
+    })
+    let history = await inspector.history(root: "/project")
+    let commit = try #require(history.commits.first)
+    #expect(commit.id == "abc123")
+    #expect(commit.author == "Ada")
+    #expect(commit.subject == "Fix parser")
+    #expect(commit.date == Date(timeIntervalSince1970: 1_700_000_000))
+    #expect(commit.references == "HEAD -> main")
+    #expect(history.references.contains("refs/tags/v1"))
+    #expect(history.remotes.contains("origin"))
+    #expect(history.messages.isEmpty)
+}
+
+@Test func projectHistoryFailureIsUnavailableAndNeverParsedAsCommits() async {
+    let inspector = ProjectHistoryInspector(run: { _, _ in
+        .init(status: 128, output: "", error: "No commits yet")
+    })
+    let history = await inspector.history(root: "/empty")
+    #expect(history.commits.isEmpty)
+    #expect(!history.messages.isEmpty)
+}
+
+@Test func projectCommitDetailsLabelTruncationAndTimeout() async {
+    let truncated = ProjectHistoryInspector(run: { _, _ in
+        .init(status: 0, output: "commit abcdef1\npatch", error: "", truncated: true)
+    })
+    #expect(await truncated.commit(root: "/project", id: "abcdef1") == "commit abcdef1\npatch\nOutput limited to 2 MB.")
+    let timeout = ProjectHistoryInspector(run: { _, _ in
+        .init(status: 0, output: "partial patch", error: "", timedOut: true)
+    })
+    #expect(await timeout.commit(root: "/project", id: "abcdef1") == "Git timed out after 8 seconds.")
 }

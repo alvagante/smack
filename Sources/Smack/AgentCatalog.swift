@@ -297,10 +297,13 @@ extension AgentDefinition {
 
 extension AgentDefinition {
     var matcher: AgentProcessMatcher {
-        processMatcher ?? AgentProcessMatcher(executableNames: commands, scriptNames: commands,
+        processMatcher ?? AgentProcessMatcher(
+            executableNames: id == "kiro" ? commands + ["Kiro"] : commands,
+            scriptNames: commands,
             bundleIdentifiers: ["cursor": ["com.todesktop.230313mzl4w4u92"],
                                 "windsurf": ["com.exafunction.windsurf"],
-                                "codex": ["com.openai.codex"]][id] ?? [],
+                                "codex": ["com.openai.codex"],
+                                "kiro": ["dev.kiro.desktop"]][id] ?? [],
             scriptPathSuffixes: [
                 "claude": ["@anthropic-ai/claude-code/cli.js"],
                 "codex": ["@openai/codex/bin/codex.js"],

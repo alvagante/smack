@@ -659,6 +659,11 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.devTools.showAgentCommandLines)) {
                 SettingsLabel("Allow per-session command line reveal", help: "Shows a button that reveals a running session's command line, which can contain secrets.")
             }
+            Toggle(isOn: binding(\.devTools.readSessionTranscripts)) {
+                SettingsLabel("Read session transcripts",
+                              help: "The Session Timeline and History read prompts, answers, commands, MCP and tool calls from Claude Code, Codex and OpenCode transcripts on this Mac. Read only while they are on screen; only new lines are read while a session runs, and nothing is copied or written. Off shows each session's processes only.",
+                              subtitle: "While open · no disk writes")
+            }
         } header: {
             Text("Sessions")
         } footer: {
@@ -766,7 +771,7 @@ struct SettingsView: View {
                     Button(model.usage == nil ? "Calculate" : "Recalculate") { measureUsage() }.disabled(model.isMeasuring)
                 }
             } label: {
-                SettingsLabel("History database", subtitle: model.usage.map { "Measured \($0.measuredAt.formatted(date: .omitted, time: .shortened))" } ?? "Not measured yet")
+                SettingsLabel("History database", subtitle: model.usage.map { "Measured \(Formatting.dated($0.measuredAt.formatted(date: .omitted, time: .shortened), $0.measuredAt))" } ?? "Not measured yet")
             }
             LabeledContent {
                 HStack {
@@ -775,7 +780,7 @@ struct SettingsView: View {
                 }
             } label: {
                 SettingsLabel("Compact database", help: "Rewrites the database file to give space left by deleted history back to the disk. Smack also compacts automatically when the storage limit is reached.",
-                              subtitle: model.lastCompacted.map { "Last compacted \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Not compacted manually yet")
+                              subtitle: model.lastCompacted.map { "Last compacted \(Formatting.dated($0.formatted(date: .abbreviated, time: .shortened), $0))" } ?? "Not compacted manually yet")
             }
         } header: {
             Text("Storage Usage")
@@ -1125,7 +1130,7 @@ struct SettingsLabel: View {
 }
 
 /// Section footer text: small, secondary, wrapping.
-private struct SettingsFooter: View {
+struct SettingsFooter: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -1189,7 +1194,7 @@ private struct IntervalRow: View {
 }
 
 /// One row per folder with a remove button, then an add button that opens a folder picker.
-private struct FolderListRows: View {
+struct FolderListRows: View {
     @Binding var folders: [String]
     let addTitle: String
     let empty: String

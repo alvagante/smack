@@ -384,7 +384,7 @@ private struct SummaryHero: View {
                 Text(CPUReadings.uptime(Date().timeIntervalSince(boot))).font(.body.weight(.semibold)).monospacedDigit()
                 Text("Uptime").font(.caption).foregroundStyle(.secondary)
             }
-            .help("Up since \(boot.formatted(date: .abbreviated, time: .shortened))")
+            .help("Up since \(Formatting.dated(boot.formatted(date: .abbreviated, time: .shortened), boot))")
         }
     }
 }
