@@ -7,9 +7,15 @@ struct DevEnvironmentSummaryTile: View {
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            SummaryNavigationRow(route: .devEnvironments,
-                value: model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"),
-                detail: model.snapshot.map { "\(Set($0.environments.map(\.language)).count) languages detected" } ?? "Languages, packages and paths", open: open)
+            let languages = Dictionary(grouping: model.snapshot?.environments ?? [], by: \.language)
+                .sorted { $0.value.count != $1.value.count ? $0.value.count > $1.value.count : $0.key.rawValue < $1.key.rawValue }
+            SummaryTile(route: .devEnvironments,
+                headline: model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"),
+                caption: model.snapshot.map { _ in "\(languages.count) languages detected" } ?? "Languages, packages and paths", open: open) {
+                if !languages.isEmpty {
+                    TagChips(tags: languages.map(\.key.rawValue), color: .teal)
+                }
+            }
         }
     }
 }
@@ -40,7 +46,7 @@ struct DevEnvironmentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader {
-                ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: .teal,
+                ResourceTitle(title: "Dev environments", systemImage: "chevron.left.forwardslash.chevron.right", color: AppRoute.devEnvironments.tint,
                               subtitle: model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" })
             } actions: {
                 if model.loading { ProgressView().controlSize(.small) }

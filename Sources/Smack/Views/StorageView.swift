@@ -18,7 +18,7 @@ struct StorageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 DetailPageHeader(padding: 0) {
-                    ResourceTitle(title: "Storage", systemImage: "externaldrive", color: .indigo,
+                    ResourceTitle(title: "Storage", systemImage: "externaldrive", color: AppRoute.resource(.storage).tint,
                                   subtitle: "Find what takes up space")
                 } actions: {
                     EmptyView()

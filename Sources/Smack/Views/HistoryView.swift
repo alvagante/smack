@@ -347,7 +347,7 @@ struct HistoryView: View {
 
     private var header: some View {
         DetailPageHeader(padding: MonitorStyle.spacing) {
-            ResourceTitle(title: "Historical Data", systemImage: "clock.arrow.circlepath", color: .blue, subtitle: showing)
+            ResourceTitle(title: "Historical Data", systemImage: "clock.arrow.circlepath", color: AppRoute.history.tint, subtitle: showing)
         } actions: {
             EmptyView()
         } overview: {

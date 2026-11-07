@@ -7,7 +7,7 @@ struct CPUTitle: View {
     let topology: CPUTopology
 
     var body: some View {
-        ResourceTitle(title: "CPU", systemImage: "cpu", color: .blue, subtitle: topology.processorName,
+        ResourceTitle(title: "CPU", systemImage: "cpu", color: AppRoute.resource(.cpu).tint, subtitle: topology.processorName,
                       status: CPUStatus(cpu: cpu, thermal: thermal).resourceStatus)
     }
 }

@@ -147,7 +147,7 @@ struct AgentSessionDetail: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
-                ResourceTitle(title: session.agentName, systemImage: "sparkles", color: .purple,
+                ResourceTitle(title: session.agentName, systemImage: "sparkles", color: AppRoute.agents.tint,
                     subtitle: session.project?.directory ?? "PID \(session.root.pid)",
                     status: ResourceStatus(title: session.activity.title, color: session.activity.color,
                         help: "Working when the session's processes use at least \(Int(AgentSessionActivity.workingCPU))% CPU."))

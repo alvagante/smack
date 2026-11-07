@@ -91,7 +91,7 @@ struct SecurityView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Security", systemImage: "shield", color: .green, subtitle: "macOS security and privacy settings")
+                ResourceTitle(title: "Security", systemImage: "shield", color: AppRoute.security.tint, subtitle: "macOS security and privacy settings")
             } actions: {
                 if let timestamp = store.posture?.timestamp {
                     Text(Calendar.current.isDateInToday(timestamp)

@@ -193,7 +193,7 @@ struct TimelineView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
             DetailPageHeader(padding: 0) {
-                ResourceTitle(title: "Timeline", systemImage: "list.bullet.rectangle", color: .mint,
+                ResourceTitle(title: "Timeline", systemImage: "list.bullet.rectangle", color: AppRoute.timeline.tint,
                               subtitle: "Changes " + model.windowPhrase)
             } actions: {
                 settingsBox

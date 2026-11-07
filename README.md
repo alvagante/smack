@@ -8,6 +8,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 
 ## Features
 
+- **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top.
 - **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
 - **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs.
 - **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.

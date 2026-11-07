@@ -1,0 +1,330 @@
+import SwiftUI
+
+/// Packing for Summary tiles: columns from the width, tiles placed in order, and every row filled to the grid width.
+enum TileGrid {
+    struct Cell: Equatable {
+        var index: Int
+        var column: Int
+        var span: Int
+    }
+
+    /// An even count, or 1, so tiles spanning two columns always pair up.
+    static func columns(width: CGFloat, minimumColumnWidth: CGFloat, spacing: CGFloat) -> Int {
+        guard width.isFinite, width > 0 else { return 1 }
+        let fitting = Int((width + spacing) / (minimumColumnWidth + spacing))
+        return fitting >= 2 ? fitting - fitting % 2 : 1
+    }
+
+    static func rows(spans: [Int], columns: Int) -> [[Cell]] {
+        let columns = max(1, columns)
+        var rows: [[(index: Int, span: Int)]] = []
+        var current: [(index: Int, span: Int)] = []
+        var used = 0
+        for (index, requested) in spans.enumerated() {
+            let span = min(max(1, requested), columns)
+            if used + span > columns {
+                rows.append(current)
+                current = []
+                used = 0
+            }
+            current.append((index, span))
+            used += span
+        }
+        if !current.isEmpty { rows.append(current) }
+        return rows.map { row in
+            var spans = row.map(\.span)
+            // Free columns go to the narrowest tile first, so a short row splits evenly.
+            for _ in 0..<(columns - spans.reduce(0, +)) {
+                let narrowest = spans.indices.min { spans[$0] < spans[$1] }!
+                spans[narrowest] += 1
+            }
+            var column = 0
+            return zip(row, spans).map { item, span in
+                defer { column += span }
+                return Cell(index: item.index, column: column, span: span)
+            }
+        }
+    }
+}
+
+private struct TileSpan: LayoutValueKey {
+    static let defaultValue = 1
+}
+
+extension View {
+    /// Columns a Summary tile asks for; narrower grids clamp it.
+    func tileSpan(_ columns: Int) -> some View { layoutValue(key: TileSpan.self, value: columns) }
+}
+
+/// Lays Summary tiles out as `TileGrid` packs them; each row is as tall as its tallest tile.
+struct TileGridLayout: Layout {
+    var minimumColumnWidth: CGFloat = 210
+    var spacing: CGFloat = 12
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimumColumnWidth * 2 + spacing
+        return CGSize(width: width, height: frames(width: width, subviews: subviews).map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, frames(width: bounds.width, subviews: subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
+        let columns = TileGrid.columns(width: width, minimumColumnWidth: minimumColumnWidth, spacing: spacing)
+        let columnWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        var frames = Array(repeating: CGRect.zero, count: subviews.count)
+        var y: CGFloat = 0
+        for row in TileGrid.rows(spans: subviews.map { $0[TileSpan.self] }, columns: columns) {
+            let widths = row.map { columnWidth * CGFloat($0.span) + spacing * CGFloat($0.span - 1) }
+            let height = zip(row, widths).map { subviews[$0.index].sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }.max() ?? 0
+            for (cell, cellWidth) in zip(row, widths) {
+                frames[cell.index] = CGRect(x: CGFloat(cell.column) * (columnWidth + spacing), y: y, width: cellWidth, height: height)
+            }
+            y += height + spacing
+        }
+        return frames
+    }
+}
+
+/// One Summary tile: the Page it opens, its key figure, and an optional live visual supplied by the topic.
+struct SummaryTile<Visual: View>: View {
+    let route: AppRoute
+    let headline: String
+    var caption: String? = nil
+    var tone: Color? = nil
+    var help: String? = nil
+    let open: () -> Void
+    @ViewBuilder var visual: Visual
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 20)
+                    Text(route.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.caption2.weight(.bold))
+                        .foregroundStyle(hovering ? .secondary : .tertiary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headline)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(tone ?? .primary)
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                    if let caption {
+                        Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                visual
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
+            .padding(14)
+            .background(Color.primary.opacity(hovering ? 0.035 : 0), in: RoundedRectangle(cornerRadius: MonitorStyle.radius))
+            .monitorSurface()
+            .contentShape(RoundedRectangle(cornerRadius: MonitorStyle.radius))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityElement(children: .combine)
+        .help(help ?? "Open \(route.title)")
+    }
+}
+
+extension SummaryTile where Visual == EmptyView {
+    init(route: AppRoute, headline: String, caption: String? = nil, tone: Color? = nil, help: String? = nil, open: @escaping () -> Void) {
+        self.init(route: route, headline: headline, caption: caption, tone: tone, help: help, open: open) { EmptyView() }
+    }
+}
+
+/// A horizontal bar split into proportional segments; the rest of `total` stays as the empty track.
+struct SegmentBar: View {
+    struct Segment {
+        var value: Double
+        var color: Color
+    }
+
+    let segments: [Segment]
+    var total: Double? = nil
+    var height: CGFloat = 8
+
+    var body: some View {
+        Canvas { context, size in
+            let track = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: size.height / 2)
+            context.fill(track, with: .color(.primary.opacity(0.08)))
+            let sum = segments.reduce(0) { $0 + max(0, $1.value) }
+            let scale = max(total ?? sum, sum)
+            guard scale > 0 else { return }
+            context.clip(to: track)
+            var x: CGFloat = 0
+            for segment in segments where segment.value > 0 {
+                let width = size.width * segment.value / scale
+                context.fill(Path(CGRect(x: x, y: 0, width: width, height: size.height)), with: .color(segment.color))
+                x += width
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One small dot and label per segment, for the colors of a `SegmentBar`.
+struct SegmentLegend: View {
+    let items: [(title: String, color: Color)]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(items.indices, id: \.self) { index in
+                HStack(spacing: 4) {
+                    Circle().fill(items[index].color).frame(width: 6, height: 6)
+                    Text(items[index].title).lineLimit(1)
+                }
+            }
+        }
+        .font(.caption2).foregroundStyle(.secondary)
+    }
+}
+
+/// Live load of each CPU core as a bar, 0 to 100%.
+struct CoreBars: View {
+    let values: [Double]
+    var color: Color = .blue
+
+    var body: some View {
+        Canvas { context, size in
+            guard !values.isEmpty else { return }
+            let gap: CGFloat = values.count > 24 ? 1 : 2
+            let width = max(1, (size.width - gap * CGFloat(values.count - 1)) / CGFloat(values.count))
+            for (index, value) in values.enumerated() {
+                let x = CGFloat(index) * (width + gap)
+                let track = CGRect(x: x, y: 0, width: width, height: size.height)
+                context.fill(Path(roundedRect: track, cornerRadius: min(2, width / 2)), with: .color(color.opacity(0.12)))
+                let fill = size.height * min(max(value, 0), 100) / 100
+                let bar = CGRect(x: x, y: size.height - fill, width: width, height: fill)
+                context.fill(Path(roundedRect: bar, cornerRadius: min(2, width / 2)), with: .color(color.opacity(0.35 + 0.65 * min(max(value, 0), 100) / 100)))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Two rates over the same time window: `upper` grows up from the middle line, `lower` grows down, on one scale.
+struct MirroredRateChart: View {
+    let upper: [Double]
+    let lower: [Double]
+    let upperColor: Color
+    let lowerColor: Color
+    var height: CGFloat = 48
+
+    var body: some View {
+        Canvas { context, size in
+            let middle = size.height / 2
+            let peak = max((upper + lower).max() ?? 0, 1)
+            context.fill(Path(CGRect(x: 0, y: middle - 0.25, width: size.width, height: 0.5)), with: .color(.primary.opacity(0.15)))
+            func draw(_ values: [Double], color: Color, direction: CGFloat) {
+                guard values.count > 1 else { return }
+                let points = values.enumerated().map { index, value in
+                    CGPoint(x: size.width * CGFloat(index) / CGFloat(values.count - 1),
+                            y: middle - direction * (middle - 1) * CGFloat(min(max(value, 0) / peak, 1)))
+                }
+                var line = Path()
+                line.addLines(points)
+                var area = line
+                area.addLine(to: CGPoint(x: size.width, y: middle))
+                area.addLine(to: CGPoint(x: 0, y: middle))
+                area.closeSubpath()
+                context.fill(area, with: .color(color.opacity(0.22)))
+                context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            draw(upper, color: upperColor, direction: 1)
+            draw(lower, color: lowerColor, direction: -1)
+        }
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+        .background(.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .accessibilityHidden(true)
+    }
+}
+
+/// One dot per item, colored by state, with the overflow counted.
+struct StatusDots: View {
+    let colors: [Color]
+    var limit = 12
+    var diameter: CGFloat = 9
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(colors.prefix(limit).enumerated()), id: \.offset) { _, color in
+                Circle().fill(color).frame(width: diameter, height: diameter)
+            }
+            if colors.count > limit {
+                Text("+\(colors.count - limit)").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Short labels as capsules on one line; as many as fit are shown, then a count of the rest.
+struct TagChips: View {
+    let tags: [String]
+    var color: Color = .secondary
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: min(tags.count, 6), through: 1, by: -1)), id: \.self) { count in
+                chips(count)
+            }
+            Text("\(tags.count)").font(.caption2).foregroundStyle(.secondary)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func chips(_ count: Int) -> some View {
+        HStack(spacing: 4) {
+            ForEach(tags.prefix(count), id: \.self) { tag in
+                Text(tag).font(.caption2.weight(.medium)).lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(color.opacity(0.14), in: Capsule())
+            }
+            if tags.count > count {
+                Text("+\(tags.count - count)").font(.caption2).foregroundStyle(.secondary).fixedSize()
+            }
+        }
+    }
+}
+
+/// The three Thermal State lights: green for nominal, yellow for fair, red for serious or critical.
+struct ThermalLights: View {
+    let condition: ThermalCondition
+    var diameter: CGFloat = 13
+
+    var body: some View {
+        HStack(spacing: diameter / 2) {
+            light(.green, active: condition == .nominal)
+            light(.yellow, active: condition == .fair)
+            light(.red, active: condition == .serious || condition == .critical)
+        }
+        .accessibilityHidden(true)
+    }
+
+    static func color(_ condition: ThermalCondition) -> Color {
+        switch condition {
+        case .nominal: .green
+        case .fair: .yellow
+        case .serious, .critical: .red
+        case .unavailable: .secondary
+        }
+    }
+
+    private func light(_ color: Color, active: Bool) -> some View {
+        Circle()
+            .fill(active ? color : Color.secondary.opacity(0.16))
+            .frame(width: diameter, height: diameter)
+            .shadow(color: active ? color.opacity(0.55) : .clear, radius: diameter * 0.4)
+    }
+}

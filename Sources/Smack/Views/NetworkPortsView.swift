@@ -62,7 +62,7 @@ struct NetworkPortsView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Network connections", systemImage: "cable.connector", color: .cyan, subtitle: "Listening ports and open connections")
+                ResourceTitle(title: "Network connections", systemImage: "cable.connector", color: AppRoute.networkPorts.tint, subtitle: "Listening ports and open connections")
             } actions: {
                 if let timestamp = store.networkPorts?.timestamp {
                     Text(timestamp, style: .time)

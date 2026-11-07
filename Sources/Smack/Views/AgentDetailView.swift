@@ -3,15 +3,34 @@ import AppKit
 
 struct AgentsSummaryTile: View {
     @ObservedObject var model: AgentMonitor
+    /// Sessions are published by `live`, not by the monitor, so the tile observes it to follow them.
+    @ObservedObject private var live: AgentSessionsModel
     var open: () -> Void
+
+    init(model: AgentMonitor, open: @escaping () -> Void) {
+        self.model = model
+        self.live = model.live
+        self.open = open
+    }
 
     var body: some View {
         if !Capabilities.isSandboxed {
-            SummaryNavigationRow(route: .agents,
-                value: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
-                detail: "Configuration, logs, memory and skills", open: open)
-                .task { if model.snapshot == nil { await model.refresh() } }
+            let sessions = live.sessions.filter { $0.endedAt == nil }
+            SummaryTile(route: .agents,
+                headline: model.snapshot.map { "\($0.agents.count) detected" } ?? (model.loading ? "Discovering…" : "Explore agents"),
+                caption: sessions.isEmpty ? "No sessions running" : "\(sessions.count) \(sessions.count == 1 ? "session" : "sessions") running",
+                open: open) {
+                if !sessions.isEmpty {
+                    TagChips(tags: sessions.map(label), color: .purple)
+                }
+            }
+            .task { if model.snapshot == nil { await model.refresh() } }
         }
+    }
+
+    private func label(_ session: AgentSession) -> String {
+        let agent = AgentDefinition.catalog.first { $0.id == session.agentID }?.name ?? session.agentID
+        return session.project.map { "\(agent) · \($0.name)" } ?? agent
     }
 }
 
@@ -51,7 +70,7 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailPageHeader {
-                ResourceTitle(title: "Agents", systemImage: "sparkles", color: .purple,
+                ResourceTitle(title: "Agents", systemImage: "sparkles", color: AppRoute.agents.tint,
                               subtitle: mode == .agents ? model.snapshot.map { "Checked \($0.timestamp.formatted(date: .omitted, time: .shortened))" } : nil)
             } actions: {
                 AgentPageModePicker(live: model.live, mode: $mode)

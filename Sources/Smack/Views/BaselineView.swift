@@ -79,7 +79,7 @@ struct BaselineView: View {
 
     private var header: some View {
         DetailPageHeader(padding: MonitorStyle.spacing) {
-            ResourceTitle(title: "Baselines", systemImage: "arrow.triangle.branch", color: .indigo,
+            ResourceTitle(title: "Baselines", systemImage: "arrow.triangle.branch", color: AppRoute.baseline.tint,
                           subtitle: "Snapshot configuration, detect drift", status: status)
         } actions: {
             if model.capturing { ProgressView().controlSize(.small) }

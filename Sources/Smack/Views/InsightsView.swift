@@ -317,38 +317,25 @@ struct InsightsDigestCard: View {
     let open: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 12) {
-                    ResourceIcon(systemImage: AppRoute.insights.systemImage, color: AppRoute.insights.tint, size: 28)
-                    Text("Last 24 hours").font(.body.weight(.medium))
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    if let digest = model.digest {
-                        if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1...3) }
-                        if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1...3) }
-                        ForEach(digest.highlights, id: \.self) { line in
-                            Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1...3)
-                        }
-                        if digest.usageLine.isEmpty, digest.diskLine == nil, digest.highlights.isEmpty {
-                            Text("No history recorded yet").font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else {
-                        ProgressView().controlSize(.small)
+        SummaryTile(route: .insights, headline: "Last 24 hours",
+                    help: "Peaks, top consumers, disk writes and notable changes in the last 24 hours. Click for Insights.", open: open) {
+            VStack(alignment: .leading, spacing: 3) {
+                if let digest = model.digest {
+                    if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1...3) }
+                    if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1...3) }
+                    ForEach(digest.highlights, id: \.self) { line in
+                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1...3)
                     }
+                    if digest.usageLine.isEmpty, digest.diskLine == nil, digest.highlights.isEmpty {
+                        Text("No history recorded yet").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: .infinity, alignment: .topLeading)
-            .padding(16)
-            .monitorSurface()
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("Insights. Last 24 hours")
-        .help("Peaks, top consumers, disk writes and notable changes in the last 24 hours. Click for Insights.")
         .task(id: sources) { await model.refreshDigestIfStale(sources: sources) }
     }
 }

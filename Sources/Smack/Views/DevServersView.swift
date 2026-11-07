@@ -46,7 +46,7 @@ struct DevServersView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DetailPageHeader {
-                ResourceTitle(title: "Dev servers", systemImage: "server.rack", color: .cyan, subtitle: "Local development servers listening on ports")
+                ResourceTitle(title: "Dev servers", systemImage: "server.rack", color: AppRoute.devServers.tint, subtitle: "Local development servers listening on ports")
             } actions: {
                 Toggle("Show system listeners", isOn: Binding(
                     get: { settings.settings.devTools.devServersShowSystem },

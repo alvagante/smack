@@ -13,185 +13,257 @@ struct SummaryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                macOverview
-                if store.system == nil {
-                    ProgressView("Collecting system metrics…")
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-                SummarySection("Performance", subtitle: "Live usage and recent trends") {
-                    performance
-                }
-                SummarySection("Health") {
-                    health
-                }
-                SummarySection("Activity") {
-                    activityCards
-                    activity
-                }
-                SummarySection("Environment") {
-                    environment
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                SummaryHero(store: store)
+                tiles
             }
-            .frame(maxWidth: 1000)
             .padding(MonitorStyle.inset)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var macOverview: some View {
-        Button { store.route = .systemDetails } label: {
-            HStack(spacing: 16) {
-                Image(nsImage: NSApplication.shared.applicationIconImage)
-                    .resizable()
-                    .frame(width: 48, height: 48)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("Smack").font(MonitorStyle.title)
-                        // Unbundled debug runs have no Info.plist version.
-                        Text((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).map { "v\($0)" } ?? "dev")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Text("Your Mac: All you can know").font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 16)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
-                        .font(.body.weight(.medium))
-                    Text([SystemInformation.processorName, Formatting.bytes(ProcessInfo.processInfo.physicalMemory) + " memory"].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .multilineTextAlignment(.trailing)
-                if let boot = SystemInformation.bootTime {
-                    Divider().frame(height: 32)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(CPUReadings.uptime(Date().timeIntervalSince(boot))).font(.body.weight(.medium)).monospacedDigit()
-                        Text("Uptime").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .help("Up since \(boot.formatted(date: .abbreviated, time: .shortened))")
-                }
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-            .padding(16)
-            .monitorSurface()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("View system details")
-    }
+    private var points: [LiveMetricPoint] { store.recentMetrics.points }
 
-    private var performance: some View {
-        VStack(spacing: 0) {
-            metric(.cpu, value: store.system.map { $0.cpu.hasUsage ? Formatting.percent($0.cpu.totalUsage) : "Measuring…" } ?? "Collecting…",
-                   detail: store.system.map { "\($0.cpu.coreUsage.count) \($0.cpu.coreUsage.count == 1 ? "core" : "cores")" } ?? "Processor usage",
-                   series: [SparklineSeries(values: store.recentMetrics.points.map(\.cpuUsage), color: .blue)], domain: 0...100)
-            metric(.gpu, value: store.system?.gpu.utilizationPercent.map(Formatting.percent) ?? "Unavailable",
-                   detail: store.system?.gpuName ?? "Graphics usage",
-                   series: [SparklineSeries(values: store.recentMetrics.points.compactMap(\.gpuUsage), color: .indigo)], domain: 0...100)
-            metric(.memory, value: store.system.map { Formatting.bytes($0.memory.usedBytes) } ?? "Collecting…",
-                   detail: store.system.map { "of \(Formatting.bytes($0.memory.totalBytes)) · \(Formatting.pressure($0.memory.pressure)) pressure" } ?? "Memory usage",
-                   series: [SparklineSeries(values: store.recentMetrics.points.map(\.memoryUsage), color: .purple)], domain: 0...100)
-            metric(.network, value: store.system.map { "↓ \(Formatting.rate($0.receiveRate))   ↑ \(Formatting.rate($0.sendRate))" } ?? "Collecting…",
-                   detail: "Received / sent",
-                   series: [SparklineSeries(values: store.recentMetrics.points.map(\.receiveRate), color: .cyan),
-                            SparklineSeries(values: store.recentMetrics.points.map(\.sendRate), color: .mint)])
-            metric(.disk, value: store.system.map { "R \(Formatting.rate($0.diskReadRate))   W \(Formatting.rate($0.diskWriteRate))" } ?? "Collecting…",
-                   detail: "Read / written",
-                   series: [SparklineSeries(values: store.recentMetrics.points.map(\.diskReadRate), color: .orange),
-                            SparklineSeries(values: store.recentMetrics.points.map(\.diskWriteRate), color: .pink)])
-        }
-        .monitorSurface()
-    }
-
-    private func metric(_ resource: ResourceKind, value: String, detail: String, series: [SparklineSeries], domain: ClosedRange<Double>? = nil) -> some View {
-        let route = AppRoute.resource(resource)
-        return Button { store.route = route } label: {
-            HStack(spacing: 16) {
-                ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(route.title).font(.body.weight(.medium))
-                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 16) {
-                        Sparkline(series: series, domain: domain, minHeight: 32, maxHeight: 32)
-                            .frame(width: 120)
-                            .accessibilityHidden(true)
-                        Text(value).font(.body.weight(.medium)).monospacedDigit()
-                            .frame(width: 210, alignment: .trailing)
-                    }
-                    Text(value).font(.body.weight(.medium)).monospacedDigit()
-                        .multilineTextAlignment(.trailing)
-                }
-                .layoutPriority(1)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+    /// One grid, busiest first: live charts and running applications lead, inventories follow.
+    /// Order pairs the two-column tiles so rows pack at 2, 4, 6 and 8 columns.
+    @ViewBuilder private var tiles: some View {
+        let settings = settingsStore.settings
+        TileGridLayout {
+            cpuTile.tileSpan(2)
+            memoryTile
+            gpuTile
+            networkTile.tileSpan(2)
+            applicationsTile.tileSpan(2)
+            diskTile.tileSpan(2)
+            thermalTile
+            storageTile
+            if let battery = store.system?.battery, battery.isPresent { batteryTile(battery) }
+            if Capabilities.supportsPostureChecks { securityTile }
+            if Capabilities.supportsNetworkPortInspection { connectionsTile }
+            if Capabilities.supportsStartupItems { StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems } }
+            ActivityDiffCard(store: store).tileSpan(2)
+            if settings.history.showInsightsDigest {
+                InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settings)) { store.route = .insights }
+                    .tileSpan(2)
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .frame(minHeight: 68)
-            .contentShape(Rectangle())
-            .overlay(alignment: .bottom) { Rectangle().fill(MonitorStyle.separator.opacity(0.5)).frame(height: 0.5).padding(.leading, 60) }
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var health: some View {
-        SummaryGrid {
-            SummaryNavigationRow(route: .resource(.thermal), value: store.system?.thermalCondition.rawValue.capitalized ?? "Collecting…", detail: "Temperature sensors and fans") { store.route = .resource(.thermal) }
-            if let volumes = store.system?.volumes, !volumes.isEmpty {
-                let total = volumes.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
-                let used = volumes.reduce(UInt64(0)) { $0 &+ $1.usedBytes }
-                SummaryNavigationRow(route: .resource(.storage), value: "\(Formatting.bytes(used)) of \(Formatting.bytes(total))", detail: "Used across mounted volumes") { store.route = .resource(.storage) }
-            }
-            if let battery = store.system?.battery, battery.isPresent {
-                SummaryNavigationRow(route: .resource(.battery), value: battery.chargePercent.map { "\(Int($0))%" } ?? "Unavailable",
-                                     detail: battery.isCharging ? "Charging" : (battery.isOnBattery == false ? "Connected to power" : "On battery")) { store.route = .resource(.battery) }
-            }
-            if Capabilities.supportsPostureChecks {
-                securityRow
-            }
-        }
-    }
-
-    private var securityRow: some View {
-        let checks = store.posture?.checks ?? []
-        let problems = checks.filter { [.warn, .fail].contains($0.status) }.count
-        let unknown = checks.filter { $0.status == .unknown }.count
-        let value = store.posture == nil ? "Awaiting checks" : (problems == 0 ? (unknown == checks.count ? "Unverified" : "No findings") : "\(problems) findings")
-        return SummaryNavigationRow(route: .security, value: value,
-                                    detail: store.posture == nil ? "System security checks" : "\(checks.count) checks · \(unknown) unverified") { store.route = .security }
-    }
-
-    /// Timeline and the last-24-hours digest, side by side, each half the width of the rows below.
-    /// One card (digest hidden) takes the full width. They follow the window the same way the grouped rows do.
-    private var activityCards: some View {
-        let showsDigest = settingsStore.settings.history.showInsightsDigest
-        let columns = showsDigest
-            ? [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), alignment: .top)]
-            : [GridItem(.flexible(), alignment: .top)]
-        return LazyVGrid(columns: columns, spacing: 12) {
-            ActivityDiffCard(store: store)
-            if showsDigest {
-                InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settingsStore.settings)) { store.route = .insights }
-            }
-        }
-    }
-
-    private var activity: some View {
-        SummaryGrid {
-            SummaryNavigationRow(route: .applications, value: store.processes.map { "\($0.applications.count) running" } ?? "Collecting…",
-                                 detail: store.processes?.applications.max(by: { $0.cpuUsage < $1.cpuUsage }).map { "Most active: \($0.name) · \(Formatting.percent($0.cpuUsage)) CPU" } ?? "Applications and processes") { store.route = .applications }
-            if Capabilities.supportsNetworkPortInspection {
-                SummaryNavigationRow(route: .networkPorts, value: store.networkPorts.map { "\($0.ports.count) listening" } ?? "Collecting…",
-                                     detail: store.networkPorts.map { "\($0.totalConnectionCount) total connections" } ?? "Listening ports and connections") { store.route = .networkPorts }
-            }
-            if Capabilities.supportsStartupItems {
-                StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems }
-            }
-            SummaryNavigationRow(route: .history, value: "Explore trends", detail: "System and per-program history") { store.route = .history }
+            if !Capabilities.isSandboxed && settings.shows(.devServers) { devServersTile }
+            if settings.shows(.agents) { AgentsSummaryTile(model: store.agentsModel) { store.route = .agents } }
+            if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
+            if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
+            if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
+            if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
+            if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
+            SummaryTile(route: .history, headline: "Explore trends", caption: "System and per-program history") { store.route = .history }
             BaselineSummaryTile(model: store.baselines, settingsStore: settingsStore) { store.route = .baseline }
+            SummaryTile(route: .systemDetails, headline: macOSVersion, caption: "Hardware, software and limits") { store.route = .systemDetails }
+        }
+    }
+
+    // MARK: Performance
+
+    private var cpuTile: some View {
+        let cpu = store.system?.cpu
+        let cores = cpu?.coreUsage ?? []
+        var caption = "Processor usage"
+        if let cpu {
+            caption = "\(cores.count) \(cores.count == 1 ? "core" : "cores")"
+            if cpu.hasUsage { caption += " · user \(Formatting.percent(cpu.userUsage)) · system \(Formatting.percent(cpu.systemUsage))" }
+            if let load = cpu.loadAverage.first { caption += " · load \(load.formatted(.number.precision(.fractionLength(2))))" }
+        }
+        return SummaryTile(route: .resource(.cpu),
+                           headline: cpu.map { $0.hasUsage ? Formatting.percent($0.totalUsage) : "Measuring…" } ?? "Collecting…",
+                           caption: caption, open: { store.route = .resource(.cpu) }) {
+            HStack(spacing: 12) {
+                Sparkline(series: [SparklineSeries(values: points.map(\.cpuUsage), color: .blue)], domain: 0...100, minHeight: 44, maxHeight: 44)
+                    .accessibilityHidden(true)
+                if !cores.isEmpty {
+                    CoreBars(values: cores).frame(width: min(CGFloat(cores.count) * 8, 168), height: 44)
+                        .help("Load per core")
+                }
+            }
+        }
+    }
+
+    private var memoryTile: some View {
+        let memory = store.system?.memory
+        let tone: Color? = switch memory?.pressure {
+        case .critical: .red
+        case .warning: .orange
+        default: nil
+        }
+        var caption = "Memory usage"
+        if let memory {
+            caption = "of \(Formatting.bytes(memory.totalBytes)) · \(Formatting.pressure(memory.pressure)) pressure"
+            if memory.swapUsedBytes > 0 { caption += " · swap \(Formatting.bytes(memory.swapUsedBytes))" }
+        }
+        return SummaryTile(route: .resource(.memory), headline: memory.map { Formatting.bytes($0.usedBytes) } ?? "Collecting…",
+                           caption: caption, tone: tone, open: { store.route = .resource(.memory) }) {
+            if let memory {
+                VStack(alignment: .leading, spacing: 6) {
+                    SegmentBar(segments: [
+                        .init(value: Double(memory.appBytes), color: .purple),
+                        .init(value: Double(memory.wiredBytes), color: .orange),
+                        .init(value: Double(memory.compressedBytes), color: .pink)
+                    ], total: Double(memory.totalBytes))
+                    SegmentLegend(items: [("App", .purple), ("Wired", .orange), ("Compressed", .pink)])
+                }
+            }
+        }
+    }
+
+    private var gpuTile: some View {
+        let usage = store.system?.gpu.utilizationPercent
+        let history = points.compactMap(\.gpuUsage)
+        return SummaryTile(route: .resource(.gpu), headline: store.system == nil ? "Collecting…" : usage.map(Formatting.percent) ?? "Unavailable",
+                           caption: store.system.map { [$0.gpuName, $0.gpuCoreCount.map { "\($0) cores" }].compactMap { $0 }.joined(separator: " · ") } ?? "Graphics usage",
+                           open: { store.route = .resource(.gpu) }) {
+            if !history.isEmpty {
+                Sparkline(series: [SparklineSeries(values: history, color: .indigo)], domain: 0...100, minHeight: 32, maxHeight: 32)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var networkTile: some View {
+        let system = store.system
+        let busiest = system?.interfaces.filter { !$0.addresses.isEmpty }.max { $0.receiveRate + $0.sendRate < $1.receiveRate + $1.sendRate }
+        return SummaryTile(route: .resource(.network),
+                           headline: system.map { "↓ \(Formatting.rate($0.receiveRate))   ↑ \(Formatting.rate($0.sendRate))" } ?? "Collecting…",
+                           caption: busiest.map { "\($0.name) · \($0.addresses.first ?? "")" } ?? "Received / sent",
+                           open: { store.route = .resource(.network) }) {
+            rateChart(upper: points.map(\.receiveRate), lower: points.map(\.sendRate), upperColor: .cyan, lowerColor: .mint,
+                      legend: [("Received", .cyan), ("Sent", .mint)])
+        }
+    }
+
+    private var diskTile: some View {
+        SummaryTile(route: .resource(.disk),
+                    headline: store.system.map { "R \(Formatting.rate($0.diskReadRate))   W \(Formatting.rate($0.diskWriteRate))" } ?? "Collecting…",
+                    caption: "Read / written", open: { store.route = .resource(.disk) }) {
+            rateChart(upper: points.map(\.diskReadRate), lower: points.map(\.diskWriteRate), upperColor: .orange, lowerColor: .pink,
+                      legend: [("Read", .orange), ("Written", .pink)])
+        }
+    }
+
+    private func rateChart(upper: [Double], lower: [Double], upperColor: Color, lowerColor: Color, legend: [(title: String, color: Color)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MirroredRateChart(upper: upper, lower: lower, upperColor: upperColor, lowerColor: lowerColor)
+            SegmentLegend(items: legend)
+        }
+    }
+
+    // MARK: Health
+
+    private var thermalTile: some View {
+        let condition = store.system?.thermalCondition
+        return SummaryTile(route: .resource(.thermal), headline: condition?.rawValue.capitalized ?? "Collecting…",
+                           caption: "Temperature sensors and fans", tone: condition.map(ThermalLights.color),
+                           open: { store.route = .resource(.thermal) }) {
+            if let condition { ThermalLights(condition: condition) }
+        }
+    }
+
+    private var storageTile: some View {
+        let volumes = store.system?.volumes ?? []
+        let total = volumes.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
+        let available = volumes.reduce(UInt64(0)) { $0 &+ $1.availableBytes }
+        return SummaryTile(route: .resource(.storage),
+                           headline: store.system == nil ? "Collecting…" : volumes.isEmpty ? "Unavailable" : "\(Formatting.bytes(available)) free",
+                           caption: volumes.isEmpty ? "Mounted volumes" : "of \(Formatting.bytes(total)) across \(volumes.count) \(volumes.count == 1 ? "volume" : "volumes")",
+                           open: { store.route = .resource(.storage) }) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(volumes.sorted { $0.usedFraction > $1.usedFraction }.prefix(3)) { volume in
+                    let fraction = volume.usedFraction
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(volume.name).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(Formatting.percent(fraction * 100)).monospacedDigit()
+                        }
+                        .font(.caption2).foregroundStyle(.secondary)
+                        SegmentBar(segments: [.init(value: fraction, color: fraction > 0.9 ? .red : fraction > 0.8 ? .orange : .indigo)], total: 1, height: 5)
+                    }
+                }
+            }
+        }
+    }
+
+    private func batteryTile(_ battery: BatterySample) -> some View {
+        let charge = battery.chargePercent
+        let color: Color = (charge ?? 100) <= SummaryConcerns.criticalBattery ? .red : (charge ?? 100) <= SummaryConcerns.lowBattery ? .orange : .green
+        var caption = battery.isCharging ? "Charging" : battery.isOnBattery == false ? "Connected to power" : "On battery"
+        if let remaining = battery.timeRemaining, remaining > 0 { caption += " · \(CPUReadings.uptime(remaining)) left" }
+        return SummaryTile(route: .resource(.battery), headline: charge.map { "\(Int($0))%" } ?? "Unavailable", caption: caption,
+                           open: { store.route = .resource(.battery) }) {
+            if let charge {
+                HStack(spacing: 6) {
+                    SegmentBar(segments: [.init(value: charge, color: color)], total: 100, height: 10)
+                    if battery.isCharging { Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(.yellow) }
+                }
+            }
+        }
+    }
+
+    private var securityTile: some View {
+        let checks = store.posture?.checks ?? []
+        let problems = checks.count { [.warn, .fail].contains($0.status) }
+        let unknown = checks.count { $0.status == .unknown }
+        let headline = store.posture == nil ? "Awaiting checks" : problems > 0 ? "\(problems) \(problems == 1 ? "finding" : "findings")" : unknown == checks.count ? "Unverified" : "No findings"
+        return SummaryTile(route: .security, headline: headline,
+                           caption: store.posture == nil ? "System security checks" : "\(checks.count) checks · \(unknown) unverified",
+                           tone: problems > 0 ? .orange : nil, open: { store.route = .security }) {
+            StatusDots(colors: checks.sorted { $0.status.severityRank < $1.status.severityRank }.map { $0.status == .unknown ? Color.secondary.opacity(0.4) : $0.status.color }, limit: 16)
+        }
+    }
+
+    // MARK: Activity
+
+    private var applicationsTile: some View {
+        let snapshot = store.processes
+        let top = Array((snapshot?.applications ?? []).sorted { $0.cpuUsage > $1.cpuUsage }.prefix(4))
+        let scale = max(100, top.first?.cpuUsage ?? 0)
+        return SummaryTile(route: .applications, headline: snapshot.map { "\($0.applications.count) running" } ?? "Collecting…",
+                           caption: snapshot.map { "\($0.backgroundProcesses.count) background processes · busiest by CPU" } ?? "Applications and processes",
+                           open: { store.route = .applications }) {
+            VStack(spacing: 5) {
+                ForEach(top) { application in
+                    HStack(spacing: 8) {
+                        ApplicationIcon(application: application, size: 16)
+                        Text(application.name).font(.caption).lineLimit(1).frame(width: 110, alignment: .leading)
+                        SegmentBar(segments: [.init(value: application.cpuUsage, color: .blue)], total: scale, height: 6)
+                        Text(Formatting.percent(application.cpuUsage)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    private var connectionsTile: some View {
+        let snapshot = store.networkPorts
+        return SummaryTile(route: .networkPorts, headline: snapshot.map { "\($0.ports.count) listening" } ?? "Collecting…",
+                           caption: snapshot.map { "\($0.externalCount) external · \($0.localhostCount) localhost · \($0.totalConnectionCount) connections" } ?? "Listening ports and connections",
+                           open: { store.route = .networkPorts }) {
+            if let snapshot, !snapshot.ports.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    SegmentBar(segments: [.init(value: Double(snapshot.externalCount), color: .orange),
+                                          .init(value: Double(snapshot.localhostCount), color: .cyan)])
+                    SegmentLegend(items: [("External", .orange), ("Localhost", .cyan)])
+                }
+            }
+        }
+    }
+
+    // MARK: Environment
+
+    private var devServersTile: some View {
+        let servers = devServers.devServers
+        return SummaryTile(route: .devServers, headline: servers.map { "\($0.count) \($0.count == 1 ? "server" : "servers")" } ?? "Awaiting collection",
+                           caption: servers.map { Set($0.compactMap(\.project?.name)).count }.map { "\($0) \($0 == 1 ? "project" : "projects")" } ?? "Projects, listeners and containers",
+                           open: { store.route = .devServers }) {
+            if let servers, !servers.isEmpty {
+                TagChips(tags: servers.flatMap { $0.portPairs.map { ":\($0.primary.port)" } }, color: .blue)
+            }
         }
     }
 
@@ -199,90 +271,118 @@ struct SummaryView: View {
         let version = ProcessInfo.processInfo.operatingSystemVersion
         return "macOS \(version.majorVersion).\(version.minorVersion)"
     }
-
-    private var environment: some View {
-        let settings = settingsStore.settings
-        return SummaryGrid {
-            if !Capabilities.isSandboxed && settings.shows(.devServers) {
-                SummaryNavigationRow(route: .devServers, value: devServers.devServers.map { "\($0.count) servers" } ?? "Awaiting collection", detail: "Projects, listeners and containers") { store.route = .devServers }
-            }
-            if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
-            if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
-            if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
-            if settings.shows(.agents) { AgentsSummaryTile(model: store.agentsModel) { store.route = .agents } }
-            if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
-            if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
-            SummaryNavigationRow(route: .systemDetails, value: macOSVersion, detail: "Hardware, software and limits") { store.route = .systemDetails }
-        }
-    }
 }
 
-/// Two columns of Summary links on one surface; each row stretches to the tallest cell in its grid row.
-private struct SummaryGrid<Content: View>: View {
-    @ViewBuilder let content: Content
+/// The Mac, how long it has been up, and what needs attention right now.
+private struct SummaryHero: View {
+    @ObservedObject var store: MonitorStore
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
-            content
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                identity
+                Spacer(minLength: 16)
+                concerns
+                uptime
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    identity
+                    Spacer(minLength: 8)
+                    uptime
+                }
+                concerns
+            }
         }
+        .padding(16)
         .monitorSurface()
     }
-}
 
-private struct SummarySection<Content: View>: View {
-    let title: String
-    var subtitle: String? = nil
-    @ViewBuilder let content: Content
-
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.subtitle = subtitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.headline)
-                Spacer()
-                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
-            }
-            .padding(.horizontal, 4)
-            content
-        }
-    }
-}
-
-/// Summary links share the same layout as a macOS grouped settings row.
-struct SummaryNavigationRow: View {
-    let route: AppRoute
-    let value: String
-    var detail: String? = nil
-    let open: () -> Void
-
-    var body: some View {
-        Button(action: open) {
+    private var identity: some View {
+        Button { store.route = .systemDetails } label: {
             HStack(spacing: 12) {
-                ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(route.title).font(.body.weight(.medium))
-                    if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SystemInformation.modelName ?? SystemInformation.modelIdentifier)
+                        .font(MonitorStyle.title).lineLimit(1)
+                    Text([SystemInformation.processorName, Formatting.bytes(ProcessInfo.processInfo.physicalMemory) + " memory", version]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Spacer(minLength: 12)
-                Text(value).font(.body).foregroundStyle(.secondary).monospacedDigit()
-                    .multilineTextAlignment(.trailing)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .frame(minHeight: 64, maxHeight: .infinity)
             .contentShape(Rectangle())
-            .overlay(alignment: .bottom) { Rectangle().fill(MonitorStyle.separator.opacity(0.5)).frame(height: 0.5).padding(.leading, 56) }
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .help("View system details")
+    }
+
+    /// Unbundled debug runs have no Info.plist version.
+    private var version: String {
+        "Smack " + ((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).map { "v\($0)" } ?? "dev")
+    }
+
+    @ViewBuilder private var concerns: some View {
+        let items = SummaryConcerns.evaluate(system: store.system, posture: store.posture)
+        if store.system == nil {
+            ProgressView("Collecting system metrics…").controlSize(.small)
+        } else if items.isEmpty {
+            Label("All quiet", systemImage: "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.green)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.green.opacity(0.12), in: Capsule())
+                .help("No thermal, memory, battery, security or CPU concerns right now")
+        } else {
+            HStack(spacing: 6) {
+                ForEach(items.prefix(3), id: \.text) { concern in
+                    Button { store.route = concern.route } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: concern.level == .notice ? "info.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(concern.level.color)
+                            Text(concern.text).lineLimit(1).fixedSize()
+                        }
+                        .font(.callout.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(concern.level.color.opacity(0.14), in: Capsule())
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open \(concern.route.title)")
+                }
+                if items.count > 3 {
+                    Text("+\(items.count - 3)").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var uptime: some View {
+        if let boot = SystemInformation.bootTime {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(CPUReadings.uptime(Date().timeIntervalSince(boot))).font(.body.weight(.semibold)).monospacedDigit()
+                Text("Uptime").font(.caption).foregroundStyle(.secondary)
+            }
+            .help("Up since \(boot.formatted(date: .abbreviated, time: .shortened))")
+        }
     }
 }
 
+private extension VolumeSample {
+    var usedFraction: Double { totalBytes > 0 ? Double(usedBytes) / Double(totalBytes) : 0 }
+}
+
+extension SummaryConcern.Level {
+    var color: Color {
+        switch self {
+        case .notice: .blue
+        case .warning: .orange
+        case .critical: .red
+        }
+    }
+}
 struct BaselineSummaryTile: View {
     @ObservedObject var model: BaselineModel
     @ObservedObject var settingsStore: SettingsStore
@@ -291,8 +391,9 @@ struct BaselineSummaryTile: View {
     var body: some View {
         let settings = settingsStore.settings
         let golden = settings.security.goldenBaselineID.flatMap { id in model.rows.first { $0.0.lastPathComponent == id }?.1 }
-        SummaryNavigationRow(route: .baseline, value: model.rows.isEmpty ? "None saved" : "\(model.rows.count) saved",
-                             detail: golden.map { "Golden: \($0.name.isEmpty ? "Unnamed" : $0.name)" + (settings.security.scheduledDriftCheck ? " · daily check" : "") } ?? "Capture configuration and detect drift", open: open)
+        SummaryTile(route: .baseline, headline: model.rows.isEmpty ? "None saved" : "\(model.rows.count) saved",
+                    caption: golden.map { "Golden: \($0.name.isEmpty ? "Unnamed" : $0.name)" + (settings.security.scheduledDriftCheck ? " · daily check" : "") } ?? "Capture configuration and detect drift",
+                    open: open)
             .task { if model.rows.isEmpty { await model.refresh() } }
     }
 }

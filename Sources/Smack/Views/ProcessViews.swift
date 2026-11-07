@@ -120,7 +120,7 @@ struct ApplicationListView: View {
                                              startup: startup.inventory, launchdIndex: store.launchdIndex())
         VStack(spacing: 0) {
             DetailPageHeader(padding: MonitorStyle.spacing) {
-                ResourceTitle(title: "Applications", systemImage: "app", color: .blue, subtitle: "Running applications and background processes")
+                ResourceTitle(title: "Applications", systemImage: "app", color: AppRoute.applications.tint, subtitle: "Running applications and background processes")
             } actions: {
                 EmptyView()
             } overview: {
