@@ -1,0 +1,15 @@
+{"version": "1.1.0", "focus": [0.62, 0.5],
+ "tagline": "Session Timeline for your AI agents",
+ "features": "Claude Code  ·  Codex  ·  OpenCode  ·  live and replayed",
+ "outro": ["brew install alvagante/tap/smack", "github.com/alvagante/smack"],
+ "segments": [
+  {"start": 0,   "length": 12, "caption": "Agent Sessions: Working or Idle, CPU, MCP, commands", "weight": 0.8},
+  {"start": 12,  "length": 10, "caption": "History: every past session, one click away", "weight": 1.2},
+  {"start": 22,  "length": 18, "caption": "Session Timeline: prompts, answers, commands on lanes", "weight": 0.8},
+  {"start": 40,  "length": 10, "caption": "Everything the agent did, in order", "weight": 1.2},
+  {"start": 50,  "length": 10, "caption": "Transcripts are read only while on screen", "weight": 1.6},
+  {"start": 60,  "length": 12, "caption": "Zoom from the whole session to half a second", "weight": 0.9},
+  {"start": 72,  "length": 10, "caption": "Click an event: arguments, output, diff", "weight": 0.8},
+  {"start": 84,  "length": 16, "caption": "Claude Code, Codex and OpenCode", "weight": 1.2},
+  {"start": 100, "length": 10, "caption": "Replay any session after it ends", "weight": 1}
+ ]}

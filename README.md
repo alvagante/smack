@@ -4,7 +4,7 @@
 
 Smack lives in the notch and menu bar. Move the pointer up to see what your Mac is doing, who is doing it, and act on it. No third-party dependencies, no data leaving the machine.
 
-[![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)](https://lab42.it/assets/images/smack/Smack-1.0.0-Brochure.pdf)
+[Watch the Smack 1.1.0 video](https://youtu.be/LAxwJI7sho4) · [Smack 1.0.0 brochure](https://lab42.it/assets/images/smack/Smack-1.0.0-Brochure.pdf)
 
 ## Features
 
