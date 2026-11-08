@@ -4,6 +4,10 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release CI:** notarization now fails with the notary log when Apple does not accept a submission, and stapling retries for up to five minutes, so a ticket that has not yet propagated (stapler Error 68) no longer fails the DMG step. Shared by the app and DMG steps in `Scripts/notarize.sh`. No runtime cost change.
+
 ## [1.1.0] - 2026-11-07
 
 Projects (spec 007), Project files and Git history, live Summary tiles, Agent Sessions, Standard Window, relative dates and process navigation, Onboarding, Session Timeline (spec 008), and the Projects table and ordering. Build 11.
