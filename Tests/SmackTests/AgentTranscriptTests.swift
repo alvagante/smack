@@ -193,7 +193,8 @@ let codexLegacyTranscript = lines([
     _ = tail.advance(using: files)
     let first = lines(Array(claudeTranscript.split(separator: "\n").prefix(2).map(String.init)))
     files.set("/t.jsonl", first)
-    #expect(tail.advance(using: files))
+    let rereadAfterShrink = tail.advance(using: files)
+    #expect(rereadAfterShrink)
     #expect(tail.index.events.map(\.id) == ["u1"])
 }
 
@@ -263,14 +264,16 @@ private func execute(_ path: String, _ sql: String) {
     let path = try makeOpenCodeDatabase()
     defer { try? FileManager.default.removeItem(atPath: path) }
     var tail = OpenCodeTranscriptTail(database: OpenCodeDatabase(path: path), session: "ses_1")
-    #expect(tail.advance())
+    let initialAdvance = tail.advance()
+    #expect(initialAdvance)
     var index = tail.index
     #expect(index.events.map(\.kind) == [.prompt, .answer, .command, .mcp])
     let command = try #require(index.events.first { $0.id == "call_a" })
     #expect(command.title == "npm test" && command.subtitle == "exit 2" && command.status == .failed && command.duration == 2)
     #expect(index.events.first { $0.id == "call_b" }?.title == "context7 › query-docs")
     #expect(index.inputTokens == 150 && index.outputTokens == 25 && index.model == "deepseek")
-    #expect(!tail.advance(), "nothing changed")
+    let unchanged = !tail.advance()
+    #expect(unchanged, "nothing changed")
 
     // The assistant row streams on: it is rewritten with one more part.
     execute(path, """
@@ -278,7 +281,8 @@ private func execute(_ path: String, _ sql: String) {
         '{"time":{"created":1793557872000,"completed":1793557890000},"content":[{"type":"text","text":"Looking"},{"type":"tool","id":"call_a","name":"bash","state":{"status":"completed","input":{"command":"npm test"},"metadata":{"exit":0}},"time":{"created":1793557873000,"completed":1793557875000}},{"type":"text","text":"All green"}]}'
         WHERE id = 'm2';
         """)
-    #expect(tail.advance())
+    let updated = tail.advance()
+    #expect(updated)
     index = tail.index
     #expect(index.events.filter { $0.id == "call_a" }.count == 1)
     #expect(index.events.first { $0.id == "call_a" }?.status == .ok)
@@ -441,14 +445,17 @@ extension ResourceBudgetTests {
         let files = MemoryTranscriptFiles()
         files.set("/t.jsonl", claudeTranscript)
         var tail = TranscriptFileTail(path: "/t.jsonl", format: .claude)
-        #expect(tail.advance(using: files))
+        let initialAdvance = tail.advance(using: files)
+        #expect(initialAdvance)
         #expect(files.bytesRead == claudeTranscript.utf8.count)
-        #expect(!tail.advance(using: files), "an unchanged transcript costs one size check")
+        let unchanged = !tail.advance(using: files)
+        #expect(unchanged, "an unchanged transcript costs one size check")
         #expect(files.bytesRead == claudeTranscript.utf8.count)
         let line = #"{"type":"assistant","uuid":"a9","timestamp":"2026-11-01T10:06:00.000Z","message":{"id":"msg_9","role":"assistant","content":[{"type":"text","text":"Done"}]}}"# + "\n"
         files.append("/t.jsonl", line)
         let before = files.bytesRead
-        #expect(tail.advance(using: files))
+        let appended = tail.advance(using: files)
+        #expect(appended)
         #expect(files.bytesRead - before == line.utf8.count)
 
         let command = try #require(tail.index.events.first { $0.id == "toolu_1" })
