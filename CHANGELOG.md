@@ -4,6 +4,10 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-07
+
+Projects (spec 007), Project files and Git history, live Summary tiles, Agent Sessions, Standard Window, relative dates and process navigation, Onboarding, Session Timeline (spec 008), and the Projects table and ordering. Build 11.
+
 ### Added
 
 - **Projects ordering:** visible sort tags above the table, with Latest activity selected newest first by default. Clicking the selected tag reverses the order; table headers stay sortable. Activity uses the existing project folder modification date. Start time sorts by the latest running agent or dev-server session, joined from existing Live Data. Unavailable dates stay last in either direction. No collection or refresh cost change.
@@ -13,11 +17,6 @@ All notable changes to Smack are documented in this file.
 
 - **Projects table:** the Projects list is now a table with sortable columns (click a header; click again to reverse): Name, Language, Branch, Status, Location, Modified and Size. Status shows Clean, changed-file and conflict counts, and ahead/behind. The Sort menu and direction button are gone.
   - Cost: Git status is read only when you press Load Git status or sort by Status: one `git status --porcelain=v2 --branch` per repository (no `git log`), two at a time, each capped at 8 seconds and 2 MB, cancelled when you leave the page and cleared by Refresh. Held in memory only, about 100 bytes per repository. Nothing runs while the Panel is closed or at discovery; no history writes. Release measurement not yet run.
-- **Applications list:** the section title above the rows ("Apps" or "Applications") is gone; the column labels stay and keep sorting, and "Background Processes" keeps its title. No cost change: rendering only.## [1.1.0] - 2026-11-07
-
-Projects (spec 007), Project files and Git history, live Summary tiles, Agent Sessions, Standard Window, relative dates and process navigation, Onboarding. Build 11.
-
-### Added
 
 - **Onboarding:** on first launch, and once after upgrading to this release, a window asks for the Window style (menu-bar Panel or Standard Window), how the Panel opens, Launch at login, a Performance Preset, Project Folders and which environment pages Show on Summary. Choices are prefilled from the current Settings; a hand-tuned (Custom) performance setup is kept unless a preset is picked, and Skip or closing the window changes nothing. Project Folders and Summary pages are hidden in the App Store Build. No cost change: no collection, and one UserDefaults key (`onboarding-revision`).
 - **Project details:** Files opens the existing folder browser and file viewer; Git history shows the latest 100 commits, up to 200 branches and tags, remotes, and a selected commit's message, changed files and patch.
@@ -33,6 +32,7 @@ Projects (spec 007), Project files and Git history, live Summary tiles, Agent Se
 
 ### Changed
 
+- **Applications list:** the section title above the rows ("Apps" or "Applications") is gone; the column labels stay and keep sorting, and "Background Processes" keeps its title. No cost change: rendering only.
 - **Title bar:** the Previous page button now sits right before the page title and appears only when there is a page to go back to. The Smack icon sits at the right edge of the sidebar column and opens Summary. No cost change.
 - **Relative dates:** single-moment dates (Checked, Started, Ended, Modified, Last commit, boot time, baselines, Security check, file dates, Timeline event details) also read as elapsed time, such as "14:03 (5 minutes ago)"; the Projects list shows only the relative age, with the full date on hover. The text is computed when the view renders and does not tick on its own, so no timers or wakeups are added.
 - **Network connections:** process names on listening ports and connections, and connection groups owned by a single background process, open the process Detail Page while it is running. Uses the process list already collected, indexed by PID once per render; no new sampling.
