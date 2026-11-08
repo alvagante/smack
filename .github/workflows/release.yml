@@ -15,7 +15,7 @@ concurrency:
 jobs:
   release:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -67,12 +67,7 @@ jobs:
             exit 1
           fi
           echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-          ditto -c -k --keepParent dist/Smack.app "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --key "$RUNNER_TEMP/AuthKey.p8" \
-            --key-id "$NOTARY_KEY_ID" \
-            --issuer "$NOTARY_ISSUER_ID" --wait
-          xcrun stapler staple dist/Smack.app
+          Scripts/notarize.sh dist/Smack.app "$RUNNER_TEMP/AuthKey.p8" "$NOTARY_KEY_ID" "$NOTARY_ISSUER_ID"
           spctl --assess --type execute --verbose dist/Smack.app
 
       - name: Package release
@@ -89,11 +84,7 @@ jobs:
           SMACK_SIGN_IDENTITY: ${{ secrets.SMACK_SIGN_IDENTITY }}
         run: |
           Scripts/make-dmg.sh dist/Smack.app "dist/${ARCHIVE_NAME}.dmg" "$SMACK_SIGN_IDENTITY"
-          xcrun notarytool submit "dist/${ARCHIVE_NAME}.dmg" \
-            --key "$RUNNER_TEMP/AuthKey.p8" \
-            --key-id "$NOTARY_KEY_ID" \
-            --issuer "$NOTARY_ISSUER_ID" --wait
-          xcrun stapler staple "dist/${ARCHIVE_NAME}.dmg"
+          Scripts/notarize.sh "dist/${ARCHIVE_NAME}.dmg" "$RUNNER_TEMP/AuthKey.p8" "$NOTARY_KEY_ID" "$NOTARY_ISSUER_ID"
           spctl --assess --type open --context context:primary-signature --verbose "dist/${ARCHIVE_NAME}.dmg"
           (cd dist && shasum -a 256 "${ARCHIVE_NAME}.dmg" > "${ARCHIVE_NAME}.dmg.sha256")
 
