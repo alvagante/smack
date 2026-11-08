@@ -353,7 +353,10 @@ private func write(_ text: String, to url: URL, modified: Date) throws {
     var session = AgentSession(agentID: "codex", root: ProcessIdentity(pid: 42, startTime: now.addingTimeInterval(-60)), startedAt: now.addingTimeInterval(-60))
     session.project = ProjectContext(directory: "/work/app", root: nil, name: "app", kind: nil, git: nil)
     let source = TranscriptLocator(home: home).source(for: session)
-    #expect(source == .file(path: folder.appendingPathComponent("rollout-mine.jsonl").path, format: .codex))
+    guard case .file(let path, let format) = source else { Issue.record("the matching rollout is selected"); return }
+    #expect(format == .codex)
+    #expect(URL(fileURLWithPath: path).resolvingSymlinksInPath() ==
+            folder.appendingPathComponent("rollout-mine.jsonl").resolvingSymlinksInPath())
     session.project?.directory = "/work/none"
     #expect(TranscriptLocator(home: home).source(for: session) == nil)
     #expect(TranscriptLocator.codexDirectory(Data(#"{"payload":{"cwd":"/a \"b\"/c"}}"#.utf8)) == #"/a "b"/c"#)
