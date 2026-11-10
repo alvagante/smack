@@ -369,8 +369,19 @@ final class DockerMonitor: ObservableObject {
     @Published private(set) var operation: DockerContainerOperation?
     @Published private(set) var operationOutput = ""
     @Published private(set) var operationFailed = false
-    var detailsWanted = false
+    /// Pages on screen that asked for details (the Docker page, a Project's Docker tab). Counted, because the page
+    /// that appears next can ask before the one leaving releases.
+    private var detailRequests = 0
+    var detailsWanted: Bool { detailRequests > 0 }
     var section = DockerSection.containers
+
+    /// A page showing Docker details appeared; balance every call with `releaseDetails()`.
+    func requestDetails(_ section: DockerSection) {
+        detailRequests += 1
+        self.section = section
+    }
+
+    func releaseDetails() { detailRequests = max(0, detailRequests - 1) }
     private var detailDates: [DockerSection: Date] = [:]
     private var source = ""
 

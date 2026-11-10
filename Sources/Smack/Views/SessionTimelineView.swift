@@ -10,16 +10,18 @@ struct SessionTimelineView: View {
     let points: [AgentSessionPoint]
     let transcripts: Bool
     let interval: TimeInterval
+    var onIndex: (TranscriptIndex) -> Void
     @State private var animation: ViewportAnimation?
 
     init(source: TranscriptSource? = nil, session: AgentSession?, points: [AgentSessionPoint] = [], transcripts: Bool,
-         interval: TimeInterval, visibility: PanelVisibility) {
+         interval: TimeInterval, visibility: PanelVisibility, onIndex: @escaping (TranscriptIndex) -> Void = { _ in }) {
         _model = StateObject(wrappedValue: SessionTimelineModel(source: source))
         self.session = session
         self.points = points
         self.transcripts = transcripts
         self.interval = interval
         self.visibility = visibility
+        self.onIndex = onIndex
     }
 
     private var live: Bool { session.map { $0.endedAt == nil } ?? false }
@@ -35,6 +37,7 @@ struct SessionTimelineView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            TimelineSessionSummary(model: model)
             TimelineToolbar(model: model, animation: $animation)
             if model.events.isEmpty {
                 placeholder.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,6 +70,7 @@ struct SessionTimelineView: View {
                 try? await Task.sleep(for: .seconds(interval))
             } while !Task.isCancelled
         }
+        .onChange(of: model.version) { onIndex(model.index) }
         .onChange(of: ProcessSignature(session), initial: true) {
             model.setProcessEvents(session?.timelineEvents() ?? [])
         }
@@ -179,6 +183,32 @@ extension TranscriptLane {
 
 // MARK: - Toolbar, lanes and stats
 
+private struct TimelineSessionSummary: View {
+    @ObservedObject var model: SessionTimelineModel
+
+    var body: some View {
+        HStack(spacing: 20) {
+            value("Total tokens", model.index.tokens.isEmpty ? nil : (model.index.inputTokens + model.index.outputTokens).formatted())
+            value("Tokens in", model.index.tokens.isEmpty ? nil : model.index.inputTokens.formatted())
+            value("Tokens out", model.index.tokens.isEmpty ? nil : model.index.outputTokens.formatted())
+            if let name = model.index.model { value("Model", name) }
+            if let first = model.index.first, let last = model.index.last {
+                value("Duration", Formatting.duration(last.timeIntervalSince(first)))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .monitorSurface()
+    }
+
+    private func value(_ title: String, _ text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(text ?? "Unavailable").font(.callout.weight(.semibold)).monospacedDigit()
+        }
+    }
+}
+
 private struct TimelineToolbar: View {
     @ObservedObject var model: SessionTimelineModel
     @Binding var animation: ViewportAnimation?
@@ -278,11 +308,6 @@ private struct TimelineStats: View {
             stat("server.rack", "\(counts[.mcp] ?? 0) MCP calls")
             stat("pencil.line", "\(counts[.fileChange] ?? 0) edits")
             if failures > 0 { stat("exclamationmark.triangle.fill", "\(failures) failed", color: .red) }
-            if !model.index.tokens.isEmpty {
-                stat("arrow.down.circle", model.index.inputTokens.formatted(.number.notation(.compactName)) + " in")
-                stat("arrow.up.circle", model.index.outputTokens.formatted(.number.notation(.compactName)) + " out")
-            }
-            if let name = model.index.model { stat("cpu", name) }
             if model.index.dropped > 0 { stat("scissors", "\(model.index.dropped.formatted()) oldest not shown") }
             Spacer(minLength: 8)
             if let source = model.source {
@@ -824,6 +849,12 @@ private struct TimelineInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Event details").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                ToolbarIconButton(title: "Previous event (←)", systemImage: "chevron.left") { model.step(-1) }
+                ToolbarIconButton(title: "Next event (→)", systemImage: "chevron.right") { model.step(1) }
+            }
             if let event = model.selectedEvent {
                 content(event)
             } else {
@@ -877,8 +908,6 @@ private struct TimelineInspector: View {
         .font(.caption)
         .monospacedDigit()
         HStack(spacing: 6) {
-            ToolbarIconButton(title: "Previous event (←)", systemImage: "chevron.left") { model.step(-1) }
-            ToolbarIconButton(title: "Next event (→)", systemImage: "chevron.right") { model.step(1) }
             Spacer(minLength: 4)
             Button {
                 animate(model, $animation, to: model.target(showing: event.start...TimelineLayout.displayEnd(event, now: model.clock), padding: 0.8))

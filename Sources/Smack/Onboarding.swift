@@ -21,6 +21,11 @@ struct OnboardingChoices: Equatable {
     var windowStyle: WindowStyle
     var trigger: PanelTrigger
     var launchAtLogin: Bool
+    var hoverDelay: TimeInterval
+    var panelSound: PanelSound
+    var appearance: PanelAppearance
+    var glassMode: Bool
+    var glassOpacity: Double
     /// Nil keeps the current, hand-tuned values (Custom); a preset is applied only when one is picked.
     var preset: PerformancePreset?
     /// Whether the starting values matched no preset, so Custom stays selectable after trying a preset.
@@ -32,6 +37,11 @@ struct OnboardingChoices: Equatable {
         windowStyle = settings.panel.windowStyle
         trigger = settings.panel.trigger
         launchAtLogin = settings.panel.launchAtLogin
+        hoverDelay = settings.panel.hoverDelay
+        panelSound = settings.panel.panelSound
+        appearance = settings.panel.appearance
+        glassMode = settings.panel.glassMode
+        glassOpacity = settings.panel.glassOpacity
         preset = PerformancePreset.matching(settings)
         startedCustom = preset == nil
         projectFolders = settings.devTools.devProjectFolders
@@ -42,6 +52,11 @@ struct OnboardingChoices: Equatable {
         settings.panel.windowStyle = windowStyle
         settings.panel.trigger = trigger
         settings.panel.launchAtLogin = launchAtLogin
+        settings.panel.hoverDelay = hoverDelay
+        settings.panel.panelSound = panelSound
+        settings.panel.appearance = appearance
+        settings.panel.glassMode = glassMode
+        settings.panel.glassOpacity = glassOpacity
         preset?.apply(to: &settings)
         settings.devTools.devProjectFolders = projectFolders
         settings.hiddenPages = SummaryPage.allCases.filter { !shownPages.contains($0) }

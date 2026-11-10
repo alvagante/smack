@@ -318,12 +318,62 @@ final class TranscriptHistoryModel: ObservableObject {
         let catalog = catalog
         let limit = limit
         let value = await Task.detached(priority: .utility) { catalog.recent(limit: limit) }.value
-        result = value
+        let previousItems = Dictionary(uniqueKeysWithValues: result.items.map { ($0.id, $0) })
+        var refreshed = value
+        for i in refreshed.items.indices {
+            if let previous = previousItems[refreshed.items[i].id], previous.updated == refreshed.items[i].updated {
+                refreshed.items[i].inputTokens = previous.inputTokens
+                refreshed.items[i].outputTokens = previous.outputTokens
+            }
+        }
+        result = refreshed
         loadedAt = Date()
+    }
+
+    func record(_ index: TranscriptIndex, for id: String) {
+        guard let position = result.items.firstIndex(where: { $0.id == id }) else { return }
+        result.items[position].inputTokens = index.tokens.isEmpty ? nil : index.inputTokens
+        result.items[position].outputTokens = index.tokens.isEmpty ? nil : index.outputTokens
     }
 
     func showMore() async {
         limit += Self.page
         await load(maxAge: 0, force: true)
+    }
+}
+
+/// Saved sessions of individual Projects, for their Agent sessions section. Each repository is looked up at most
+/// once per Inventory Cache period, and results are kept for the `capacity` most recently opened repositories.
+@MainActor
+final class ProjectTranscriptHistory: ObservableObject {
+    nonisolated static let capacity = 8
+    nonisolated static let limit = 40
+
+    @Published private(set) var results: [String: TranscriptCatalogResult] = [:]
+    @Published private(set) var loading: String?
+    private var loadedAt: [String: Date] = [:]
+    private var order: [String] = []
+    private let fetch: @Sendable (String) -> TranscriptCatalogResult
+
+    init(fetch: @escaping @Sendable (String) -> TranscriptCatalogResult = { TranscriptCatalog().recent(underRoot: $0, limit: ProjectTranscriptHistory.limit) }) {
+        self.fetch = fetch
+    }
+
+    func load(root: String, maxAge: TimeInterval, force: Bool = false) async {
+        guard loading == nil else { return }
+        if !force, let date = loadedAt[root], Date().timeIntervalSince(date) < maxAge { return }
+        loading = root
+        defer { loading = nil }
+        let fetch = fetch
+        let value = await Task.detached(priority: .utility) { fetch(root) }.value
+        results[root] = value
+        loadedAt[root] = Date()
+        order.removeAll { $0 == root }
+        order.append(root)
+        while order.count > Self.capacity, let oldest = order.first {
+            order.removeFirst()
+            results[oldest] = nil
+            loadedAt[oldest] = nil
+        }
     }
 }

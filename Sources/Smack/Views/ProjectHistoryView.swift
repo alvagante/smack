@@ -9,22 +9,35 @@ struct ProjectFilesView: View {
     }
 }
 
+enum ProjectHistoryMode: String, CaseIterable, Identifiable {
+    case insights = "Insights", commits = "Commits"
+    var id: Self { self }
+}
+
 struct ProjectHistoryView: View {
     let root: String
+    @State var mode = ProjectHistoryMode.insights
     var inspector = ProjectHistoryInspector()
     @State private var history: ProjectHistory?
     @State private var selected: String?
     @State private var detail: String?
     @State private var refresh = 0
+    @State private var refreshedHistory: Int?
     @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             DetailContentTitle(title: "Git history", systemImage: "clock.arrow.circlepath", color: AppRoute.projects.tint,
-                               caption: "Latest 100 commits on the current branch. Local data, refreshed on request.") {
+                               caption: mode == .insights ? "Who commits when, and where lines change. Local data, refreshed on request."
+                                                          : "Latest 100 commits on the current branch. Local data, refreshed on request.") {
+                Picker("View", selection: $mode) {
+                    ForEach(ProjectHistoryMode.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
                 RefreshButton { selected = nil; detail = nil; refresh += 1 }
             }
-            if let history {
+            if mode == .insights {
+                ProjectGitInsightsView(root: root, inspector: inspector, refresh: refresh)
+            } else if let history {
                 ForEach(Array(history.messages.enumerated()), id: \.offset) { _, message in
                     Label(message, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
@@ -84,7 +97,10 @@ struct ProjectHistoryView: View {
                 Spacer()
             }
         }
-        .task(id: refresh) {
+        .task(id: "\(refresh)-\(mode.rawValue)") {
+            guard mode == .commits else { return }
+            if history != nil, refreshedHistory == refresh { return }
+            refreshedHistory = refresh
             history = nil
             let value = await inspector.history(root: root)
             guard !Task.isCancelled else { return }

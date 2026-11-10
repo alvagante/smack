@@ -125,6 +125,8 @@ final class AgentMonitor: ObservableObject {
     let live = AgentSessionsModel()
     /// Past Agent Session transcripts for the History list, kept for the Inventory Cache period.
     let transcripts = TranscriptHistoryModel()
+    /// Saved sessions of individual Projects, looked up only while a Project's Agent sessions section is open.
+    let projectTranscripts = ProjectTranscriptHistory()
     /// Read without observing; views that show sessions observe `live`.
     var sessions: [AgentSession] {
         get { live.sessions }

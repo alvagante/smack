@@ -36,7 +36,6 @@ struct DevEnvironmentDetailView: View {
     @State private var language: DevLanguage?
     @State private var selected: String?
     @State private var query = ""
-    @State private var packageQuery = ""
     @State private var showingDiscoveryScope = false
 
     private var environments: [DevEnvironment] {
@@ -95,7 +94,7 @@ struct DevEnvironmentDetailView: View {
                         } else {
                             Text("\(environments.count) matching installations").font(.headline)
                             Picker("Installation", selection: Binding(
-                                get: { current?.id ?? "" }, set: { selected = $0; packageQuery = "" }
+                                get: { current?.id ?? "" }, set: { selected = $0 }
                             )) {
                                 ForEach(environments) { item in
                                     Text("\(item.language.rawValue) · \(item.executable)").tag(item.id)
@@ -114,10 +113,7 @@ struct DevEnvironmentDetailView: View {
         .background(MonitorStyle.page)
         .task { if model.snapshot == nil { await model.refresh() } }
         .task(id: "\(current?.id ?? ""):\(model.snapshot?.timestamp.timeIntervalSince1970 ?? 0)") { if let item = current { await model.inspect(item) } }
-        .onChange(of: model.snapshot?.timestamp) {
-            selected = nil
-            packageQuery = ""
-        }
+        .onChange(of: model.snapshot?.timestamp) { selected = nil }
     }
 
     private var discoveryScope: some View {
@@ -140,7 +136,7 @@ struct DevEnvironmentDetailView: View {
 
     private func languageButton(_ item: DevLanguage?) -> some View {
         let count = (model.snapshot?.environments ?? []).filter { item == nil || $0.language == item }.count
-        return Button { language = item; selected = nil; packageQuery = "" } label: {
+        return Button { language = item; selected = nil } label: {
             HStack {
                 Text(item?.rawValue ?? "All languages")
                 Spacer()
@@ -151,40 +147,7 @@ struct DevEnvironmentDetailView: View {
 
     @ViewBuilder private func details(_ item: DevEnvironment) -> some View {
         Divider()
-        Text("\(item.language.rawValue) installation").font(.headline)
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Executable: " + item.executable)
-            Text("Resolved path: " + item.resolvedPath)
-            Button("Reveal executable") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.executable)]) }
-        }.font(.caption.monospaced()).textSelection(.enabled)
-        if let inspection = model.inspections[item.id] {
-            TextField("Filter package and diagnostic output", text: $packageQuery).textFieldStyle(.roundedBorder)
-            if inspection.reports.count == 1 {
-                Text("Only runtime version metadata is available for this language. Project package inventories are not collected.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(inspection.reports) { report in
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(report.title, systemImage: report.failed ? "exclamationmark.triangle" : "terminal")
-                            .font(.headline).foregroundStyle(report.failed ? Color.orange : Color.primary)
-                        DisclosureGroup("Command") { Text(report.command).font(.caption.monospaced()).textSelection(.enabled) }
-                        let lines = report.output.components(separatedBy: .newlines).filter {
-                            packageQuery.isEmpty || $0.localizedCaseInsensitiveContains(packageQuery)
-                        }
-                        Text(lines.isEmpty ? "No matching output." : lines.joined(separator: "\n"))
-                            .font(.caption.monospaced()).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button("Copy output") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(report.output, forType: .string)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        } else {
-            ProgressView("Reading runtime and packages…").controlSize(.small)
-        }
+        DevEnvironmentInspectionView(model: model, item: item).id(item.id)
     }
 
     private func addFolder() {
@@ -194,6 +157,53 @@ struct DevEnvironmentDetailView: View {
         panel.prompt = "Scan"
         if panel.runModal() == .OK, let path = panel.url?.path {
             Task { await model.addFolder(path) }
+        }
+    }
+}
+
+/// One installation's paths and its on-demand runtime and package reports. Showing it never runs a probe;
+/// the page that shows it calls `inspect` for the selected installation.
+struct DevEnvironmentInspectionView: View {
+    @ObservedObject var model: DevEnvironmentMonitor
+    let item: DevEnvironment
+    @State private var packageQuery = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            Text("\(item.language.rawValue) installation").font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Executable: " + item.executable)
+                Text("Resolved path: " + item.resolvedPath)
+                Button("Reveal executable") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.executable)]) }
+            }.font(.caption.monospaced()).textSelection(.enabled)
+            if let inspection = model.inspections[item.id] {
+                TextField("Filter package and diagnostic output", text: $packageQuery).textFieldStyle(.roundedBorder)
+                if inspection.reports.count == 1 {
+                    Text("Only runtime version metadata is available for this language. Project package inventories are not collected.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(inspection.reports) { report in
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label(report.title, systemImage: report.failed ? "exclamationmark.triangle" : "terminal")
+                                .font(.headline).foregroundStyle(report.failed ? Color.orange : Color.primary)
+                            DisclosureGroup("Command") { Text(report.command).font(.caption.monospaced()).textSelection(.enabled) }
+                            let lines = report.output.components(separatedBy: .newlines).filter {
+                                packageQuery.isEmpty || $0.localizedCaseInsensitiveContains(packageQuery)
+                            }
+                            Text(lines.isEmpty ? "No matching output." : lines.joined(separator: "\n"))
+                                .font(.caption.monospaced()).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Copy output") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(report.output, forType: .string)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else {
+                ProgressView("Reading runtime and packages…").controlSize(.small)
+            }
         }
     }
 }

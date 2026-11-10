@@ -81,12 +81,13 @@ struct AgentDetailView: View {
                     RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
                 }
             } overview: {
-                if mode == .sessions { AgentSessionsOverview(live: model.live) } else { overview }
+                if mode == .sessions { AgentSessionsOverview(live: model.live) } else if mode == .configs { overview }
             }
             Divider()
             if mode == .sessions {
-                AgentSessionsView(live: model.live, store: store, history: model.transcripts,
-                                  historyMaxAge: model.cache.slowInventory, selectedID: session)
+                AgentSessionsView(live: model.live, store: store, selectedID: session)
+            } else if mode == .saved {
+                SavedSessionsView(history: model.transcripts, store: store, maxAge: model.cache.slowInventory)
             } else {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -181,7 +182,8 @@ struct AgentDetailView: View {
 }
 
 enum AgentPageMode: String, CaseIterable, Identifiable {
-    case sessions = "Sessions"
+    case sessions = "Active Sessions"
+    case saved = "Saved Sessions"
     case configs = "Configs"
     var id: Self { self }
 }
@@ -192,9 +194,11 @@ private struct AgentPageModePicker: View {
 
     var body: some View {
         PageModeSwitch(options: [
-            PageModeOption(id: AgentPageMode.sessions, title: "Sessions", systemImage: "terminal",
+            PageModeOption(id: AgentPageMode.sessions, title: "Active Sessions", systemImage: "terminal",
                            count: live.liveCount,
                            help: "Running and recently ended Agent Sessions, with their processes, commands, network and log."),
+            PageModeOption(id: AgentPageMode.saved, title: "Saved Sessions", systemImage: "clock.arrow.circlepath",
+                           help: "Browse, filter and sort recorded agent transcripts."),
             PageModeOption(id: AgentPageMode.configs, title: "Configs", systemImage: "slider.horizontal.3",
                            help: "Installed agents and their configuration, skills, memory, instructions, MCP servers, hooks and extensions."),
         ], selection: $mode)

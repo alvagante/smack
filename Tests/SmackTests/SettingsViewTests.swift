@@ -35,7 +35,7 @@ import Testing
         let view = SettingsView(store: store)
         let controller = NSHostingController(rootView: view)
         controller.loadView()
-        #expect(view.soundSelectionBinding.wrappedValue == .smack)
+        #expect(view.soundSelectionBinding.wrappedValue == .none)
 
         view.soundSelectionBinding.wrappedValue = .pop
         #expect(settingsStore.settings.panel.panelSound == .pop)

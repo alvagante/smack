@@ -141,9 +141,9 @@ private func makeTestTempDir() throws -> URL {
         )
         defer { controller.close() }
 
-        // 1. Initial default is .smack
+        // 1. New installations start muted
         controller.open()
-        #expect(sound.lastPlayedSound == .smack)
+        #expect(sound.lastPlayedSound == PanelSound.none)
         controller.close()
 
         // 2. Change sound to .bottle

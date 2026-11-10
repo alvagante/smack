@@ -140,7 +140,13 @@ struct OpenCodeDatabase: Sendable {
         SELECT id, title, directory, time_created, time_updated FROM session_v2
         WHERE parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC LIMIT ?1
         """
-    static var statements: [String] { [messagesSQL, messageSQL, liveSQL, recentSQL] }
+    /// Top-level sessions recorded in `directory` or below it (`?2` is `directory/%`).
+    static let directorySQL = """
+        SELECT id, title, directory, time_created, time_updated FROM session_v2
+        WHERE parent_id IS NULL AND time_archived IS NULL AND (directory = ?1 OR directory LIKE ?2 ESCAPE '\\')
+        ORDER BY time_updated DESC LIMIT ?3
+        """
+    static var statements: [String] { [messagesSQL, messageSQL, liveSQL, recentSQL, directorySQL] }
 
     struct Row: Sendable {
         var id: String
@@ -200,6 +206,22 @@ struct OpenCodeDatabase: Sendable {
             Self.bind(directory, at: 1, to: statement)
             sqlite3_bind_int64(statement, 2, Int64(since.timeIntervalSince1970 * 1000))
         }) { Self.text($0, 0) }?.first ?? nil
+    }
+
+    func recent(underDirectory directory: String, limit: Int) -> [Summary] {
+        guard let db = open() else { return [] }
+        defer { sqlite3_close(db) }
+        let pattern = directory.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_") + "/%"
+        return query(db, Self.directorySQL, bind: { statement in
+            Self.bind(directory, at: 1, to: statement)
+            Self.bind(pattern, at: 2, to: statement)
+            sqlite3_bind_int64(statement, 3, Int64(limit))
+        }) { statement in
+            Summary(id: Self.text(statement, 0) ?? "", title: Self.text(statement, 1), directory: Self.text(statement, 2),
+                    created: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 3)) / 1000),
+                    updated: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 4)) / 1000))
+        } ?? []
     }
 
     func recent(limit: Int) -> [Summary] {
@@ -405,9 +427,13 @@ struct PastTranscript: Identifiable, Sendable, Equatable {
     var started: Date?
     var updated: Date
     var size: Int?
+    var inputTokens: Int?
+    var outputTokens: Int?
 
+    var duration: TimeInterval? { started.map { max(0, updated.timeIntervalSince($0)) } }
     var id: String { source.id }
     var agentID: String { source.format.agentID }
+    var agentName: String { AgentDefinition.catalog.first { $0.id == agentID }?.name ?? agentID }
     var projectName: String? { directory.map { ($0 as NSString).lastPathComponent } }
 }
 
@@ -485,6 +511,68 @@ struct TranscriptCatalog: Sendable {
                                   started: head.first, updated: log.modifiedAt, size: log.size)
         }
         return (Array(items), compressed)
+    }
+
+    static let projectCodexDays = 30
+    static let projectCodexFiles = 200
+
+    /// Claude Code's folder name for a working directory: every character other than a letter or digit becomes `-`.
+    static func claudeFolder(_ directory: String) -> String {
+        String(directory.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+    }
+
+    /// The newest transcripts recorded in `root` or below it. Claude Code: only folders named after the root, then
+    /// the 64 KB heads of their newest `limit` files. Codex: rollouts of the last `projectCodexDays` days, at most
+    /// `projectCodexFiles` heads. OpenCode: one indexed query. Each head confirms the directory, so a sibling whose
+    /// folder name shares the prefix (`app-tools` next to `app`) is left out.
+    func recent(underRoot root: String, limit: Int, now: Date = Date()) -> TranscriptCatalogResult {
+        func inside(_ directory: String?) -> Bool { directory.map { $0 == root || $0.hasPrefix(root + "/") } ?? false }
+        var items: [PastTranscript] = []
+        if agents.contains("claude") {
+            let prefix = Self.claudeFolder(root)
+            var logs: [AgentSessionLog] = []
+            for folder in folders(home.appendingPathComponent(".claude/projects")).prefix(2_000)
+            where folder.lastPathComponent == prefix || folder.lastPathComponent.hasPrefix(prefix + "-") {
+                logs += listing(folder).filter { $0.path.hasSuffix(".jsonl") && !($0.path as NSString).lastPathComponent.hasPrefix("agent-") }
+            }
+            items += logs.sorted { $0.modifiedAt > $1.modifiedAt }.prefix(limit).compactMap { log in
+                let head = Self.headIndex(files.read(log.path, offset: 0, length: Self.headBytes), format: .claude)
+                guard inside(head.directory) else { return nil }
+                return PastTranscript(source: .file(path: log.path, format: .claude), directory: head.directory, title: head.title,
+                                      started: head.first, updated: log.modifiedAt, size: log.size)
+            }
+        }
+        if agents.contains("codex") {
+            let cutoff = Calendar.current.startOfDay(for: now.addingTimeInterval(-Double(Self.projectCodexDays) * 86_400))
+            var logs: [AgentSessionLog] = []
+            outer: for year in folders(home.appendingPathComponent(".codex/sessions")) {
+                for month in folders(year) {
+                    for day in folders(month) {
+                        let parts = DateComponents(year: Int(year.lastPathComponent), month: Int(month.lastPathComponent),
+                                                   day: Int(day.lastPathComponent))
+                        guard let date = Calendar.current.date(from: parts), date >= cutoff else { break outer }
+                        logs += listing(day).filter { $0.path.hasSuffix(".jsonl") }
+                        if logs.count >= Self.projectCodexFiles { break outer }
+                    }
+                }
+            }
+            items += logs.sorted { $0.modifiedAt > $1.modifiedAt }.prefix(Self.projectCodexFiles).compactMap { log in
+                let data = files.read(log.path, offset: 0, length: Self.headBytes * 2)
+                let head = Self.headIndex(data, format: .codex)
+                let directory = head.directory ?? TranscriptLocator.codexDirectory(data)
+                guard inside(directory) else { return nil }
+                return PastTranscript(source: .file(path: log.path, format: .codex), directory: directory, title: head.title,
+                                      started: head.first, updated: log.modifiedAt, size: log.size)
+            }
+        }
+        if agents.contains("opencode") {
+            let database = OpenCodeDatabase(path: home.appendingPathComponent(".local/share/opencode/opencode.db").path)
+            items += database.recent(underDirectory: root, limit: limit).map {
+                PastTranscript(source: .openCode(database: database.path, session: $0.id), directory: $0.directory,
+                               title: $0.title, started: $0.created, updated: $0.updated)
+            }
+        }
+        return TranscriptCatalogResult(items: Array(items.sorted { $0.updated > $1.updated }.prefix(limit)))
     }
 
     /// Parses the complete lines in the head of a transcript.

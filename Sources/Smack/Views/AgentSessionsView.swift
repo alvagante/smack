@@ -6,71 +6,61 @@ import SwiftUI
 struct AgentSessionsView: View {
     @ObservedObject var live: AgentSessionsModel
     @ObservedObject var store: MonitorStore
-    @ObservedObject var history: TranscriptHistoryModel
-    let historyMaxAge: TimeInterval
+    /// Only these sessions, such as a Project's; nil shows every tracked session.
+    let scope: [AgentSession]?
     @State private var selectedID: String?
-    /// A past transcript from History; shown instead of a tracked session while set.
-    @State private var selectedPast: String?
 
-    init(live: AgentSessionsModel, store: MonitorStore, history: TranscriptHistoryModel, historyMaxAge: TimeInterval,
-         selectedID: String? = nil) {
+    init(live: AgentSessionsModel, store: MonitorStore,
+         selectedID: String? = nil, scope: [AgentSession]? = nil) {
         self.live = live
+        self.scope = scope
         self.store = store
-        self.history = history
-        self.historyMaxAge = historyMaxAge
         _selectedID = State(initialValue: selectedID)
     }
 
-    private var list: AgentSessionList { AgentSessionList(sessions: live.sessions) }
+    private var sessions: [AgentSession] { scope ?? live.sessions }
 
     var body: some View {
-        let list = list
-        let selected = live.sessions.first { $0.id == selectedID } ?? list.live.first?.session ?? list.ended.first
+        let sessions = sessions
+        let list = AgentSessionList(sessions: sessions)
+        let selected = sessions.first { $0.id == selectedID } ?? list.live.first?.session ?? list.ended.first
         content(list, selected: selected)
             // Pin what is shown, so a newer session does not replace it; fall back only when it is gone.
             .onChange(of: selected?.id, initial: true) { _, id in
-                if selectedID.map({ current in !live.sessions.contains { $0.id == current } }) ?? true { selectedID = id }
+                if selectedID.map({ current in !sessions.contains { $0.id == current } }) ?? true { selectedID = id }
             }
     }
 
     @ViewBuilder private func content(_ list: AgentSessionList, selected: AgentSession?) -> some View {
-        let transcripts = store.settingsStore.settings.devTools.readSessionTranscripts
-        let past = transcripts ? selectedPast.flatMap { id in history.result.items.first { $0.id == id } } : nil
-        let highlighted = past == nil ? selected?.id : nil
-        if selected != nil || transcripts {
+        // A single scoped session needs no list beside it.
+        let showsList = scope == nil || list.live.count + list.ended.count > 1
+        let highlighted = selected?.id
+        if selected != nil {
             HStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
-                        ForEach(list.live) { entry in
-                            card(entry.session, selected: highlighted).padding(.leading, CGFloat(entry.depth) * 14)
-                        }
-                        if !list.ended.isEmpty {
-                            Text("Recently ended").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                .padding(.horizontal, SidebarStyle.rowInset).padding(.top, 10)
-                            ForEach(list.ended) { card($0, selected: highlighted) }
-                        }
-                        if transcripts {
-                            AgentTranscriptHistorySection(history: history, maxAge: historyMaxAge, selected: past?.id) { selectedPast = $0 }
-                        }
-                    }.padding(SidebarStyle.padding)
-                }.frame(width: 280)
-                Divider()
-                if let past {
-                    PastSessionDetail(transcript: past, store: store)
-                        .id(past.id)
-                } else if let selected {
+                if showsList {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
+                            ForEach(list.live) { entry in
+                                card(entry.session, selected: highlighted).padding(.leading, CGFloat(entry.depth) * 14)
+                            }
+                            if !list.ended.isEmpty {
+                                Text("Recently ended").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                    .padding(.horizontal, SidebarStyle.rowInset).padding(.top, 10)
+                                ForEach(list.ended) { card($0, selected: highlighted) }
+                            }
+                        }.padding(SidebarStyle.padding)
+                    }.frame(width: 280)
+                    Divider()
+                }
+                if let selected {
                     AgentSessionDetail(session: selected, points: live.history.points(for: selected.id),
                                        sessions: live.sessions, store: store) { selectedID = $0 }
                         .id(selected.id)
-                } else {
-                    ContentUnavailableView("No running agents", systemImage: "terminal",
-                        description: Text("Sessions appear here while an AI Agent runs. Pick one from History to replay its timeline."))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         } else {
             ContentUnavailableView("No running agents", systemImage: "terminal",
-                description: Text("Sessions appear here while an AI Agent runs, with its processes, commands and network."))
+                description: Text("Sessions appear here while an AI Agent runs. Open Saved Sessions to replay a recorded timeline."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -78,7 +68,6 @@ struct AgentSessionsView: View {
     private func card(_ session: AgentSession, selected: String?) -> some View {
         Button {
             selectedID = session.id
-            selectedPast = nil
         } label: {
             AgentSessionCard(session: session, points: live.history.points(for: session.id))
         }.buttonStyle(DetailNavigationStyle(selected: session.id == selected))
@@ -110,7 +99,7 @@ private struct SessionUptime: View {
     }
 }
 
-private struct AgentSessionCard: View {
+struct AgentSessionCard: View {
     let session: AgentSession
     let points: [AgentSessionPoint]
 
