@@ -189,8 +189,8 @@ import Synchronization
     #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.panel.showMenuBarItems == true)
 }
 
-@Test func panelSoundDefaultsToSmackAndPersists() throws {
-    #expect(CollectionSettings().panel.panelSound == .smack)
+@Test func panelSoundDefaultsToMuteAndPersists() throws {
+    #expect(CollectionSettings().panel.panelSound == .none)
 
     var settings = CollectionSettings()
     settings.panel.panelSound = .none
@@ -240,7 +240,7 @@ final class SpyUserDefaults: UserDefaults {
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     let store1 = SettingsStore(defaults: defaults, legacyDefaults: nil)
-    #expect(store1.settings.panel.panelSound == .smack)
+    #expect(store1.settings.panel.panelSound == .none)
 
     store1.update { $0.panel.panelSound = .submarine }
     #expect(store1.settings.panel.panelSound == .submarine)

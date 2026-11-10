@@ -334,6 +334,10 @@ _Avoid_: Session alone, conversation, chat
 What an AI Agent records of one session in its own files: Claude Code and Codex JSONL, OpenCode session rows. Read only while the Session Timeline or History is on screen, never copied or written.
 _Avoid_: Log (the session's log file entry), chat history
 
+**Saved Session**:
+An AI Agent's recorded session, browsed from its original Transcript files by agent, project, last activity, duration and token totals. It may still be running. Token totals become available when its Session Timeline is opened.
+_Avoid_: Archive (Smack does not copy transcripts), History (reserved for collected metrics and Activity Events).
+
 **Session Timeline**:
 One Agent Session's Transcript and observed processes in time order on lanes (prompts, answers, thinking, commands, MCP, files, web, tools, subagents, context, processes), live while the session runs and replayed from History afterwards.
 _Avoid_: Timeline alone (the Activity Timeline), trace, log

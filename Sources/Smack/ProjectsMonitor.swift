@@ -244,11 +244,79 @@ struct ProjectGitReport: Equatable, Sendable {
     var conflicted = 0
     var lastCommit: Date?
     var lastSubject: String?
+    var lastAuthor: String?
+    var lastHash: String?
+    /// Commits per week for the last twelve weeks, oldest first; empty when unread.
+    var weeklyCommits: [Int] = []
+    /// Distinct authors of those commits.
+    var recentContributors: Int?
+    /// The `origin` remote (or the first remote) from the repository's config file.
+    var remoteURL: String?
     var failed = false
     var message: String?
 
     var changes: Int { staged + unstaged + untracked + conflicted }
     var isDirty: Bool { changes > 0 }
+
+    static let cadenceWeeks = 12
+
+    /// Commits per calendar week for the `cadenceWeeks` weeks ending with the current one, oldest first.
+    static func cadence(_ stamps: [ProjectCommitStamp], now: Date = Date(), calendar: Calendar = .current) -> [Int] {
+        guard let current = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return [] }
+        var weeks = Array(repeating: 0, count: cadenceWeeks)
+        for stamp in stamps {
+            guard let start = calendar.dateInterval(of: .weekOfYear, for: stamp.date)?.start,
+                  let offset = calendar.dateComponents([.weekOfYear], from: start, to: current).weekOfYear,
+                  (0..<cadenceWeeks).contains(offset) else { continue }
+            weeks[cadenceWeeks - 1 - offset] += 1
+        }
+        return weeks
+    }
+}
+
+/// The repository's remote, read from its config file without running git.
+enum ProjectRemote {
+    static func originURL(root: String, readFile: (String) -> String?) -> String? {
+        var gitDirectory = root + "/.git"
+        if let pointer = readFile(gitDirectory), let line = pointer.split(whereSeparator: \.isNewline).first, line.hasPrefix("gitdir:") {
+            // A linked worktree: its gitdir names a `commondir` holding the shared config.
+            let worktree = line.dropFirst(7).trimmingCharacters(in: .whitespaces)
+            gitDirectory = readFile(worktree + "/commondir")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .map { $0.hasPrefix("/") ? $0 : (URL(fileURLWithPath: worktree).appendingPathComponent($0).standardized.path) }
+                ?? worktree
+        }
+        guard let config = readFile(gitDirectory + "/config") else { return nil }
+        var remotes: [(name: String, url: String)] = []
+        var current: String?
+        for raw in config.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                current = line.hasPrefix("[remote \"") ? String(line.dropFirst(9).prefix { $0 != "\"" }) : nil
+            } else if let current, line.hasPrefix("url"), let equals = line.firstIndex(of: "=") {
+                remotes.append((current, line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)))
+            }
+        }
+        return (remotes.first { $0.name == "origin" } ?? remotes.first)?.url
+    }
+
+    /// A browser link for a hosted remote (`git@host:path`, `ssh://`, `https://`); nil for local paths.
+    static func webURL(_ remote: String) -> URL? {
+        var host: String, path: String
+        if remote.hasPrefix("http://") || remote.hasPrefix("https://") || remote.hasPrefix("ssh://") || remote.hasPrefix("git://") {
+            guard let url = URL(string: remote), let name = url.host, !name.isEmpty else { return nil }
+            host = name
+            path = url.path
+        } else if let at = remote.firstIndex(of: "@"), let colon = remote[at...].firstIndex(of: ":") {
+            host = String(remote[remote.index(after: at)..<colon])
+            path = "/" + remote[remote.index(after: colon)...]
+        } else {
+            return nil
+        }
+        if path.hasSuffix(".git") { path.removeLast(4) }
+        guard path.count > 1 else { return nil }
+        return URL(string: "https://" + host + path)
+    }
 }
 
 /// Directory entries only: no subprocess, no dependency caches, no files opened besides `.git` and manifests.
@@ -337,6 +405,11 @@ struct ProjectGitInspector: Sendable {
             ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root] + arguments,
             timeout: 8, outputLimit: 2_000_000)
     }
+    var readFile: @Sendable (String) -> String? = { path in
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 65_536)).map { String(decoding: $0, as: UTF8.self) }
+    }
 
     func inspect(root: String) async -> ProjectGitReport {
         var report = ProjectGitReport()
@@ -346,17 +419,28 @@ struct ProjectGitInspector: Sendable {
             report.failed = true
             report.message = Self.message(status)
         }
-        let log = await run(root, ["log", "-1", "--format=%h%x00%ct%x00%s"])
+        let log = await run(root, ["log", "-1", "--format=%h%x00%ct%x00%s%x00%aN"])
         if log.status == 0, !log.timedOut, !log.cancelled {
             let fields = log.output.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\0", omittingEmptySubsequences: false)
             if fields.count >= 3, let seconds = Double(fields[1]) {
                 report.lastCommit = Date(timeIntervalSince1970: seconds)
                 report.lastSubject = String(fields[2])
+                report.lastHash = String(fields[0])
+                report.lastAuthor = fields.count >= 4 ? String(fields[3]) : nil
             }
         } else if !report.failed {
             report.failed = true
             report.message = Self.message(log)
         }
+        guard !Task.isCancelled else { return report }
+        // Twelve weeks of dates and authors, without diffs, for the Overview's cadence.
+        let recent = await run(root, ["log", "--since=12.weeks", "-2000", "--format=%ct%x00%aN"])
+        if recent.status == 0, !recent.timedOut, !recent.cancelled {
+            let stamps = ProjectGitStats.parseLog(recent.output)
+            report.weeklyCommits = ProjectGitReport.cadence(stamps)
+            report.recentContributors = Set(stamps.map(\.author)).count
+        }
+        report.remoteURL = ProjectRemote.originURL(root: root, readFile: readFile)
         return report
     }
 
@@ -418,6 +502,8 @@ final class ProjectsMonitor: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var inspecting: String?
     @Published private(set) var reports: [String: ProjectGitReport] = [:]
+    /// Language files at the root of each opened repository, read with its report and dropped with it.
+    @Published private(set) var manifests: [String: [ProjectManifest]] = [:]
     @Published private(set) var folders: [String] = []
     /// Allocated size per repository, measured only when the user asks for it.
     @Published private(set) var sizes: [String: UInt64] = [:]
@@ -444,6 +530,7 @@ final class ProjectsMonitor: ObservableObject {
     private static let statusConcurrency = 2
 
     private let inspector: ProjectGitInspector
+    private let manifestReader: ProjectManifestReader
     private let measureSize: SizeMeasurer
     private let discover: @Sendable ([String], Int) async -> ProjectDiscovery
     private var task: Task<Void, Never>?
@@ -454,6 +541,7 @@ final class ProjectsMonitor: ObservableObject {
     private var reportOrder: [String] = []
 
     init(collector: ProjectCollector = ProjectCollector(), inspector: ProjectGitInspector = ProjectGitInspector(),
+         manifestReader: ProjectManifestReader = ProjectManifestReader(),
          measureSize: @escaping SizeMeasurer = { root in
              let worker = Task.detached(priority: .utility) { () -> UInt64? in
                  let url = URL(fileURLWithPath: root)
@@ -468,6 +556,7 @@ final class ProjectsMonitor: ObservableObject {
          },
          discover: (@Sendable ([String], Int) async -> ProjectDiscovery)? = nil) {
         self.inspector = inspector
+        self.manifestReader = manifestReader
         self.measureSize = measureSize
         self.discover = discover ?? { folders, depth in
             let worker = Task.detached(priority: .utility) { collector.discover(folders: folders, depth: depth) }
@@ -529,6 +618,7 @@ final class ProjectsMonitor: ObservableObject {
             guard !Task.isCancelled else { return }
             snapshot = value
             reports = [:]
+            manifests = [:]
             reportOrder = []
             statuses = [:]
             let roots = Set(value.projects.map(\.root))
@@ -606,12 +696,16 @@ final class ProjectsMonitor: ObservableObject {
         inspecting = root
         defer { if inspecting == root { inspecting = nil } }
         let value = await inspector.inspect(root: root)
+        let reader = manifestReader
+        let files = await Task.detached(priority: .utility) { reader.manifests(root: root) }.value
         guard !Task.isCancelled, started == generation, project(root: root) != nil else { return }
         reports[root] = value
+        manifests[root] = files
         reportOrder.removeAll { $0 == root }
         reportOrder.append(root)
         while reportOrder.count > 24, let oldest = reportOrder.first {
             reports[oldest] = nil
+            manifests[oldest] = nil
             reportOrder.removeFirst()
         }
     }

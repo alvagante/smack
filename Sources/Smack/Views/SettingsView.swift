@@ -1138,7 +1138,7 @@ struct SettingsFooter: View {
     }
 }
 
-private struct NumberField: View {
+struct NumberField: View {
     @Binding var value: Double
     let unit: String
     var body: some View {

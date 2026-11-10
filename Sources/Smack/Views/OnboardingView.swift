@@ -86,6 +86,11 @@ struct OnboardingView: View {
                             ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented)
+                        if choices.trigger == .hover {
+                            LabeledContent("Hover delay") {
+                                NumberField(value: $choices.hoverDelay, unit: "s")
+                            }
+                        }
                     }
                     Toggle("Launch at login", isOn: $choices.launchAtLogin)
                 } header: {
@@ -94,6 +99,41 @@ struct OnboardingView: View {
                     SettingsFooter(choices.windowStyle == .panel
                         ? "The Panel drops down from the menu-bar icon and hides when you move away or click elsewhere."
                         : "Smack opens as an ordinary window with a Dock icon; the menu-bar icon still brings it forward.")
+                }
+
+                Section {
+                    HStack {
+                        Picker("Sound", selection: $choices.panelSound) {
+                            ForEach(PanelSound.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        if choices.panelSound != .none {
+                            Button("Preview") { SmackSound().play(sound: choices.panelSound) }
+                                .help("Play the selected sound without saving it")
+                        }
+                    }
+                } header: {
+                    Text("Audio")
+                } footer: {
+                    SettingsFooter("Played when the Panel opens. New installations start muted; use Preview to hear a sound before saving.")
+                }
+
+                Section("Appearance") {
+                    Picker("Color scheme", selection: $choices.appearance) {
+                        ForEach(PanelAppearance.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Toggle("Glass mode", isOn: $choices.glassMode)
+                        .help("Show the desktop through a translucent background")
+                    if choices.glassMode {
+                        LabeledContent("Opacity") {
+                            HStack {
+                                Slider(value: $choices.glassOpacity, in: CollectionSettings.glassOpacityRange)
+                                    .frame(width: 160)
+                                Text(choices.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                                    .frame(width: 40, alignment: .trailing)
+                            }
+                        }
+                    }
                 }
 
                 Section {

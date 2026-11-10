@@ -4,6 +4,37 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Saved Sessions:** sortable table headers replace the sort menu; agent filter chips toggle individually and combine, with counts and Clear filters. The Projects-style header shows loaded sessions, projects, AI Agents and known tokens with coverage. Table rows gain hover feedback and explicit navigation affordances. No new collection, polling or disk writes.
+
+- **Projects:** the Load Git status and Measure project sizes buttons moved from the page header to the top of the Status and Size table columns as small reload buttons with a refresh symbol; while reading or measuring, the same button becomes a click-to-stop spinner. Stop capability, gating and cost are unchanged: no new collection.
+
+- **AI Agents:** separate Active Sessions, Saved Sessions and Configs pages. Saved Sessions filters by agent, title and project, and sorts by agent, project, last activity, duration and input/output tokens. Opening a transcript supplies its token totals to the list. The Session Timeline shows total/input/output tokens, model and duration above the chart; event navigation stays in the inspector's top-right corner. No new collection, timers or disk writes; only two optional token totals retained per loaded catalogue entry.
+
+- **Version:** prepared 1.2.0 (build 12); Summary, About and baseline exports report the new version. No runtime cost change.
+
+### Added
+
+- **Onboarding:** sound selection with an explicit Preview button, color scheme, Glass mode and opacity, and Hover delay. New installations start muted; saved sound choices and legacy defaults are preserved. Skip or closing keeps current Settings. No collection or background cost change.
+
+- **Project Overview:** redesigned around what matters now: a header with the branch, sync with its upstream, clean or changed state, languages, a link to the hosted remote and the last commit in full; twelve weeks of commit activity; working-tree changes as a proportional bar; dev servers, containers and AI agents running from the repository; the stack, each runtime marked installed or missing; and the location, commit, remote, modification date and size without truncated boxes. The header's stats row now appears on the other sections only.
+  - Cost: opening a repository runs one more bounded `git log` (dates and authors of the last twelve weeks, at most 2,000 commits, no diffs; measured 0.03 s and 45 KB on a 2,224-commit repository), reads the remote from `.git/config` without a subprocess, and reads the language files once with the report instead of on every Runtimes visit. All cached with the report until Refresh, for at most 24 repositories.
+
+- **Project Agent sessions:** a Project's Agent sessions section lists the repository's running and recently ended sessions and its saved sessions together; selecting one shows its live detail or replays its Session Timeline.
+  - Cost: saved sessions are looked up only while the section is open and Read session transcripts is on, once per Inventory Cache period, and kept for the eight most recently opened repositories. Claude Code: only the folders named after the repository, then the 64 KB heads of its newest 40 transcripts. Codex: rollouts of the last 30 days, at most 200 heads of 128 KB. OpenCode: one indexed query by directory. No subprocess, no history writes.
+
+- **Fixed:** the Runtimes count in a Project's sidebar now includes the language files at its root, so it no longer shows 0 when the section lists them.
+
+- **Git Insights:** a Project's Git history section opens on Insights: commits, contributors, active days and longest streak, a year-long daily activity heatmap, a weekday by hour punchcard, top authors, weekly lines added and removed, and the most changed files. Commits stay one click away.
+  - Cost: two local `git log` commands when Insights opens or is refreshed, kept in memory until Refresh: authors and dates of the latest 5,000 commits (no diffs), and `--numstat` of the latest 500 non-merge commits without rename detection, each capped at 8 seconds and 2 MB. Measured: 0.03 s and 73 KB plus 0.35 s and 234 KB on a 2,224-commit repository. Nothing runs while the Panel is closed or another section is open; no history writes.
+
+- **Project runtimes:** a Project's Runtimes section summarizes the language files at its root (`package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `Package.swift`, `Gemfile`, `composer.json`, `pom.xml`, Gradle builds, Puppet `metadata.json` and `Puppetfile`): name, version, scripts, dependency counts, lockfile, supported OS and more. Each runtime they ask for (engines, `requires-python`, `go`, `rust-version`, tools version, Ruby, PHP, Java) and each version pin is matched with the installed runtimes: Installed, Version not installed, or Not installed, with every installation's version, source and PATH status, expandable to its packages.
+  - Cost: opening the section reads at most 13 root files of up to 256 KB each on a utility task and checks lockfiles for existence only; no subprocess. Installed versions are read from version-manager and Homebrew paths in the last Development environments discovery, which this never starts. Runtime probes still run only for the installation you expand.
+
+- **Project details in place:** a Project Detail Page's Docker, Agent sessions and Runtimes sections now show the full detail without leaving the project. Docker shows each Compose container with the Docker page's state, live statistics, ports, Inspect and start, stop, restart and pause Confirmed Actions. Agent sessions embed the Agents page's session list and detail (charts, MCP servers, commands, network, log and Session Timeline), scoped to the repository. Runtimes rows with a discovered interpreter, including virtual environment markers, expand to its paths, version and packages.
+  - Estimated cost (release measurement pending): no new collection while the Panel is closed or another section is open. Agent sessions reuse the Live Data already sampled. The Docker section asks for container details only while it is on screen and Docker shows on Summary, the same work as the Docker page's Containers section (one `docker stats --no-stream` per Docker refresh when live statistics are on). Pages asking for Docker details are now counted, so opening the Docker page from the project tab keeps statistics running and leaving both stops them. Runtime probes run only for the row the user expands, with the existing 10-second limit per command and the Development environments inspection cache. No history writes.
+
 ### Fixed
 
 - **Release CI:** notarization now fails with the notary log when Apple does not accept a submission, and stapling retries for up to five minutes, so a ticket that has not yet propagated (stapler Error 68) no longer fails the DMG step. Shared by the app and DMG steps in `Scripts/notarize.sh`. No runtime cost change.

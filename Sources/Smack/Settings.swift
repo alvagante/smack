@@ -47,8 +47,8 @@ enum PanelSound: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Human-readable label displayed within settings menus.
     var displayName: String {
         switch self {
-        case .smack: return "Smack (Default)"
-        case .none: return "None (Mute)"
+        case .smack: return "Smack"
+        case .none: return "None (Mute, Default)"
         default: return rawValue
         }
     }
@@ -274,7 +274,7 @@ struct PanelSettings: Codable, Equatable, Sendable {
     var hoverDelay: TimeInterval = 0.3
     var hoverGracePeriod: TimeInterval = 0.5
     /// Sound effect played when the panel is opened.
-    var panelSound: PanelSound = .smack
+    var panelSound: PanelSound = .none
     /// Translucent panel background: a behind-window blur shown at `glassOpacity`.
     var glassMode = false
     var glassOpacity = 0.5
@@ -302,7 +302,8 @@ struct PanelSettings: Codable, Equatable, Sendable {
         trigger = c.value(.trigger, or: d.trigger)
         hoverDelay = c.value(.hoverDelay, or: d.hoverDelay)
         hoverGracePeriod = c.value(.hoverGracePeriod, or: d.hoverGracePeriod)
-        panelSound = c.value(.panelSound, or: d.panelSound)
+        // Older settings used Smack when no valid sound was saved.
+        panelSound = c.value(.panelSound, or: .smack)
         glassMode = c.value(.glassMode, or: d.glassMode)
         glassOpacity = c.value(.glassOpacity, or: d.glassOpacity)
         titleBar = c.value(.titleBar, or: d.titleBar)

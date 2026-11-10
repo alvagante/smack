@@ -78,42 +78,59 @@ private func put(_ root: URL, _ path: String, _ content: String) throws {
     #expect(report.changes == 7)
 }
 
-@Test @MainActor func projectsRefreshNeverRunsGitAndInspectRunsTwoCommandsOnce() async throws {
+@Test @MainActor func projectsRefreshNeverRunsGitAndInspectRunsThreeCommandsOnce() async throws {
     let root = "/tmp/smack-project-record"
     let record = ProjectRecord(root: root, name: "record", kind: .swift, git: GitHead(branch: "main", commit: "abcdef123456", isWorktree: false), modifiedAt: nil, folder: "/tmp")
     let commands = ProjectCommands()
+    let now = Date()
     let monitor = ProjectsMonitor(
         inspector: ProjectGitInspector(run: { root, arguments in
             await commands.record(root: root, arguments: arguments)
             if arguments.first == "status" {
                 return .init(status: 0, output: "# branch.head main\n# branch.ab +1 -0\n1 .M N... 100644 100644 100644 aaa bbb file.txt\n", error: "")
             }
-            return .init(status: 0, output: "abcdef1\u{0}\(1_700_000_000)\u{0}Latest change", error: "")
+            if arguments.contains("-1") {
+                return .init(status: 0, output: "abcdef1\u{0}\(1_700_000_000)\u{0}Latest change\u{0}Ada Lovelace", error: "")
+            }
+            return .init(status: 0, output: "\(Int(now.timeIntervalSince1970))\u{0}Ada\n\(Int(now.timeIntervalSince1970) - 3_600)\u{0}Linus\n", error: "")
+        }, readFile: { path in
+            path == root + "/.git/config" ? "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:example42/record.git\n" : nil
         }),
+        manifestReader: ProjectManifestReader(read: { path, _ in path == root + "/Package.swift" ? Data("// swift-tools-version:6.0\n".utf8) : nil },
+                                              exists: { _ in false }),
         discover: { _, _ in ProjectDiscovery(projects: [record], warnings: [], timestamp: Date()) })
     monitor.configure(folders: [root], depth: 2, cache: .standard)
     await monitor.refresh()
     #expect(await commands.values.isEmpty, "discovery must not launch git")
     #expect(monitor.snapshot?.projects.map(\.name) == ["record"])
+    #expect(monitor.manifests[root] == nil, "discovery reads no language files")
 
     await monitor.inspect(root)
     let calls = await commands.values
-    #expect(calls.count == 2)
+    #expect(calls.count == 3)
     #expect(calls[0].arguments.prefix(2) == ["status", "--porcelain=v2"])
-    #expect(calls[1].arguments.first == "log")
+    #expect(calls[1].arguments.first == "log" && calls[1].arguments.contains("-1"))
+    #expect(calls[2].arguments.first == "log" && calls[2].arguments.contains("--since=12.weeks"))
     let report = try #require(monitor.reports[root])
     #expect(report.branch == "main")
     #expect(report.unstaged == 1)
     #expect(report.lastSubject == "Latest change")
+    #expect(report.lastAuthor == "Ada Lovelace")
+    #expect(report.lastHash == "abcdef1")
+    #expect(report.weeklyCommits.count == 12 && report.weeklyCommits.last == 2)
+    #expect(report.recentContributors == 2)
+    #expect(report.remoteURL == "git@github.com:example42/record.git")
+    #expect(monitor.manifests[root]?.map(\.file) == ["Package.swift"])
 
     await monitor.inspect(root)
-    #expect(await commands.values.count == 2, "an already read report is reused")
+    #expect(await commands.values.count == 3, "an already read report is reused")
 
     await monitor.inspect(root, force: true)
-    #expect(await commands.values.count == 4, "Refresh re-reads both commands")
+    #expect(await commands.values.count == 6, "Refresh re-reads every command")
 
     await monitor.refresh()
     #expect(monitor.reports[root] == nil, "discovery invalidates deep reports")
+    #expect(monitor.manifests[root] == nil)
 }
 
 @Test @MainActor func projectsMonitorOnlyReadsVisibleProjectsAndPrunesMovedRepositories() async throws {
@@ -129,13 +146,13 @@ private func put(_ root: URL, _ path: String, _ content: String) throws {
     monitor.configure(folders: ["/tmp"], depth: 2, cache: .standard)
     await monitor.refresh()
     await monitor.inspect(record.root)
-    #expect(await commands.values.count == 2)
+    #expect(await commands.values.count == 3)
     #expect(monitor.reports[record.root] != nil)
 
     // A repository that is no longer under the scanned folders is not inspected.
     let missing = ProjectRecord(root: "/tmp/smack-project-missing", name: "missing", kind: nil, git: nil, modifiedAt: nil, folder: "/tmp")
     await monitor.inspect(missing.root)
-    #expect(await commands.values.count == 2)
+    #expect(await commands.values.count == 3)
 }
 
 private actor ProjectCommands {
@@ -486,4 +503,100 @@ private actor ProjectCommands {
         .init(status: 0, output: "partial patch", error: "", timedOut: true)
     })
     #expect(await timeout.commit(root: "/project", id: "abcdef1") == "Git timed out after 8 seconds.")
+}
+
+@MainActor private func render(_ view: some View, width: CGFloat, height: CGFloat = 650) throws -> NSHostingView<AnyView> {
+    let host = NSHostingView(rootView: AnyView(view.environment(\.colorScheme, .light)))
+    host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    host.layoutSubtreeIfNeeded()
+    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    return host
+}
+
+private actor RecordedCommands {
+    var values: [[String]] = []
+    func record(_ args: [String]) { values.append(args) }
+}
+
+/// The Docker section asks for container details while shown, and never while Docker is Off.
+@Test @MainActor func projectDockerSectionRequestsDetailsOnlyWhileDockerIsOn() async throws {
+    let commands = RecordedCommands()
+    let model = DockerMonitor(collector: .init(run: { _, args in
+        await commands.record(args)
+        return .unavailable("not running")
+    }), locate: { "/docker" })
+    let container = DockerContainer(id: "abc", name: "/web", image: "nginx", state: "running", status: "Up", project: "app",
+                                    composeWorkingDirectory: "/work/app", ports: nil)
+    var host: NSHostingView<AnyView>? = try render(ProjectDockerSection(model: model, containers: [container], enabled: false) {}, width: 900)
+    for _ in 0..<5 { await Task.yield() }
+    #expect(!model.detailsWanted)
+    #expect(await commands.values.isEmpty, "Docker Off runs no docker command")
+    host = nil
+
+    host = try render(ProjectDockerSection(model: model, containers: [container], enabled: true) {}, width: 900)
+    #expect(model.detailsWanted)
+    _ = host
+}
+
+/// Opening Runtimes lists markers and discovered interpreters without running any of them.
+@Test @MainActor func projectRuntimesSectionRunsNoProbeUntilARowIsSelected() async throws {
+    let probes = RecordedCommands()
+    let environments = DevEnvironmentMonitor(collector: DevEnvironmentCollector(run: { _, args in
+        await probes.record(args)
+        return .init(status: 0, output: "Python 3.12.4", error: "")
+    }))
+    let root = "/work/app"
+    let project = ProjectRecord(root: root, name: "app", kind: .python, git: nil, modifiedAt: nil, folder: "/work",
+                                runtimes: [ProjectRuntime(name: "Python", version: "3.12.4", marker: ".venv", isEnvironment: true)])
+    let links = ProjectRelation.links(forRoot: root, environments: [
+        DevEnvironment(language: .python, executable: root + "/.venv/bin/python3", resolvedPath: "/opt/python3",
+                       source: "Project / virtualenv", onPath: false),
+        DevEnvironment(language: .node, executable: root + "/node_modules/.bin/node", resolvedPath: "/opt/node",
+                       source: "Project", onPath: false),
+    ])
+    let files = [root + "/package.json": #"{"name":"web","version":"1.2.0","engines":{"node":">=20"},"scripts":{"dev":"vite"},"dependencies":{"react":"19"}}"#,
+                 root + "/pyproject.toml": "[project]\nname = \"tool\"\nrequires-python = \">=3.11\"\n"]
+    let reader = ProjectManifestReader(read: { path, _ in files[path].map { Data($0.utf8) } }, exists: { $0 == root + "/package-lock.json" })
+    let manifests = reader.manifests(root: root)
+    #expect(manifests.map(\.file) == ["package.json", "pyproject.toml"])
+    for width in [900.0, 1400.0] {
+        let host = try render(ProjectRuntimesSection(environments: environments, project: project, links: links, discoveryOn: true,
+                                                     manifests: manifests) {}
+            .padding().frame(width: width).background(Color(nsColor: .windowBackgroundColor)), width: width, height: 900)
+        #expect(host.fittingSize.width <= width)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        if let png = bitmap.representation(using: .png, properties: [:]) {
+            try png.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("smack-runtimes-\(Int(width)).png"))
+        }
+    }
+    for _ in 0..<5 { await Task.yield() }
+    #expect(await probes.values.isEmpty)
+}
+
+/// Agent sessions embed the Agents page's list and detail, scoped to the repository, at Panel widths.
+@Test @MainActor func projectAgentSessionsRenderScopedListAndDetail() async throws {
+    let directory = try projectFixture()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+    let defaults = try #require(UserDefaults(suiteName: "ProjectAgents-\(UUID().uuidString)"))
+    let settings = SettingsStore(defaults: defaults, legacyDefaults: nil)
+    let scheduler = CollectionScheduler(systemCollector: SystemCollector(), processCollector: ProcessCollector(),
+        inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(), history: history,
+        settings: settings.settings, onSystem: { _ in }, onProcesses: { _ in })
+    let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
+    let root = "/work/app"
+    let sessions = ["claude", "codex"].enumerated().map { index, agent in
+        AgentSession(agentID: agent, root: ProcessIdentity(pid: Int32(10 + index), startTime: .distantPast),
+                     project: ProjectContext(directory: root, name: "app"), startedAt: .distantPast)
+    }
+    let other = AgentSession(agentID: "claude", root: ProcessIdentity(pid: 20, startTime: .distantPast),
+                             project: ProjectContext(directory: "/work/other", name: "other"), startedAt: .distantPast)
+    store.agentsModel.receive(sessions + [other], at: Date())
+    let scoped = store.links(forProject: root).sessions
+    #expect(scoped.map(\.agentID) == ["claude", "codex"])
+    for width in [900.0, 1400.0] {
+        _ = try render(AgentSessionsView(live: store.agentsModel.live, store: store, scope: scoped), width: width)
+    }
 }

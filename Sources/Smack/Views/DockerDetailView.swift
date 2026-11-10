@@ -94,7 +94,7 @@ struct DockerDetailView: View {
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
-                        if model.operation != nil { operationResult }
+                        if model.operation != nil { DockerOperationResult(model: model) }
                         if let snapshot = model.snapshot {
                             ForEach(snapshot.warnings, id: \.self) { warning in
                                 Label(warning, systemImage: "exclamationmark.triangle")
@@ -116,31 +116,17 @@ struct DockerDetailView: View {
             }
         }
         .background(MonitorStyle.page)
+        .onAppear { model.requestDetails(section) }
+        .onDisappear { model.releaseDetails() }
         .task(id: section) {
             model.section = section
-            model.detailsWanted = true
             await model.showDetails()
         }
-        .onDisappear { model.detailsWanted = false }
         .onChange(of: section) { model.query = "" }
         .sheet(item: $inspectionTarget) { target in
             DockerInspectionView(model: model, target: target)
         }
-        .confirmationDialog(pending?.title ?? "Docker", isPresented: Binding(
-            get: { pending != nil }, set: { if !$0 { pending = nil } }
-        ), titleVisibility: .visible) {
-            if let value = pending {
-                Button(value.action.title) {
-                    pending = nil
-                    Task { await model.perform(value) }
-                }
-            }
-            Button("Cancel", role: .cancel) { pending = nil }
-        } message: {
-            if let value = pending {
-                Text("docker \(value.arguments.joined(separator: " "))\nApplies to \(value.container.displayName) in the selected Docker engine.")
-            }
-        }
+        .dockerContainerConfirmation(model: model, pending: $pending)
     }
 
     private var sidebar: some View {
@@ -321,31 +307,6 @@ struct DockerDetailView: View {
             .accessibilityLabel("Inspect \(name)")
     }
 
-    private var operationResult: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    if model.busy { ProgressView().controlSize(.small) }
-                    Label(model.busy ? "Running Docker command…" : model.operationFailed ? "Command failed" : "Completed",
-                          systemImage: model.operationFailed ? "exclamationmark.triangle" : "terminal")
-                        .foregroundStyle(model.operationFailed ? Color.red : Color.primary)
-                    Spacer()
-                    if !model.busy { Button("Close") { model.dismissOperation() } }
-                }
-                if let operation = model.operation {
-                    Text("docker " + operation.arguments.joined(separator: " ")).font(.caption.monospaced())
-                }
-                if !model.operationOutput.isEmpty {
-                    Text(model.operationOutput).font(.caption.monospaced()).textSelection(.enabled)
-                    Button("Copy output") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(model.operationOutput, forType: .string)
-                    }
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     /// Same look as a `ResourceStatsRow` item, so the Docker header matches the other pages.
     private func metric(_ title: String, value: String, image: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -382,43 +343,13 @@ struct DockerDetailView: View {
     }
 
     func containerActions(for container: DockerContainer) -> [DockerContainerAction] {
-        [DockerContainerAction.start, .stop, .restart, container.state == "paused" ? .unpause : .pause]
-            .filter { $0.isAvailable(for: container) }
+        DockerContainerAction.available(for: container)
     }
 
     private func containerRow(_ container: DockerContainer, snapshot: DockerSnapshot) -> some View {
-        let stats = snapshot.stats.first { $0.ID == container.id || container.id.hasPrefix($0.ID) }
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Circle().fill(container.isRunning ? .green : .secondary).frame(width: 7, height: 7)
-                Text(container.displayName).font(.headline)
-                Spacer()
-                Text(container.status).font(.caption).foregroundStyle(.secondary)
-                ForEach(containerActions(for: container), id: \.self) { action in
-                    Button { pending = DockerContainerOperation(action: action, container: container) } label: {
-                        Image(systemName: action.systemImage).foregroundStyle(action.color).frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(action.title)
-                    .accessibilityLabel("\(action.title) \(container.displayName)")
-                    .disabled(model.busy)
-                }
-                Button { inspectionTarget = DockerInspectionTarget(kind: .container, identifier: container.id, name: container.displayName) } label: {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.blue).frame(width: 20, height: 20)
-                }
-                .buttonStyle(.borderless)
-                .help("Inspect")
-                .accessibilityLabel("Inspect \(container.displayName)")
-            }
-            Text("\(container.image) · \(container.id.prefix(12))").font(.caption).foregroundStyle(.secondary)
-            if let stats, container.isRunning {
-                Text("CPU \(stats.CPUPerc) · Memory \(stats.MemUsage) (\(stats.MemPerc)) · PIDs \(stats.PIDs) · Network I/O \(stats.NetIO) · Block I/O \(stats.BlockIO)")
-                    .font(.callout).monospacedDigit()
-            } else if container.isRunning {
-                Text("Resource statistics unavailable").font(.caption).foregroundStyle(.secondary)
-            }
-            DockerPortPairs(ports: container.ports).font(.caption.monospaced())
-        }.textSelection(.enabled)
+        DockerContainerRow(model: model, container: container, snapshot: snapshot,
+                           act: { pending = DockerContainerOperation(action: $0, container: container) },
+                           inspect: { inspectionTarget = DockerInspectionTarget(kind: .container, identifier: container.id, name: container.displayName) })
     }
 }
 

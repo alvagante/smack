@@ -57,8 +57,9 @@ struct ResourceBudgetTests {
         _ = await inspector.inspect(root: folder.appendingPathComponent("repo").path)
         #expect(await commands.values == [
             ["status", "--porcelain=v2", "--branch"],
-            ["log", "-1", "--format=%h%x00%ct%x00%s"],
-        ])
+            ["log", "-1", "--format=%h%x00%ct%x00%s%x00%aN"],
+            ["log", "--since=12.weeks", "-2000", "--format=%ct%x00%aN"],
+        ], "the Overview's cadence is one bounded log of dates and authors, no diffs")
     }
 
     @Test func projectHistoryIsOnDemandBoundedAndCommitDetailsUseOneReadOnlyCommand() async {
@@ -143,8 +144,7 @@ struct ResourceBudgetTests {
             return .init(status: 0, output: args.first == "info"
                 ? #"{"Name":"test","OperatingSystem":"Linux","ServerVersion":"28","MemTotal":1024,"NCPU":1}"# : "", error: "")
         }), locate: { "/docker" })
-        model.detailsWanted = true
-        model.section = .storage
+        model.requestDetails(.storage)
         await model.refresh()
         await model.refresh(automatic: true)
         #expect(await commands.values.filter { $0.first == "system" }.count == 1)
@@ -152,6 +152,40 @@ struct ResourceBudgetTests {
         await model.refresh()
         await model.refresh(automatic: true)
         #expect(await commands.values.filter { $0.first == "image" }.count == 1)
+    }
+
+    /// The Docker page and a Project's Docker tab both ask for container details; the page that appears next can
+    /// ask before the one leaving releases, so statistics stop only when the last one is gone.
+    @Test @MainActor func dockerStatisticsRunOnlyWhileAPageRequestsDetails() async {
+        let commands = Commands()
+        let model = DockerMonitor(collector: .init(run: { _, args in
+            await commands.record(args)
+            let output = switch args.first {
+            case "info": #"{"Name":"test","OperatingSystem":"Linux","ServerVersion":"28","MemTotal":1024,"NCPU":1}"#
+            case "container" where args[1] == "ls": "abc"
+            case "container": #"{"id":"abc","name":"/web","image":"nginx","state":"running","status":"Up","project":"demo","ports":null}"#
+            default: ""
+            }
+            return .init(status: 0, output: output, error: "")
+        }), locate: { "/docker" })
+        func statsRuns() async -> Int { await commands.values.filter { $0.first == "stats" }.count }
+
+        await model.refresh(automatic: true)
+        #expect(await statsRuns() == 0, "no page asked for details")
+
+        model.requestDetails(.containers)
+        model.requestDetails(.containers)
+        model.releaseDetails()
+        await model.refresh(automatic: true)
+        #expect(await statsRuns() == 1, "one page still shows containers")
+
+        model.releaseDetails()
+        model.releaseDetails()
+        await model.refresh(automatic: true)
+        #expect(await statsRuns() == 1, "released by every page, and an extra release does not go negative")
+        model.requestDetails(.containers)
+        await model.refresh(automatic: true)
+        #expect(await statsRuns() == 2)
     }
 
     @Test func brewOnlyWalksCellarOnCleanupRequest() async {

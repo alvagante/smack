@@ -503,3 +503,42 @@ func liveTranscriptsParse() {
     print("Compressed Codex rollouts not listed: \(result.compressed)")
     #expect(!result.items.isEmpty)
 }
+
+/// A Project's saved sessions: only transcripts whose recorded directory is the repository or inside it, found
+/// through the project's own Claude Code folders, recent Codex days and one OpenCode query.
+@Test func projectCatalogListsOnlyTheRepositorysTranscripts() throws {
+    let home = try temporaryHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let now = Date()
+    let projects = home.appendingPathComponent(".claude/projects")
+    try write(claudeTranscript, to: projects.appendingPathComponent("-work-app/s1.jsonl"), modified: now.addingTimeInterval(-60))
+    try write(claudeTranscript.replacingOccurrences(of: "/work/app", with: "/work/app/src"),
+              to: projects.appendingPathComponent("-work-app-src/s2.jsonl"), modified: now.addingTimeInterval(-50))
+    try write(claudeTranscript.replacingOccurrences(of: "/work/app", with: "/work/app-tools"),
+              to: projects.appendingPathComponent("-work-app-tools/s3.jsonl"), modified: now.addingTimeInterval(-40))
+    try write(claudeTranscript.replacingOccurrences(of: "/work/app", with: "/elsewhere"),
+              to: projects.appendingPathComponent("-elsewhere/s4.jsonl"), modified: now)
+    let calendar = Calendar.current
+    func day(_ offset: Int) -> String {
+        let date = now.addingTimeInterval(-Double(offset) * 86_400)
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d/%02d/%02d", parts.year!, parts.month!, parts.day!)
+    }
+    let codex = home.appendingPathComponent(".codex/sessions")
+    try write(codexTranscript, to: codex.appendingPathComponent(day(1) + "/rollout-a.jsonl"), modified: now.addingTimeInterval(-30))
+    try write(codexTranscript.replacingOccurrences(of: "/work/app", with: "/elsewhere"),
+              to: codex.appendingPathComponent(day(1) + "/rollout-b.jsonl"), modified: now.addingTimeInterval(-20))
+    try write(codexTranscript, to: codex.appendingPathComponent(day(60) + "/rollout-old.jsonl"), modified: now.addingTimeInterval(-60 * 86_400))
+    let database = try makeOpenCodeDatabase()
+    let target = home.appendingPathComponent(".local/share/opencode/opencode.db")
+    try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.moveItem(atPath: database, toPath: target.path)
+
+    let result = TranscriptCatalog(home: home).recent(underRoot: "/work/app", limit: 40)
+    #expect(Set(result.items.map(\.directory)).isSubset(of: ["/work/app", "/work/app/src"]))
+    #expect(result.items.filter { $0.agentID == "claude" }.count == 2, "the repository and a subfolder, not a sibling")
+    #expect(result.items.filter { $0.agentID == "codex" }.count == 1, "only Codex days within the scan window")
+    #expect(result.items.filter { $0.agentID == "opencode" }.map(\.title) == ["Fix login"])
+    #expect(result.items.map(\.updated) == result.items.map(\.updated).sorted(by: >))
+    #expect(TranscriptCatalog.claudeFolder("/Users/al/GITHUB/pabawi.example42.com") == "-Users-al-GITHUB-pabawi-example42-com")
+}

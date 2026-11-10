@@ -323,7 +323,7 @@ struct DockerMonitorTests {
         let model = DockerMonitor(collector: .init(run: { _, args in await daemon.run(args) }), locate: { "/docker" })
         await model.refresh()
         let container = try #require(model.snapshot?.containers?.first)
-        model.detailsWanted = true
+        model.requestDetails(.containers)
         let refresh = Task { await model.refresh() }
         for _ in 0..<100 {
             if await daemon.statsStarted { break }
@@ -374,7 +374,7 @@ struct DockerMonitorTests {
             return .init(status: 0, output: output, error: "")
         })
         let model = DockerMonitor(collector: collector, locate: { "/docker" })
-        model.detailsWanted = true
+        model.requestDetails(.containers)
         await model.refresh()
         let pages = DockerSection.allCases.map { ($0, DockerContainerFilter.running) } + [(.containers, .stopped)]
         for (section, filter) in pages {

@@ -265,18 +265,6 @@ struct ProjectsView: View {
                     store.settingsViewModel.pane = .development
                     store.route = .settings
                 }
-                if model.measuring {
-                    ToolbarIconButton(title: "Stop measuring sizes", systemImage: "stop.fill", color: .orange) { model.cancelMeasuring() }
-                } else {
-                    ToolbarIconButton(title: "Measure project sizes", systemImage: "internaldrive", color: .teal) { model.startMeasuring() }
-                        .disabled(model.loading || projects.isEmpty || !model.hasUnmeasuredProjects)
-                }
-                if model.loadingStatuses {
-                    ToolbarIconButton(title: "Stop reading Git status", systemImage: "stop.fill", color: .orange) { model.cancelStatusLoading() }
-                } else {
-                    ToolbarIconButton(title: "Load Git status", systemImage: "checkmark.circle", color: .green) { model.startLoadingStatuses() }
-                        .disabled(model.loading || projects.isEmpty || !model.hasUnloadedStatuses)
-                }
                 RefreshButton { Task { await model.refresh() } }.disabled(model.loading || model.measuring || model.loadingStatuses)
             } overview: {
                 overview
@@ -424,11 +412,11 @@ struct ProjectsView: View {
                 header(.name).frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
                 header(.language).frame(width: 72, alignment: .leading)
                 header(.branch).frame(width: 110, alignment: .leading)
-                header(.status).frame(width: 100, alignment: .leading)
+                header(.status, accessory: { statusColumnReload }).frame(width: 100, alignment: .leading)
                 header(.location).frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
                 header(.modified).frame(width: 110, alignment: .leading)
                 header(.started).frame(width: 100, alignment: .leading)
-                header(.size, alignment: .trailing).frame(width: 66, alignment: .trailing)
+                header(.size, alignment: .trailing, accessory: { sizeColumnReload }).frame(width: 66, alignment: .trailing)
                 Color.clear.frame(width: 10, height: 1)
             }
             .padding(.horizontal, 12).padding(.vertical, 7)
@@ -444,7 +432,15 @@ struct ProjectsView: View {
         .monitorSurface()
     }
 
-    private func header(_ option: ProjectSort, alignment: Alignment = .leading) -> some View {
+    private func header<Accessory: View>(_ option: ProjectSort, alignment: Alignment = .leading,
+                                         @ViewBuilder accessory: () -> Accessory = { EmptyView() }) -> some View {
+        HStack(spacing: 5) {
+            sortHeader(option, alignment: alignment)
+            accessory()
+        }
+    }
+
+    private func sortHeader(_ option: ProjectSort, alignment: Alignment) -> some View {
         Button { selectSort(option) } label: {
             HStack(spacing: 3) {
                 Text(option.rawValue)
@@ -461,6 +457,46 @@ struct ProjectsView: View {
         .buttonStyle(.plain)
         .help("Sort by \(option.rawValue)")
         .accessibilityLabel("Sort by \(option.rawValue)")
+    }
+
+    /// Reload button at the top of an on-demand column: a refresh symbol when idle, a click-to-stop spinner while it reads.
+    private func columnReload(busy: Bool, tint: Color, disabled: Bool, start: String, stop: String,
+                              startAction: @escaping () -> Void, stopAction: @escaping () -> Void) -> some View {
+        Button {
+            if busy { stopAction() } else { startAction() }
+        } label: {
+            ZStack {
+                if busy {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
+                }
+            }
+            .foregroundStyle(tint)
+            .frame(width: 18, height: 18)
+            .background(tint.opacity(busy ? 0.2 : 0.12), in: Circle())
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .tint(tint)
+        .disabled(!busy && disabled)
+        .opacity(!busy && disabled ? 0.4 : 1)
+        .help(busy ? stop : start)
+        .accessibilityLabel(busy ? stop : start)
+    }
+
+    private var statusColumnReload: some View {
+        columnReload(busy: model.loadingStatuses, tint: .green,
+                     disabled: model.loading || projects.isEmpty || !model.hasUnloadedStatuses,
+                     start: "Load Git status", stop: "Stop reading Git status",
+                     startAction: { model.startLoadingStatuses() }, stopAction: { model.cancelStatusLoading() })
+    }
+
+    private var sizeColumnReload: some View {
+        columnReload(busy: model.measuring, tint: .teal,
+                     disabled: model.loading || projects.isEmpty || !model.hasUnmeasuredProjects,
+                     start: "Measure project sizes", stop: "Stop measuring sizes",
+                     startAction: { model.startMeasuring() }, stopAction: { model.cancelMeasuring() })
     }
 
     private func row(_ project: ProjectRecord, startedAt: Date?) -> some View {
@@ -568,6 +604,11 @@ enum ProjectSection: String, CaseIterable, Identifiable, Hashable {
     var id: Self { self }
     var title: String { rawValue }
 
+    /// Language files, version pins and virtual environments, and executables found inside the repository.
+    static func runtimesCount(project: ProjectRecord, manifests: [ProjectManifest]?, links: ProjectLinks) -> Int {
+        (manifests?.count ?? 0) + project.runtimes.count + links.environments(excluding: project.runtimes, root: project.root).count
+    }
+
     var systemImage: String {
         switch self {
         case .overview: "folder"
@@ -600,6 +641,7 @@ struct ProjectDetailView: View {
     @ObservedObject private var live: AgentSessionsModel
     @ObservedObject private var environments: DevEnvironmentMonitor
     @ObservedObject private var settings: SettingsStore
+    @ObservedObject private var savedTranscripts: ProjectTranscriptHistory
     @State private var section: ProjectSection = .overview
 
     init(store: MonitorStore, root: String) {
@@ -611,6 +653,7 @@ struct ProjectDetailView: View {
         live = store.agentsModel.live
         environments = store.devEnvironmentModel
         settings = store.settingsStore
+        savedTranscripts = store.agentsModel.projectTranscripts
     }
 
     private var project: ProjectRecord? { projects.project(root: root) }
@@ -631,19 +674,15 @@ struct ProjectDetailView: View {
         case .overview, .files, .history: nil
         case .devServers: servers.count
         case .docker: containers.count
-        case .agents: sessions.count
-        case .runtimes: project.map { $0.runtimes.count + discoveredRuntimes($0).count }
+        case .agents: sessions.count + (settings.settings.devTools.readSessionTranscripts ? savedTranscripts.results[root]?.items.count ?? 0 : 0)
+        case .runtimes: project.map { ProjectSection.runtimesCount(project: $0, manifests: projects.manifests[root], links: links) }
         }
-    }
-
-    private func discoveredRuntimes(_ project: ProjectRecord) -> [DevEnvironment] {
-        links.environments(excluding: project.runtimes, root: project.root)
     }
 
     var body: some View {
         Group {
             if let project {
-                DetailSectionLayout(groups: groups, selection: $section, scrolls: section != .files && section != .history) {
+                DetailSectionLayout(groups: groups, selection: $section, scrolls: ![.files, .history, .agents].contains(section)) {
                     header(project)
                 } content: {
                     content(project)
@@ -686,7 +725,8 @@ struct ProjectDetailView: View {
                     Task { await projects.inspect(root, force: true) }
                 }.disabled(projects.inspecting == root)
             } overview: {
-                overview(project)
+                // The Overview section shows the same facts in full; other sections keep them in the header.
+                if section != .overview { overview(project) }
             }
         }
     }
@@ -710,72 +750,46 @@ struct ProjectDetailView: View {
     @ViewBuilder private func content(_ project: ProjectRecord) -> some View {
         switch section {
         case .overview:
-            OverviewSection(project: project, report: report, inspecting: projects.inspecting == root, servers: servers)
+            ProjectOverviewView(project: project, report: report, inspecting: projects.inspecting == root,
+                                manifests: projects.manifests[root],
+                                matches: environments.snapshot.map { snapshot in
+                                    ProjectRuntimeMatch.matches(ProjectRuntimeMatch.requirements(manifests: projects.manifests[root] ?? [],
+                                                                                                 runtimes: project.runtimes),
+                                                                environments: snapshot.environments)
+                                },
+                                servers: servers, containers: containers, sessions: sessions, size: projects.sizes[root]) { section = $0 }
         case .files:
             ProjectFilesView(root: root).id(root)
         case .history:
             ProjectHistoryView(root: root).id(root)
         case .devServers:
-            related("Dev servers", systemImage: "server.rack", color: AppRoute.devServers.tint,
-                    caption: "Listening processes whose working directory belongs to this repository.",
-                    empty: "No dev servers", open: { store.route = .devServers }, rows: servers.count) {
+            ProjectRelatedSection(title: "Dev servers", systemImage: "server.rack", color: AppRoute.devServers.tint,
+                                  caption: "Listening processes whose working directory belongs to this repository.",
+                                  empty: "No dev servers", open: { store.route = .devServers }, rows: servers.count) {
                 ForEach(servers) { server in serverRow(server) }
             }
         case .docker:
-            related("Docker", systemImage: "shippingbox", color: AppRoute.docker.tint,
-                    caption: "Containers started by a Compose file in this repository.",
-                    empty: "No Docker containers", open: { store.route = .docker }, rows: containers.count) {
-                ForEach(containers) { container in containerRow(container) }
+            ProjectDockerSection(model: docker, containers: containers, enabled: settings.settings.shows(.docker)) {
+                store.route = .docker
             }
         case .agents:
-            related("Agent sessions", systemImage: "sparkles", color: AppRoute.agents.tint,
-                    caption: "Running and recently ended AI Agent sessions whose working directory belongs to this repository.",
-                    empty: "No agent sessions", open: { store.route = .agents }, rows: sessions.count) {
-                ForEach(sessions) { session in sessionRow(session) }
+            DetailContentTitle(title: "Agent sessions", systemImage: "sparkles", color: AppRoute.agents.tint,
+                               caption: "AI Agent sessions running in this repository, and the saved sessions recorded in it. Select one for its detail or Session Timeline.") {
+                Button("Open AI agents") { store.route = .agents }.buttonStyle(.bordered).controlSize(.small)
             }
+            ProjectAgentSessionsView(live: live, saved: store.agentsModel.projectTranscripts, store: store, root: root,
+                                     sessions: sessions, maxAge: store.agentsModel.cache.slowInventory)
+                    .id(root)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
         case .runtimes:
-            runtimesSection(project)
+            ProjectRuntimesSection(environments: environments, project: project, links: links,
+                                   discoveryOn: settings.settings.shows(.devEnvironments), manifests: projects.manifests[root]) {
+                store.route = .devEnvironments
+            }.id(root)
         }
-    }
-
-    @ViewBuilder private func runtimesSection(_ project: ProjectRecord) -> some View {
-        let discovered = discoveredRuntimes(project)
-        related("Runtimes", systemImage: "cube", color: AppRoute.devEnvironments.tint,
-                caption: "Version pins and virtual environments declared at the repository root, read during discovery.",
-                empty: "No runtime markers", open: { store.route = .devEnvironments },
-                openTitle: "Open Development environments", rows: project.runtimes.count + discovered.count) {
-            ForEach(project.runtimes) { runtime in
-                DetailRowGroup {
-                    HStack(spacing: 10) {
-                        Image(systemName: runtime.isEnvironment ? "cube" : "pin").foregroundStyle(AppRoute.devEnvironments.tint)
-                        Text(runtime.name).font(.callout.weight(.semibold)).lineLimit(1)
-                        Text(runtime.version ?? (runtime.isEnvironment ? "Version unavailable" : "No version")).font(.callout.monospaced())
-                            .foregroundStyle(.secondary).lineLimit(1)
-                        Spacer(minLength: 8)
-                        DetailBadge(text: runtime.isEnvironment ? "Virtual environment" : "Pin", color: .secondary)
-                        Text(runtime.marker).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-            }
-            ForEach(discovered) { environment in
-                DetailRowGroup {
-                    HStack(spacing: 10) {
-                        Image(systemName: "terminal").foregroundStyle(AppRoute.devEnvironments.tint)
-                        Text(environment.language.rawValue).font(.callout.weight(.semibold)).lineLimit(1)
-                        Text(String(environment.executable.dropFirst(project.root.count + 1))).font(.caption.monospaced())
-                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 8)
-                        DetailBadge(text: environment.source, color: .secondary)
-                    }
-                }
-            }
-        }
-        Text(environments.snapshot == nil
-             ? (settings.settings.shows(.devEnvironments)
-                ? "Executables inside the repository appear once Development environments discovery has run."
-                : "Executables inside the repository: Off. Show Development environments on Summary to discover them.")
-             : "Executables inside the repository come from the last Development environments discovery.")
-            .font(.caption).foregroundStyle(.secondary)
     }
 
     private func serverRow(_ server: DevServer) -> some View {
@@ -802,46 +816,21 @@ struct ProjectDetailView: View {
             }
         }
     }
+}
 
-    private func containerRow(_ container: DockerContainer) -> some View {
-        DetailRowGroup {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(container.displayName).font(.callout.weight(.semibold)).lineLimit(1)
-                        DetailBadge(text: container.state.capitalized, color: container.isRunning ? .green : .secondary)
-                    }
-                    Text(container.image).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 8)
-                Text(container.portDescriptions.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(2).truncationMode(.middle).frame(maxWidth: 280, alignment: .trailing)
-            }
-        }
-    }
+/// A related area of the repository: a title with a link to its own Page, then its rows or why there are none.
+private struct ProjectRelatedSection<Rows: View>: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    let caption: String
+    let empty: String
+    var open: () -> Void
+    var openTitle: String?
+    let rows: Int
+    @ViewBuilder var content: Rows
 
-    private func sessionRow(_ session: AgentSession) -> some View {
-        DetailRowGroup {
-            HStack(spacing: 10) {
-                Circle().fill(session.activity.color).frame(width: 7, height: 7)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(session.agentName).font(.callout.weight(.semibold)).lineLimit(1)
-                        Text(session.activity.title).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Text([session.project?.git?.branch, session.project?.directory].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 8)
-                Text("\(Formatting.percent(session.totals.cpu)) · \(Formatting.bytes(session.totals.memory))")
-                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func related<Rows: View>(_ title: String, systemImage: String, color: Color, caption: String,
-                                     empty: String, open: @escaping () -> Void, openTitle: String? = nil, rows: Int,
-                                     @ViewBuilder content: () -> Rows) -> some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
             DetailContentTitle(title: title, systemImage: systemImage, color: color, caption: caption) {
                 Button(openTitle ?? "Open \(title)", action: open).buttonStyle(.bordered).controlSize(.small)
@@ -849,109 +838,275 @@ struct ProjectDetailView: View {
             if rows == 0 {
                 ContentUnavailableView(empty, systemImage: systemImage, description: Text("Related entries appear here while they are running or collected."))
             } else {
-                content()
+                content
             }
         }
     }
 }
 
-private struct OverviewSection: View {
-    let project: ProjectRecord
-    let report: ProjectGitReport?
-    let inspecting: Bool
-    let servers: [DevServer]
+/// The repository's Compose containers with the Docker page's row: state, statistics, ports, inspect and
+/// Confirmed Actions. Asks Docker for container details only while on screen, and never while Docker is Off.
+struct ProjectDockerSection: View {
+    @ObservedObject var model: DockerMonitor
+    let containers: [DockerContainer]
+    let enabled: Bool
+    var open: () -> Void
+    @State private var pending: DockerContainerOperation?
+    @State private var inspectionTarget: DockerInspectionTarget?
+    @State private var requested = false
+
+    private var groups: [(name: String, containers: [DockerContainer])] {
+        Dictionary(grouping: containers, by: \.group).sorted { $0.key < $1.key }.map {
+            (name: $0.key, containers: $0.value.sorted {
+                if $0.isRunning != $1.isRunning { return $0.isRunning }
+                return $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+            })
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
-            DetailContentTitle(title: "Repository", systemImage: "folder", color: AppRoute.projects.tint,
-                               caption: project.root)
-            DetailFactGrid(facts: facts)
-            if !servers.isEmpty {
-                DetailContentTitle(title: "Listening ports", systemImage: "network", color: .cyan,
-                                   caption: "Click an HTTP endpoint to open it. The process, PID and scope show which listener holds each port.")
-                ForEach(servers) { server in portRow(server) }
-            }
-            if inspecting, report == nil {
-                ProgressView("Reading git status and last commit…").controlSize(.small)
-            }
-            if let report {
-                if report.failed {
-                    Label(report.message ?? "Git statistics are unavailable for this repository.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
-                } else {
-                    DetailContentTitle(title: "Working tree", systemImage: "arrow.triangle.branch",
-                                       color: report.isDirty ? .orange : .green,
-                                       caption: report.isDirty ? "\(report.changes) uncommitted \(report.changes == 1 ? "change" : "changes")" : "Clean")
-                    DetailFactGrid(facts: [
-                        DetailFact(title: "Staged", value: String(report.staged), systemImage: "tray.and.arrow.down", tone: report.staged > 0 ? .green : nil),
-                        DetailFact(title: "Unstaged", value: String(report.unstaged), systemImage: "pencil", tone: report.unstaged > 0 ? .orange : nil),
-                        DetailFact(title: "Untracked", value: String(report.untracked), systemImage: "questionmark.folder", tone: report.untracked > 0 ? .blue : nil),
-                        DetailFact(title: "Conflicts", value: String(report.conflicted), systemImage: "exclamationmark.triangle", tone: report.conflicted > 0 ? .red : nil),
-                    ])
-                    if let subject = report.lastSubject {
-                        DetailFactGrid(facts: [
-                            DetailFact(title: "Last commit", value: report.lastCommit.map { date in
-                                "\(subject) · \(Formatting.dated(date.formatted(date: .abbreviated, time: .shortened), date))"
-                            } ?? subject, systemImage: "clock", tone: .blue),
-                            DetailFact(title: "Upstream", value: report.upstream ?? "No upstream", systemImage: "arrow.triangle.branch"),
-                        ])
+            ProjectRelatedSection(title: "Docker", systemImage: "shippingbox", color: AppRoute.docker.tint,
+                                  caption: "Containers started by a Compose file in this repository.",
+                                  empty: "No Docker containers", open: open, rows: containers.count) {
+                if model.operation != nil { DockerOperationResult(model: model) }
+                ForEach(groups, id: \.name) { group in
+                    GroupBox {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(group.containers) { container in
+                                DockerContainerRow(model: model, container: container, snapshot: model.snapshot,
+                                                   act: { pending = DockerContainerOperation(action: $0, container: container) },
+                                                   inspect: { inspectionTarget = DockerInspectionTarget(kind: .container, identifier: container.id,
+                                                                                                        name: container.displayName) })
+                                if container.id != group.containers.last?.id { Divider() }
+                            }
+                        }.padding(6)
+                    } label: {
+                        Text("\(group.name) · \(group.containers.count)")
                     }
                 }
             }
-            Text("Branch, commit and worktree are read from .git files during discovery. Git status and the last commit run only for the repository you open, then stay cached until refreshed.")
+            Text(enabled
+                 ? (model.liveStats ? "Statistics refresh with the Docker inventory while this tab is open."
+                                    : "Container statistics: Off in Settings › Docker.")
+                 : "Container statistics: Off. Show Docker on Summary in Settings › Docker to collect them.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .onAppear {
+            guard enabled, !requested else { return }
+            requested = true
+            model.requestDetails(.containers)
+        }
+        .onDisappear {
+            guard requested else { return }
+            requested = false
+            model.releaseDetails()
+        }
+        .task(id: requested) {
+            guard requested else { return }
+            model.section = .containers
+            await model.showDetails()
+        }
+        .sheet(item: $inspectionTarget) { target in DockerInspectionView(model: model, target: target) }
+        .dockerContainerConfirmation(model: model, pending: $pending)
+    }
+}
+
+/// Runtimes the repository declares: language manifests at its root with their facts, version pins and virtual
+/// environments, each requirement next to the matching installed runtimes, and executables discovered inside it.
+/// The language files are read when the project opens (see `ProjectsMonitor.inspect`); installed versions come from
+/// version-manager paths. Probes run only for the installation the user expands.
+struct ProjectRuntimesSection: View {
+    @ObservedObject var environments: DevEnvironmentMonitor
+    let project: ProjectRecord
+    let links: ProjectLinks
+    let discoveryOn: Bool
+    /// Language files read when the project opened; nil while that is still running.
+    let manifests: [ProjectManifest]?
+    var open: () -> Void
+    @State private var selected: String?
+
+    private static let tint = AppRoute.devEnvironments.tint
+
+    /// The discovered interpreter inside a virtual environment marker, so the marker's row can be inspected.
+    private func environment(for runtime: ProjectRuntime) -> DevEnvironment? {
+        guard runtime.isEnvironment else { return nil }
+        let folder = project.root + "/" + runtime.marker + "/"
+        return links.environments.filter { $0.executable.hasPrefix(folder) }.min { $0.executable < $1.executable }
     }
 
-    private func portRow(_ server: DevServer) -> some View {
-        DetailRowGroup {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(server.processName).font(.callout.weight(.semibold)).lineLimit(1)
-                    Text("PID \(server.process.pid)").font(.caption).foregroundStyle(.secondary)
-                    Spacer(minLength: 4)
-                    if let container = server.container {
-                        DetailBadge(text: container.name, color: AppRoute.docker.tint)
+    private var discovered: [DevEnvironment] { links.environments(excluding: project.runtimes, root: project.root) }
+
+    private var selection: DevEnvironment? {
+        selected.flatMap { id in (environments.snapshot?.environments ?? links.environments).first { $0.id == id } }
+    }
+
+    private var matches: [ProjectRuntimeMatch] {
+        ProjectRuntimeMatch.matches(ProjectRuntimeMatch.requirements(manifests: manifests ?? [], runtimes: project.runtimes),
+                                    environments: environments.snapshot?.environments ?? [])
+    }
+
+    var body: some View {
+        let discovered = discovered
+        let matches = matches
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            ProjectRelatedSection(title: "Runtimes", systemImage: "cube", color: Self.tint,
+                                  caption: "Language files at the repository root, the runtimes they ask for, and the matching runtimes installed on this Mac. Expand an installation to read its version and packages.",
+                                  empty: "No language files or runtime markers", open: open, openTitle: "Open Development environments",
+                                  rows: (manifests?.count ?? 0) + project.runtimes.count + discovered.count + (manifests == nil ? 1 : 0)) {
+                if let manifests {
+                    ForEach(manifests) { manifest in manifestCard(manifest, match: matches.first { $0.requirement.source == manifest.file }) }
+                } else {
+                    ProgressView("Reading language files…").controlSize(.small)
+                }
+                if !project.runtimes.isEmpty {
+                    Text("Version pins and virtual environments").font(.headline).padding(.top, 4)
+                    ForEach(project.runtimes) { runtime in pinRow(runtime, match: matches.first { $0.requirement.source == runtime.marker && $0.requirement.language.rawValue == runtime.name }) }
+                }
+                if !discovered.isEmpty {
+                    Text("Executables inside the repository").font(.headline).padding(.top, 4)
+                    ForEach(discovered) { environment in
+                        DetailRowGroup {
+                            expandable(environment) {
+                                Image(systemName: "terminal").foregroundStyle(Self.tint)
+                                Text(environment.language.rawValue).font(.callout.weight(.semibold)).lineLimit(1)
+                                Text(String(environment.executable.dropFirst(project.root.count + 1))).font(.caption.monospaced())
+                                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                DetailBadge(text: environment.source, color: .secondary)
+                            }
+                        }
                     }
                 }
-                ForEach(server.portPairs) { pair in
-                    let port = pair.primary
-                    HStack(spacing: 8) {
-                        Text(port.protocolName).font(.caption.monospaced().weight(.semibold)).foregroundStyle(.secondary)
-                        Text(port.localAddress).font(.caption.monospaced()).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                        if port.mayServeHTTP, let url = port.browserURL {
-                            Link(destination: url) {
-                                Label(url.absoluteString, systemImage: "arrow.up.forward.square")
-                                    .font(.caption.monospaced().weight(.medium))
-                                    .lineLimit(1).truncationMode(.middle)
-                            }
-                            .help("Open \(url.absoluteString)")
-                        }
-                        Spacer(minLength: 4)
-                        Text(pair.scope.rawValue).font(.caption).foregroundStyle(.tertiary)
+            }
+            Text(environments.snapshot == nil
+                 ? (discoveryOn
+                    ? "Installed runtimes appear once Development environments discovery has run."
+                    : "Installed runtimes: Off. Show Development environments on Summary to discover them.")
+                 : "Installed runtimes come from the last Development environments discovery; versions are read from version-manager and Homebrew paths. Reading an installation runs it with a 10-second limit per command.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .task(id: selection?.id) {
+            if let selection { await environments.inspect(selection) }
+        }
+    }
+
+    private func manifestCard(_ manifest: ProjectManifest, match: ProjectRuntimeMatch?) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: manifest.language == "Puppet" ? "theatermasks" : "chevron.left.forwardslash.chevron.right")
+                        .foregroundStyle(Self.tint)
+                    Text(manifest.language).font(.headline)
+                    DetailBadge(text: manifest.file, systemImage: "doc.text", color: .secondary)
+                    Spacer(minLength: 8)
+                    if let requirement = manifest.requirement {
+                        Text("Requires \(requirement)").font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
+                    if let match { statusBadge(match) }
+                }
+                if !manifest.facts.isEmpty {
+                    DetailFactGrid(facts: manifest.facts.map { DetailFact(title: $0.label, value: $0.value, systemImage: Self.icon($0.label)) },
+                                   minimumWidth: 160)
+                }
+                if let match { installations(match) }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
+        }
+    }
+
+    private func pinRow(_ runtime: ProjectRuntime, match: ProjectRuntimeMatch?) -> some View {
+        DetailRowGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                expandable(environment(for: runtime)) {
+                    Image(systemName: runtime.isEnvironment ? "cube" : "pin").foregroundStyle(Self.tint)
+                    Text(runtime.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(runtime.version ?? (runtime.isEnvironment ? "Version unavailable" : "No version")).font(.callout.monospaced())
+                        .foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 8)
+                    if let match { statusBadge(match) }
+                    DetailBadge(text: runtime.isEnvironment ? "Virtual environment" : "Pin", color: .secondary)
+                    Text(runtime.marker).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let match, !match.installations.isEmpty { installations(match) }
+            }
+        }
+    }
+
+    @ViewBuilder private func installations(_ match: ProjectRuntimeMatch) -> some View {
+        if environments.snapshot != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if match.installations.isEmpty {
+                    Text("No \(match.requirement.language.rawValue) installation discovered on this Mac.").font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(match.installations.prefix(6)) { installation in
+                    expandable(installation.environment) {
+                        Image(systemName: installation.satisfies == true ? "checkmark.circle.fill"
+                              : installation.satisfies == false ? "xmark.circle" : "circle.dashed")
+                            .foregroundStyle(installation.satisfies == true ? .green : installation.satisfies == false ? .orange : .secondary)
+                        Text(installation.version ?? "Version unknown").font(.caption.monospaced().weight(.semibold))
+                            .foregroundStyle(installation.version == nil ? .secondary : .primary)
+                        Text(installation.environment.executable).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        if installation.environment.onPath { DetailBadge(text: "On PATH", color: .blue) }
+                        DetailBadge(text: installation.environment.source, color: .secondary)
+                    }
+                }
+                if match.installations.count > 6 {
+                    Text("\(match.installations.count - 6) more in Development environments").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
     }
 
-    private var facts: [DetailFact] {
-        var facts = [
-            DetailFact(title: "Name", value: project.name, systemImage: "folder", help: project.root),
-            DetailFact(title: "Branch", value: project.git?.branch ?? (project.git == nil ? "Git unavailable" : "Detached HEAD"),
-                       systemImage: "arrow.triangle.branch", tone: AppRoute.projects.tint),
-            DetailFact(title: "Commit", value: project.git?.commit ?? "Unavailable", systemImage: "number"),
-        ]
-        if let kind = project.kind {
-            facts.append(DetailFact(title: "Kind", value: kind.rawValue.capitalized, systemImage: "chevron.left.forwardslash.chevron.right", tone: .teal))
+    private func statusBadge(_ match: ProjectRuntimeMatch) -> some View {
+        Group {
+            if environments.snapshot == nil {
+                DetailBadge(text: discoveryOn ? "Not discovered yet" : "Off", color: .secondary)
+            } else {
+                switch match.status {
+                case .installed: DetailBadge(text: "Installed", systemImage: "checkmark.circle.fill", color: .green)
+                case .mismatch: DetailBadge(text: "Version not installed", systemImage: "exclamationmark.triangle.fill", color: .orange)
+                case .unknown: DetailBadge(text: "\(match.installations.count) installed", systemImage: "questionmark.circle", color: .secondary)
+                case .notFound: DetailBadge(text: "Not installed", systemImage: "xmark.circle.fill", color: .red)
+                }
+            }
         }
-        if project.git?.isWorktree == true {
-            facts.append(DetailFact(title: "Worktree", value: "Linked worktree", systemImage: "arrow.triangle.branch", tone: .purple))
+    }
+
+    private static func icon(_ label: String) -> String {
+        switch label {
+        case "Name", "Module", "Artifact": "shippingbox"
+        case "Version": "number"
+        case "Dependencies", "Requirements", "Package dependencies", "Gems", "Packages", "Modules": "point.3.connected.trianglepath.dotted"
+        case "Scripts": "terminal"
+        case "Lockfile": "lock"
+        case "Supported OS": "desktopcomputer"
+        case "Author": "person"
+        case "License": "doc.plaintext"
+        default: "info.circle"
         }
-        if let modified = project.modifiedAt {
-            facts.append(DetailFact(title: "Modified", value: Formatting.dated(modified.formatted(date: .abbreviated, time: .shortened), modified), systemImage: "clock"))
+    }
+
+    /// A row; with an installation it toggles that installation's details beneath it.
+    @ViewBuilder private func expandable(_ environment: DevEnvironment?, @ViewBuilder label: () -> some View) -> some View {
+        let open = environment != nil && environment?.id == selected
+        VStack(alignment: .leading, spacing: MonitorStyle.spacing) {
+            if let environment {
+                Button { selected = open ? nil : environment.id } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption).foregroundStyle(.secondary)
+                            .frame(width: 10)
+                        label()
+                    }.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(open ? "Hide installation details" : "Read version and packages of \(environment.executable)")
+                if open { DevEnvironmentInspectionView(model: environments, item: environment).id(environment.id) }
+            } else {
+                HStack(spacing: 10) { label() }
+            }
         }
-        return facts
     }
 }
+
