@@ -271,3 +271,53 @@ struct ResourceBudgetTests {
     }
     #endif
 }
+
+extension ResourceBudgetTests {
+    @Test @MainActor func documentsOnlyCollectWhenRequestedWithBoundedWork() async {
+        let commands = Commands()
+        let model = DocumentsModel(collector: DocumentsCollector(run: { executable, args, timeout, limit in
+            #expect(executable == "/usr/bin/mdfind")
+            #expect(timeout == 8)
+            #expect(limit == 524_288)
+            await commands.record(args)
+            return .init(status: 0, output: (0..<3_000).map { "/docs/\($0).pdf\0" }.joined(), error: "")
+        }, metadata: { DocumentRecord(path: $0, kind: "PDF") }))
+        #expect(await commands.values.isEmpty)
+        await model.refresh(scope: "/docs", days: 7)
+        #expect(await commands.values.count == 1)
+        let args = await commands.values.first
+        #expect(args?.prefix(3) == ["-0", "-onlyin", "/docs"])
+        #expect(args?.last?.contains("$time.today(-7)") == true)
+        #expect(model.listing.entries.count == 500)
+        #expect(model.listing.warning != nil)
+        #expect(!model.loading)
+        await model.refresh(scope: "/docs", days: 7, cacheInterval: .infinity)
+        #expect(await commands.values.count == 1)
+        model.invalidate()
+        await model.refresh(scope: "/docs", days: 7, cacheInterval: .infinity)
+        #expect(await commands.values.count == 2)
+    }
+}
+
+extension ResourceBudgetTests {
+    @Test @MainActor func documentBrowserAndDetailsNeverReadBeforeRequestAndHonorCancellation() async {
+        let browser = DocumentBrowserModel(read: { _ in
+            Issue.record("Cancelled browser must not read a directory")
+            return HomeListing()
+        })
+        let detail = DocumentDetailModel(read: { path in
+            Issue.record("Cancelled details must not inspect a file")
+            return DocumentInspection(record: DocumentRecord(path: path, kind: "File"))
+        })
+        #expect(browser.listing.entries.isEmpty)
+        #expect(detail.inspection == nil)
+        let browse = Task { await browser.load(URL(fileURLWithPath: "/docs")) }
+        let inspect = Task { await detail.load("/docs/a.pdf") }
+        browse.cancel()
+        inspect.cancel()
+        await browse.value
+        await inspect.value
+        #expect(!browser.loading)
+        #expect(!detail.loading)
+    }
+}

@@ -5,6 +5,7 @@ import SwiftUI
 struct ActivityDiffCard: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var activity: ActivityFeedModel
+    @Environment(\.summaryArranging) private var arranging
 
     init(store: MonitorStore) {
         self.store = store
@@ -74,6 +75,7 @@ struct ActivityDiffCard: View {
     }
 
     private func open() {
+        guard !arranging else { return }
         if let window = activity.activityDiff?.window { store.timelineViewModel.open(window: window) }
         store.route = .timeline
     }

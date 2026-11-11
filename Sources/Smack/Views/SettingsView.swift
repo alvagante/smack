@@ -292,6 +292,13 @@ struct SettingsView: View {
                 SettingsLabel("Show events on history charts", help: "Draws event markers on the history graphs. Display only; does not change what is recorded.")
             }
         }
+        Section("Session Timeline") {
+            Toggle(isOn: localBinding(\.devTools.sessionDetailsUnderTimeline)) {
+                SettingsLabel("Event details under the timeline",
+                              help: "Puts the Session Timeline's Event Details box under the chart, full-width, instead of beside it. Display only; does not change what is collected.",
+                              subtitle: "Also switched on the Session Timeline's toolbar")
+            }
+        }
     }
 
     @ViewBuilder private var titleBarSection: some View {

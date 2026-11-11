@@ -17,6 +17,7 @@ enum MonitorNavigation {
                 case .security: Capabilities.supportsPostureChecks
                 case .networkPorts: Capabilities.supportsNetworkPortInspection
                 case .startupItems: Capabilities.supportsStartupItems
+                case .documents: !Capabilities.isSandboxed
                 default: SummaryPage.allCases.first { $0.route == route }.map { !Capabilities.isSandboxed && settings.shows($0) } ?? true
                 }
             }, category: category)
@@ -46,7 +47,7 @@ enum RouteCategory: CaseIterable {
         case .performance: [.resource(.cpu), .resource(.gpu), .resource(.memory), .resource(.network), .resource(.disk)]
         case .health: [.resource(.storage), .resource(.thermal), .resource(.battery), .security]
         case .activity: [.applications, .timeline, .history, .insights, .networkPorts, .startupItems, .baseline]
-        case .work: [.projects, .devServers, .docker, .agents]
+        case .work: [.projects, .documents, .devServers, .docker, .agents]
         case .environment: [.homebrew, .devEnvironments, .userHome, .installedApps, .systemDetails]
         case .smack: [.settings]
         }
@@ -98,6 +99,7 @@ extension AppRoute {
         switch self {
         case .application, .process: .applications
         case .project: .projects
+        case .document: .documents
         case .agentSession: .agents
         case .unavailable: nil
         default: self
@@ -117,6 +119,8 @@ extension AppRoute {
         case .homebrew: "Homebrew"
         case .devEnvironments: "Dev environments"
         case .projects: "Projects"
+        case .documents: "Documents"
+        case .document: "Document details"
         case .project: "Project detail"
         case .userHome: "User home"
         case .agents: "AI agents"
@@ -155,6 +159,7 @@ extension AppRoute {
         case .homebrew: "mug"
         case .devEnvironments: "chevron.left.forwardslash.chevron.right"
         case .projects, .project: "folder"
+        case .documents, .document: "doc.on.doc"
         case .userHome: "house"
         case .agents, .agentSession: "sparkles"
         case .installedApps: "square.grid.3x3"
@@ -190,6 +195,7 @@ extension MonitorStore {
         case .application(let id): application(id: id)?.name
         case .process(let id): process(id: id)?.name
         case .project(let root): project(root: root)?.name
+        case .document(let path): URL(fileURLWithPath: path).lastPathComponent
         case .agentSession(let id): agentsModel.live.sessions.first { $0.id == id }.map { session in
             [session.agentName, session.project?.name].compactMap { $0 }.joined(separator: " · ")
         }

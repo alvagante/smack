@@ -6,6 +6,16 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Documents inspection:** Browse now uses the Projects/Files stat and text-content pane with a bounded-width file column. Preview, Open With, Share, Copy (contents/path/URL), Reveal in Finder and Document Details stay at the top. Selection reuses the bounded User Home reader (up to 1 MiB), with one preview retained and cancellation on hide; no timers, subprocesses or history writes. Whole-app resource measurement remains pending.
+
+- **Documents Browse:** reuses the Projects/Files and User Home folder browser for navigation, filtering, file rows, sizes, symbolic-link labels and Finder actions. Document actions and explicit Quick Look remain available. No collection, timers or history changes.
+
+- **Expanded Summary tiles:** 2×2 CPU, GPU, Memory, Network and Disk Activity tiles list the top five sampled Applications for their metric. Documents, Projects, Dev servers, Applications, Development Environments, Insights and Homebrew show longer lists. Arrange uses the whole tile without a drag icon, moves neighbors during the drag, and saves once on drop. All rankings reuse collected data except GPU: its existing IORegistry client reader runs at the normal live interval only while the 2×2 tile is visible, without subprocesses or additional history writes. Optimized GPU-reader probe: 0.93 ms average per scan (100 scans, p95 1.27 ms); the ten-minute whole-app release comparison remains pending.
+
+- **Summary tiles:** fixed 1×1, 2×1 and 2×2 footprints replace stretched rows. Arrange offers three shape buttons and drag ordering, including insertion after the last tile. Larger tiles show more document, project, application and session rows, larger resource charts and memory details; long lists scroll inside their tile. Shapes and order persist in Settings. Display only: no new collection, timers or history writes.
+
+- **Documents views:** Recent is a single-line table with type-specific icons and clickable sort headers. Rows open a Document Detail Page with current filesystem information, indexed document/media metadata and Open, Open With, Quick Look, Share, Reveal and Copy actions. Browse uses a native selectable list and split preview, double-click folder/file navigation, context menus, drag-out and Space for Quick Look. Filters, sorting and chosen view survive document navigation. Collection stays on demand; one bounded folder listing or one file inspection at a time, no new timers or history writes. Quick Look loads only on request and closes when hidden; its provider memory, caches and cloud downloads are managed by macOS. Whole-app measurement remains pending.
+
 - **Saved Sessions:** sortable table headers replace the sort menu; agent filter chips toggle individually and combine, with counts and Clear filters. The Projects-style header shows loaded sessions, projects, AI Agents and known tokens with coverage. Table rows gain hover feedback and explicit navigation affordances. No new collection, polling or disk writes.
 
 - **Projects:** the Load Git status and Measure project sizes buttons moved from the page header to the top of the Status and Size table columns as small reload buttons with a refresh symbol; while reading or measuring, the same button becomes a click-to-stop spinner. Stop capability, gating and cost are unchanged: no new collection.
@@ -15,6 +25,16 @@ All notable changes to Smack are documented in this file.
 - **Version:** prepared 1.2.0 (build 12); Summary, About and baseline exports report the new version. No runtime cost change.
 
 ### Added
+
+- **Documents Summary tile:** up to five recently modified files with type icons, modification ages and links to their Document Detail Pages. The heading opens Recent; the tile supports the saved Summary Layout, with a two-column default. Reuses the last Documents inventory without starting discovery, adding timers or writing history.
+
+- **Summary Layout:** Arrange on Summary to drag tiles into a new order and switch each between one and two columns. The layout is saved with Settings and restored on the next launch; Reset restores the factory order. Display only: no collection or background cost.
+
+- **Window frame:** the Panel and Standard Window remember their last size and position on close, resize end and quit, and reopen there (clamped to a visible screen). No collection cost.
+
+- **Session Timeline:** Event Details can sit under the chart at full width instead of beside it. Switched from a toolbar button on the Session Timeline or the "Event details under the timeline" row in Settings › Appearance. Display only: no collection, background work or disk writes.
+
+- **Documents:** a Work page for recently modified saved files across Home, iCloud Drive and user-chosen folders or volumes. Search names, paths, authors and tags; filter by kind, location and date range; sort by modification, creation, last opened, name, kind, location or size. Open a Document Detail Page, reveal files in Finder and open related discovered Projects. On-demand only, bounded to one 8-second Spotlight query with 512 KiB output, 2,000 metadata candidates within a two-second cooperative budget, and 500 retained files, using Inventory Cache. Discovery reads metadata only, with no timers or history writes; preview and opening are explicit. Release discovery measured 4.44 seconds for 500 files in Home (bounded sample); the ten-minute whole-app comparison remains pending. Details in docs/development/documents.md.
 
 - **Onboarding:** sound selection with an explicit Preview button, color scheme, Glass mode and opacity, and Hover delay. New installations start muted; saved sound choices and legacy defaults are preserved. Skip or closing keeps current Settings. No collection or background cost change.
 

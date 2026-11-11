@@ -349,6 +349,7 @@ final class UserHomeMonitor: ObservableObject {
     }
 
     func inspect(_ url: URL) async {
+        guard !Task.isCancelled else { return }
         clearPreview()
         let generation = previewGeneration
         inspecting = true

@@ -4,6 +4,9 @@ struct SummaryView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settingsStore: SettingsStore
     @ObservedObject private var devServers: DevServersModel
+    @State private var arranging = false
+    @State private var drag: SummaryTileDrag?
+    @State private var gridWidth: CGFloat = 0
 
     init(store: MonitorStore) {
         self.store = store
@@ -14,7 +17,9 @@ struct SummaryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SummaryHero(store: store)
+                SummaryHero(store: store, arranging: $arranging, canReset: hasCustomLayout) {
+                    settingsStore.update { $0.panel.summaryLayout.reset() }
+                }
                 tiles
             }
             .padding(MonitorStyle.inset)
@@ -23,49 +28,171 @@ struct SummaryView: View {
     }
 
     private var points: [LiveMetricPoint] { store.recentMetrics.points }
+    private var layout: SummaryLayoutSettings { settingsStore.settings.panel.summaryLayout }
+    private var hasCustomLayout: Bool { !layout.order.isEmpty || !layout.spans.isEmpty }
 
-    /// One grid, busiest first: live charts and running applications lead, inventories follow.
-    /// Order pairs the two-column tiles so rows pack at 2, 4, 6 and 8 columns.
-    /// Dev Servers and AI Agents widen to two columns while they list entries, and grow as tall as their lists.
+    /// One grid of every visible Summary Tile, ordered and sized from the saved Summary Layout.
     @ViewBuilder private var tiles: some View {
-        let settings = settingsStore.settings
+        let visible = visibleTiles
+        let ordered = drag?.order ?? SummaryLayoutSettings.resolve(order: layout.order, visible: visible)
+        let frames = tileFrames(ordered)
         TileGridLayout {
-            cpuTile.tileSpan(2)
-            memoryTile
-            gpuTile
-            networkTile.tileSpan(2)
-            applicationsTile.tileSpan(2)
-            diskTile.tileSpan(2)
-            thermalTile
-            storageTile
+            ForEach(ordered) { id in
+                arranged(id, defaultSpan: defaultSpan(for: id), ordered: ordered, frames: frames) {
+                    tile(for: id)
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.18), value: ordered)
+        .coordinateSpace(name: "summary-grid")
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
+        .environment(\.summaryArranging, arranging)
+        .onChange(of: arranging) { _, _ in drag = nil }
+        .onDisappear { drag = nil }
+    }
+
+    private var visibleTiles: [SummaryTileID] {
+        let settings = settingsStore.settings
+        var ids: [SummaryTileID] = [
+            .cpu, .memory, .gpu, .network, .applications, .disk, .thermal, .storage
+        ]
+        if store.system?.battery?.isPresent == true { ids.append(.battery) }
+        if Capabilities.supportsPostureChecks { ids.append(.security) }
+        if Capabilities.supportsNetworkPortInspection { ids.append(.connections) }
+        if Capabilities.supportsStartupItems { ids.append(.startupItems) }
+        ids.append(.activity)
+        if settings.history.showInsightsDigest { ids.append(.insights) }
+        if !Capabilities.isSandboxed && settings.shows(.devServers) { ids.append(.devServers) }
+        if !Capabilities.isSandboxed && settings.shows(.projects) { ids.append(.projects) }
+        if !Capabilities.isSandboxed { ids.append(.documents) }
+        if settings.shows(.agents) { ids.append(.agents) }
+        if settings.shows(.docker) { ids.append(.docker) }
+        if settings.shows(.homebrew) { ids.append(.homebrew) }
+        if settings.shows(.devEnvironments) { ids.append(.devEnvironments) }
+        if settings.shows(.installedApps) { ids.append(.installedApps) }
+        if settings.shows(.userHome) { ids.append(.userHome) }
+        ids.append(contentsOf: [.history, .baseline, .systemDetails])
+        return ids
+    }
+
+    private func defaultSpan(for id: SummaryTileID) -> Int {
+        switch id {
+        case .devServers:
+            let servers = devServers.devServers
+            let candidates = Set((servers ?? []).flatMap(\.ports).filter(\.mayServeHTTP).map(\.probeKey))
+            return candidates.isEmpty ? 1 : 2
+        case .projects:
+            return (store.projectsModel.snapshot?.projects.isEmpty == false) ? 2 : 1
+        case .agents:
+            return store.agentsModel.live.sessions.contains(where: { $0.endedAt == nil }) ? 2 : 1
+        default:
+            return SummaryTileID.factorySpans[id] ?? 1
+        }
+    }
+
+    private func tileFrames(_ ordered: [SummaryTileID]) -> [SummaryTileID: CGRect] {
+        Dictionary(uniqueKeysWithValues: zip(ordered, TileGrid.frames(
+            sizes: ordered.map { tileSize($0) }, width: gridWidth, minimumColumnWidth: 210, spacing: 12
+        )))
+    }
+
+    private func arranged<Content: View>(
+        _ id: SummaryTileID,
+        defaultSpan: Int,
+        ordered: [SummaryTileID],
+        frames: [SummaryTileID: CGRect],
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let span = layout.span(for: id, default: defaultSpan)
+        let dragging = drag?.id == id
+        return content()
+            .environment(\.summaryTileSize, SummaryTileSize(span: span))
+            .summaryTileArrangement(
+                id, arranging: arranging, span: span, dragging: dragging,
+                onDrag: { start, location in
+                    if drag == nil, let origin = frames[id] {
+                        drag = SummaryTileDrag(id: id, order: ordered, origin: origin, start: start)
+                    }
+                    drag?.update(location: location, frames: frames)
+                },
+                onEnd: {
+                    if let drag {
+                        let order = drag.order.map(\.rawValue)
+                        if order != SummaryLayoutSettings.resolve(order: layout.order, visible: visibleTiles).map(\.rawValue) {
+                            settingsStore.update { $0.panel.summaryLayout.order = order }
+                        }
+                    }
+                    drag = nil
+                },
+                onCancel: { drag = nil },
+                onSpan: { setSpan($0, for: id) }
+            )
+            .offset(dragging ? (drag?.offset(in: frames) ?? .zero) : .zero)
+            .zIndex(dragging ? 1 : 0)
+            .transaction { if dragging { $0.animation = nil } }
+            .tileSpan(span)
+    }
+
+    private func tileSize(_ id: SummaryTileID) -> SummaryTileSize {
+        layout.size(for: id, default: defaultSpan(for: id))
+    }
+
+    private func setSpan(_ span: Int, for id: SummaryTileID) {
+        settingsStore.update { $0.panel.summaryLayout.setSpan(span, for: id) }
+    }
+
+    private func open(_ route: AppRoute) {
+        guard !arranging else { return }
+        store.route = route
+    }
+
+    @ViewBuilder private func tile(for id: SummaryTileID) -> some View {
+        let settings = settingsStore.settings
+        switch id {
+        case .cpu: cpuTile
+        case .memory: memoryTile
+        case .gpu: gpuTile
+        case .network: networkTile
+        case .applications: applicationsTile
+        case .disk: diskTile
+        case .thermal: thermalTile
+        case .storage: storageTile
+        case .battery:
             if let battery = store.system?.battery, battery.isPresent { batteryTile(battery) }
-            if Capabilities.supportsPostureChecks { securityTile }
-            if Capabilities.supportsNetworkPortInspection { connectionsTile }
-            if Capabilities.supportsStartupItems { StartupSummaryCard(model: store.startupItemsModel) { store.route = .startupItems } }
-            ActivityDiffCard(store: store).tileSpan(2)
-            if settings.history.showInsightsDigest {
-                InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settings)) { store.route = .insights }
-                    .tileSpan(2)
-            }
-            if !Capabilities.isSandboxed && settings.shows(.devServers) { devServersTile }
-            if !Capabilities.isSandboxed && settings.shows(.projects) {
-                ProjectsSummaryTile(model: store.projectsModel, devServers: store.devServersModel,
-                                    sessions: store.agentsModel.live, docker: store.dockerModel,
-                                    open: { store.route = .projects },
-                                    openProject: { store.openProject($0, section: $1) },
-                                    openSession: { store.route = .agentSession($0) })
-            }
-            if settings.shows(.agents) {
-                AgentsSummaryTile(model: store.agentsModel, open: { store.route = .agents }, openSession: { store.route = .agentSession($0) })
-            }
-            if settings.shows(.docker) { DockerSummaryTile(model: store.dockerModel) { store.route = .docker } }
-            if settings.shows(.homebrew) { HomebrewSummaryTile(model: store.homebrewModel) { store.route = .homebrew } }
-            if settings.shows(.devEnvironments) { DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { store.route = .devEnvironments } }
-            if settings.shows(.installedApps) { InstalledAppsSummaryTile(model: store.installedAppsModel) { store.route = .installedApps } }
-            if settings.shows(.userHome) { UserHomeSummaryTile { store.route = .userHome } }
-            SummaryTile(route: .history, headline: "Explore trends", caption: "System and per-program history") { store.route = .history }
-            BaselineSummaryTile(model: store.baselines, settingsStore: settingsStore) { store.route = .baseline }
-            SummaryTile(route: .systemDetails, headline: macOSVersion, caption: "Hardware, software and limits") { store.route = .systemDetails }
+        case .security: securityTile
+        case .connections: connectionsTile
+        case .startupItems:
+            StartupSummaryCard(model: store.startupItemsModel) { open(.startupItems) }
+        case .activity: ActivityDiffCard(store: store)
+        case .insights:
+            InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settings)) { open(.insights) }
+        case .devServers: devServersTile
+        case .projects:
+            ProjectsSummaryTile(model: store.projectsModel, devServers: store.devServersModel,
+                                sessions: store.agentsModel.live, docker: store.dockerModel,
+                                open: { open(.projects) },
+                                openProject: { if !arranging { store.openProject($0, section: $1) } },
+                                openSession: { open(.agentSession($0)) })
+        case .documents:
+            DocumentsSummaryTile(model: store.documentsModel, open: {
+                guard !arranging else { return }
+                store.documentsModel.presentation.mode = .recent
+                open(.documents)
+            }, openDocument: { open(.document($0)) })
+        case .agents:
+            AgentsSummaryTile(model: store.agentsModel, open: { open(.agents) },
+                              openSession: { open(.agentSession($0)) })
+        case .docker: DockerSummaryTile(model: store.dockerModel) { open(.docker) }
+        case .homebrew: HomebrewSummaryTile(model: store.homebrewModel) { open(.homebrew) }
+        case .devEnvironments: DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { open(.devEnvironments) }
+        case .installedApps: InstalledAppsSummaryTile(model: store.installedAppsModel) { open(.installedApps) }
+        case .userHome: UserHomeSummaryTile { open(.userHome) }
+        case .history:
+            SummaryTile(route: .history, headline: "Explore trends", caption: "System and per-program history") { open(.history) }
+        case .baseline:
+            BaselineSummaryTile(model: store.baselines, settingsStore: settingsStore) { open(.baseline) }
+        case .systemDetails:
+            SummaryTile(route: .systemDetails, headline: macOSVersion, caption: "Hardware, software and limits") { open(.systemDetails) }
         }
     }
 
@@ -82,15 +209,16 @@ struct SummaryView: View {
         }
         return SummaryTile(route: .resource(.cpu),
                            headline: cpu.map { $0.hasUsage ? Formatting.percent($0.totalUsage) : "Measuring…" } ?? "Collecting…",
-                           caption: caption, open: { store.route = .resource(.cpu) }) {
+                           caption: caption, interactiveVisual: tileSize(.cpu) == .large, open: { open(.resource(.cpu)) }) {
             HStack(spacing: 12) {
-                Sparkline(series: [SparklineSeries(values: points.map(\.cpuUsage), color: .blue)], domain: 0...100, minHeight: 44, maxHeight: 44)
+                Sparkline(series: [SparklineSeries(values: points.map(\.cpuUsage), color: .blue)], domain: 0...100, minHeight: tileSize(.cpu) == .large ? 64 : 44, maxHeight: tileSize(.cpu) == .large ? 64 : 44)
                     .accessibilityHidden(true)
-                if !cores.isEmpty {
+                if !cores.isEmpty && tileSize(.cpu) != .square {
                     CoreBars(values: cores).frame(width: min(CGFloat(cores.count) * 8, 168), height: 44)
                         .help("Load per core")
                 }
             }
+            topApplications(.cpu, tile: .cpu)
         }
     }
 
@@ -107,7 +235,7 @@ struct SummaryView: View {
             if memory.swapUsedBytes > 0 { caption += " · swap \(Formatting.bytes(memory.swapUsedBytes))" }
         }
         return SummaryTile(route: .resource(.memory), headline: memory.map { Formatting.bytes($0.usedBytes) } ?? "Collecting…",
-                           caption: caption, tone: tone, open: { store.route = .resource(.memory) }) {
+                           caption: caption, tone: tone, interactiveVisual: tileSize(.memory) == .large, open: { open(.resource(.memory)) }) {
             if let memory {
                 VStack(alignment: .leading, spacing: 6) {
                     SegmentBar(segments: [
@@ -116,8 +244,19 @@ struct SummaryView: View {
                         .init(value: Double(memory.compressedBytes), color: .pink)
                     ], total: Double(memory.totalBytes))
                     SegmentLegend(items: [("App", .purple), ("Wired", .orange), ("Compressed", .pink)])
+                    if tileSize(.memory) != .square {
+                        Text("App " + Formatting.bytes(memory.appBytes) + " · Wired " + Formatting.bytes(memory.wiredBytes))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if tileSize(.memory) == .large {
+                        Text("Compressed " + Formatting.bytes(memory.compressedBytes))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Swap " + Formatting.bytes(memory.swapUsedBytes))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
+            topApplications(.memory, tile: .memory)
         }
     }
 
@@ -126,10 +265,18 @@ struct SummaryView: View {
         let history = points.compactMap(\.gpuUsage)
         return SummaryTile(route: .resource(.gpu), headline: store.system == nil ? "Collecting…" : usage.map(Formatting.percent) ?? "Unavailable",
                            caption: store.system.map { [$0.gpuName, $0.gpuCoreCount.map { "\($0) cores" }].compactMap { $0 }.joined(separator: " · ") } ?? "Graphics usage",
-                           open: { store.route = .resource(.gpu) }) {
+                           interactiveVisual: tileSize(.gpu) == .large, open: { open(.resource(.gpu)) }) {
             if !history.isEmpty {
-                Sparkline(series: [SparklineSeries(values: history, color: .indigo)], domain: 0...100, minHeight: 32, maxHeight: 32)
+                Sparkline(series: [SparklineSeries(values: history, color: .indigo)], domain: 0...100, minHeight: tileSize(.gpu) == .large ? 64 : 32, maxHeight: tileSize(.gpu) == .large ? 64 : 32)
                     .accessibilityHidden(true)
+            }
+            topApplications(.gpu, tile: .gpu)
+        }
+        .background {
+            if tileSize(.gpu) == .large {
+                Color.clear
+                    .onAppear { store.setGPUProcessesWanted(true) }
+                    .onDisappear { store.setGPUProcessesWanted(false) }
             }
         }
     }
@@ -140,24 +287,38 @@ struct SummaryView: View {
         return SummaryTile(route: .resource(.network),
                            headline: system.map { "↓ \(Formatting.rate($0.receiveRate))   ↑ \(Formatting.rate($0.sendRate))" } ?? "Collecting…",
                            caption: busiest.map { "\($0.name) · \($0.addresses.first ?? "")" } ?? "Received / sent",
-                           open: { store.route = .resource(.network) }) {
+                           interactiveVisual: tileSize(.network) == .large, open: { open(.resource(.network)) }) {
             rateChart(upper: points.map(\.receiveRate), lower: points.map(\.sendRate), upperColor: .cyan, lowerColor: .mint,
-                      legend: [("Received", .cyan), ("Sent", .mint)])
+                      legend: [("Received", .cyan), ("Sent", .mint)], height: tileSize(.network) == .large ? 64 : 48)
+            topApplications(.network, tile: .network)
         }
     }
 
     private var diskTile: some View {
         SummaryTile(route: .resource(.disk),
                     headline: store.system.map { "R \(Formatting.rate($0.diskReadRate))   W \(Formatting.rate($0.diskWriteRate))" } ?? "Collecting…",
-                    caption: "Read / written", open: { store.route = .resource(.disk) }) {
+                    caption: "Read / written", interactiveVisual: tileSize(.disk) == .large, open: { open(.resource(.disk)) }) {
             rateChart(upper: points.map(\.diskReadRate), lower: points.map(\.diskWriteRate), upperColor: .orange, lowerColor: .pink,
-                      legend: [("Read", .orange), ("Written", .pink)])
+                      legend: [("Read", .orange), ("Written", .pink)], height: tileSize(.disk) == .large ? 64 : 48)
+            topApplications(.disk, tile: .disk)
         }
     }
 
-    private func rateChart(upper: [Double], lower: [Double], upperColor: Color, lowerColor: Color, legend: [(title: String, color: Color)]) -> some View {
+    @ViewBuilder private func topApplications(_ resource: ResourceKind, tile: SummaryTileID) -> some View {
+        if tileSize(tile) == .large {
+            SummaryTopApplications(
+                applications: store.processes?.applications ?? [], resource: resource,
+                gpuUsage: store.currentGPUUsage,
+                unavailable: resource == .network && !settingsStore.settings.sampling.processNetworkRateEnabled
+                    ? "Per-application network rates are off" : nil,
+                open: { open(.application($0)) }
+            )
+        }
+    }
+
+    private func rateChart(upper: [Double], lower: [Double], upperColor: Color, lowerColor: Color, legend: [(title: String, color: Color)], height: CGFloat = 48) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            MirroredRateChart(upper: upper, lower: lower, upperColor: upperColor, lowerColor: lowerColor)
+            MirroredRateChart(upper: upper, lower: lower, upperColor: upperColor, lowerColor: lowerColor, height: height)
             SegmentLegend(items: legend)
         }
     }
@@ -168,7 +329,7 @@ struct SummaryView: View {
         let condition = store.system?.thermalCondition
         return SummaryTile(route: .resource(.thermal), headline: condition?.rawValue.capitalized ?? "Collecting…",
                            caption: "Temperature sensors and fans", tone: condition.map(ThermalLights.color),
-                           open: { store.route = .resource(.thermal) }) {
+                           open: { open(.resource(.thermal)) }) {
             if let condition { ThermalLights(condition: condition) }
         }
     }
@@ -180,7 +341,7 @@ struct SummaryView: View {
         return SummaryTile(route: .resource(.storage),
                            headline: store.system == nil ? "Collecting…" : volumes.isEmpty ? "Unavailable" : "\(Formatting.bytes(available)) free",
                            caption: volumes.isEmpty ? "Mounted volumes" : "of \(Formatting.bytes(total)) across \(volumes.count) \(volumes.count == 1 ? "volume" : "volumes")",
-                           open: { store.route = .resource(.storage) }) {
+                           open: { open(.resource(.storage)) }) {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(volumes.sorted { $0.usedFraction > $1.usedFraction }.prefix(3)) { volume in
                     let fraction = volume.usedFraction
@@ -204,7 +365,7 @@ struct SummaryView: View {
         var caption = battery.isCharging ? "Charging" : battery.isOnBattery == false ? "Connected to power" : "On battery"
         if let remaining = battery.timeRemaining, remaining > 0 { caption += " · \(CPUReadings.uptime(remaining)) left" }
         return SummaryTile(route: .resource(.battery), headline: charge.map { "\(Int($0))%" } ?? "Unavailable", caption: caption,
-                           open: { store.route = .resource(.battery) }) {
+                           open: { open(.resource(.battery)) }) {
             if let charge {
                 HStack(spacing: 6) {
                     SegmentBar(segments: [.init(value: charge, color: color)], total: 100, height: 10)
@@ -221,7 +382,7 @@ struct SummaryView: View {
         let headline = store.posture == nil ? "Awaiting checks" : problems > 0 ? "\(problems) \(problems == 1 ? "finding" : "findings")" : unknown == checks.count ? "Unverified" : "No findings"
         return SummaryTile(route: .security, headline: headline,
                            caption: store.posture == nil ? "System security checks" : "\(checks.count) checks · \(unknown) unverified",
-                           tone: problems > 0 ? .orange : nil, open: { store.route = .security }) {
+                           tone: problems > 0 ? .orange : nil, open: { open(.security) }) {
             StatusDots(colors: checks.sorted { $0.status.severityRank < $1.status.severityRank }.map { $0.status == .unknown ? Color.secondary.opacity(0.4) : $0.status.color }, limit: 16)
         }
     }
@@ -230,16 +391,16 @@ struct SummaryView: View {
 
     private var applicationsTile: some View {
         let snapshot = store.processes
-        let top = Array((snapshot?.applications ?? []).sorted { $0.cpuUsage > $1.cpuUsage }.prefix(4))
+        let top = Array((snapshot?.applications ?? []).sorted { $0.cpuUsage > $1.cpuUsage }.prefix(tileSize(.applications).rowLimit))
         let scale = max(100, top.first?.cpuUsage ?? 0)
         return SummaryTile(route: .applications, headline: snapshot.map { "\($0.applications.count) running" } ?? "Collecting…",
                            caption: snapshot.map { "\($0.backgroundProcesses.count) background processes · busiest by CPU" } ?? "Applications and processes",
-                           open: { store.route = .applications }) {
+                           open: { open(.applications) }) {
             VStack(spacing: 5) {
                 ForEach(top) { application in
                     HStack(spacing: 8) {
                         ApplicationIcon(application: application, size: 16)
-                        Text(application.name).font(.caption).lineLimit(1).frame(width: 110, alignment: .leading)
+                        Text(application.name).font(.caption).lineLimit(1).frame(maxWidth: tileSize(.applications) == .square ? 70 : 110, alignment: .leading)
                         SegmentBar(segments: [.init(value: application.cpuUsage, color: .blue)], total: scale, height: 6)
                         Text(Formatting.percent(application.cpuUsage)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                             .frame(width: 48, alignment: .trailing)
@@ -253,7 +414,7 @@ struct SummaryView: View {
         let snapshot = store.networkPorts
         return SummaryTile(route: .networkPorts, headline: snapshot.map { "\($0.ports.count) listening" } ?? "Collecting…",
                            caption: snapshot.map { "\($0.externalCount) external · \($0.localhostCount) localhost · \($0.totalConnectionCount) connections" } ?? "Listening ports and connections",
-                           open: { store.route = .networkPorts }) {
+                           open: { open(.networkPorts) }) {
             if let snapshot, !snapshot.ports.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     SegmentBar(segments: [.init(value: Double(snapshot.externalCount), color: .orange),
@@ -272,16 +433,15 @@ struct SummaryView: View {
         let checking = candidates.contains { devServers.webSchemes[$0] == nil } && devServers.webSchemes.isEmpty
         return SummaryTile(route: .devServers, headline: servers.map { "\($0.count) \($0.count == 1 ? "server" : "servers")" } ?? "Awaiting collection",
                            caption: servers.map { Set($0.compactMap(\.project?.name)).count }.map { "\($0) \($0 == 1 ? "project" : "projects")" } ?? "Projects, listeners and containers",
-                           interactiveVisual: true, open: { store.route = .devServers }) {
+                           interactiveVisual: true, open: { open(.devServers) }) {
             if let servers, !servers.isEmpty {
                 if checking {
                     Text("Checking web endpoints…").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    DevServerHTTPLinks(servers: servers, schemes: devServers.webSchemes)
+                    DevServerHTTPLinks(servers: servers, schemes: devServers.webSchemes, limit: tileSize(.devServers).rowLimit)
                 }
             }
         }
-        .tileSpan(candidates.isEmpty ? 1 : 2)
         // Only while Summary shows the tile: each new listener is asked once whether it speaks HTTP.
         .task(id: candidates) { await devServers.checkWebEndpoints(servers ?? []) }
     }
@@ -295,6 +455,9 @@ struct SummaryView: View {
 /// The Mac, how long it has been up, and what needs attention right now.
 private struct SummaryHero: View {
     @ObservedObject var store: MonitorStore
+    @Binding var arranging: Bool
+    var canReset = false
+    var reset: () -> Void = {}
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -302,12 +465,14 @@ private struct SummaryHero: View {
                 identity
                 Spacer(minLength: 16)
                 concerns
+                arrangeControls
                 uptime
             }
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     identity
                     Spacer(minLength: 8)
+                    arrangeControls
                     uptime
                 }
                 concerns
@@ -315,6 +480,21 @@ private struct SummaryHero: View {
         }
         .padding(16)
         .monitorSurface()
+    }
+
+    private var arrangeControls: some View {
+        HStack(spacing: 8) {
+            if arranging && canReset {
+                Button("Reset", action: reset)
+                    .buttonStyle(.borderless)
+                    .help("Restore the factory Summary Layout")
+            }
+            Button(arranging ? "Done" : "Arrange") { arranging.toggle() }
+                .buttonStyle(.bordered)
+                .help(arranging
+                      ? "Finish arranging Summary Tiles"
+                      : "Reorder and resize Summary Tiles; the layout is saved for next time")
+        }
     }
 
     private var identity: some View {

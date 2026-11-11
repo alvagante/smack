@@ -285,12 +285,20 @@ struct PanelSettings: Codable, Equatable, Sendable {
     var showMenuBarItems = false
     var showBackgroundProcesses = false
     var launchAtLogin = false
+    /// Last arranged Summary Tile order and spans; empty keeps the factory layout.
+    var summaryLayout = SummaryLayoutSettings()
+    /// Last used Panel or Standard Window frame, restored on the next open.
+    var savedWindowFrame: SavedWindowFrame? = nil
 
     mutating func validate() {
         hoverDelay = min(max(hoverDelay, 0), 2)
         hoverGracePeriod = min(max(hoverGracePeriod, 0), 5)
         glassOpacity = min(max(glassOpacity, CollectionSettings.glassOpacityRange.lowerBound), CollectionSettings.glassOpacityRange.upperBound)
         if !Capabilities.supportsNativeMenuBarIcons { showMenuBarItems = false }
+        summaryLayout.validate()
+        if let frame = savedWindowFrame, frame.width < 1 || frame.height < 1 {
+            savedWindowFrame = nil
+        }
     }
 
     init() {}
@@ -312,6 +320,8 @@ struct PanelSettings: Codable, Equatable, Sendable {
         showMenuBarItems = c.value(.showMenuBarItems, or: d.showMenuBarItems)
         showBackgroundProcesses = c.value(.showBackgroundProcesses, or: d.showBackgroundProcesses)
         launchAtLogin = c.value(.launchAtLogin, or: d.launchAtLogin)
+        summaryLayout = c.value(.summaryLayout, or: d.summaryLayout)
+        savedWindowFrame = c.value(.savedWindowFrame, or: d.savedWindowFrame)
     }
 }
 
@@ -606,6 +616,8 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
     var showAgentCommandLines = false
     /// The Session Timeline reads prompts, answers and tool calls from agent transcripts, only while it is open.
     var readSessionTranscripts = true
+    /// Event Details sit beside the Session Timeline; on, they sit under it at full width. Display only.
+    var sessionDetailsUnderTimeline = false
 
     mutating func validate() {
         if !CollectionSettings.dockerRefreshChoices.contains(dockerRefreshSeconds) { dockerRefreshSeconds = 15 }
@@ -638,6 +650,7 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
         customAgentFolders = c.value(.customAgentFolders, or: d.customAgentFolders)
         showAgentCommandLines = c.value(.showAgentCommandLines, or: d.showAgentCommandLines)
         readSessionTranscripts = c.value(.readSessionTranscripts, or: d.readSessionTranscripts)
+        sessionDetailsUnderTimeline = c.value(.sessionDetailsUnderTimeline, or: d.sessionDetailsUnderTimeline)
     }
 }
 

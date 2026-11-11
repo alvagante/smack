@@ -315,6 +315,7 @@ struct InsightsDigestCard: View {
     @ObservedObject var model: InsightsModel
     let sources: InsightsSources
     let open: () -> Void
+    @Environment(\.summaryTileSize) private var tileSize
 
     var body: some View {
         SummaryTile(route: .insights, headline: "Last 24 hours",
@@ -323,6 +324,11 @@ struct InsightsDigestCard: View {
                 if let digest = model.digest {
                     if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1...3) }
                     if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1...3) }
+                    if tileSize == .large {
+                        ForEach(Array(digest.expandedLines.enumerated()), id: \.offset) { _, line in
+                            Text(line).font(.caption).lineLimit(1)
+                        }
+                    }
                     ForEach(digest.highlights, id: \.self) { line in
                         Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1...3)
                     }

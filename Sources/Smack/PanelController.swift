@@ -166,6 +166,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         setActivationPolicy(style.activationPolicy)
         guard style != windowStyle else { return }
         let wasOpen = panel.isVisible || panel.isMiniaturized
+        rememberWindowFrame()
         let old = panel
         // Detached first, so closing it neither stops Live Data nor takes the shared content with it.
         old.delegate = nil
@@ -286,7 +287,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         if panel.isMiniaturized {
             panel.deminiaturize(nil)
         } else if !panel.isVisible {
-            if frameAutosaveName.map(panel.setFrameUsingName) != true { panel.setFrame(targetFrame(), display: false) }
+            panel.setFrame(targetFrame(), display: false)
             smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
         }
         activate()
@@ -295,7 +296,20 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        rememberWindowFrame()
         panel.close()
+    }
+
+    /// Writes the current frame so the next open restores size and position.
+    func rememberWindowFrame() {
+        guard panel.frame.width >= panel.minSize.width * 0.5, panel.frame.height >= panel.minSize.height * 0.5 else { return }
+        if windowStyle == .standardWindow, let frameAutosaveName {
+            panel.saveFrame(usingName: frameAutosaveName)
+        }
+        let frame = panel.frame
+        let saved = SavedWindowFrame(x: frame.origin.x, y: frame.origin.y, width: frame.width, height: frame.height)
+        guard store.settingsStore.settings.panel.savedWindowFrame != saved else { return }
+        store.settingsStore.update { $0.panel.savedWindowFrame = saved }
     }
 
     /// Live Data runs while the window can be seen: not minimized, hidden, on another Space or fully covered.
@@ -320,6 +334,18 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func targetFrame() -> NSRect {
+        let fallback = defaultTargetFrame()
+        if windowStyle == .standardWindow, let frameAutosaveName, panel.setFrameUsingName(frameAutosaveName) {
+            let restored = panel.frame
+            return clampedFrame(restored, fallback: fallback)
+        }
+        if let saved = store.settingsStore.settings.panel.savedWindowFrame {
+            return clampedFrame(saved.cgRect, fallback: fallback)
+        }
+        return fallback
+    }
+
+    private func defaultTargetFrame() -> NSRect {
         let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
         let frame = screen.visibleFrame
         let width = frame.width * 0.92
@@ -327,6 +353,18 @@ final class PanelController: NSObject, NSWindowDelegate {
         let x = frame.midX - width / 2
         let y = screen.frame.maxY - max(screen.safeAreaInsets.top, 24) - height - 6
         return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func clampedFrame(_ frame: CGRect, fallback: NSRect) -> NSRect {
+        let screens = NSScreen.screens.map(\.visibleFrame).map {
+            CGRect(x: $0.origin.x, y: $0.origin.y, width: $0.width, height: $0.height)
+        }
+        let clamped = SavedWindowFrame(frame).clamped(
+            to: screens,
+            minimumSize: CGSize(width: panel.minSize.width, height: panel.minSize.height),
+            fallback: CGRect(x: fallback.origin.x, y: fallback.origin.y, width: fallback.width, height: fallback.height)
+        )
+        return NSRect(x: clamped.origin.x, y: clamped.origin.y, width: clamped.width, height: clamped.height)
     }
 
     private func screenContainingPointer() -> NSScreen? {
@@ -408,11 +446,16 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        rememberWindowFrame()
         pinned = false
         stuck = false
         updateStickButton()
         hoverTask?.cancel()
         reportVisible(false)
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        rememberWindowFrame()
     }
 }
 

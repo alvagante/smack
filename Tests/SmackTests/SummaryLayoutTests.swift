@@ -39,8 +39,9 @@ import Testing
         store.receive(system)
     }
     let apps = ["Safari", "Xcode", "Slack", "Music", "Mail"].enumerated().map { index, name in
-        ApplicationMetrics(id: name, name: name, bundleIdentifier: nil, executablePath: nil,
-                           processes: [obsProcess(Int32(100 + index), name: name, app: true, cpu: Double(90 - index * 18))])
+        var process = obsProcess(Int32(100 + index), name: name, app: true, cpu: Double(90 - index * 18))
+        process.networkThroughput = ProcessNetworkThroughput(receiveRate: Double(5 - index) * 100_000, sendRate: 20_000)
+        return ApplicationMetrics(id: name, name: name, bundleIdentifier: nil, executablePath: nil, processes: [process])
     }
     store.receive(ProcessSnapshot(timestamp: Date(), applications: apps, backgroundProcesses: (0..<300).map { obsProcess(Int32(1_000 + $0)) }))
     store.receive(NetworkPortSnapshot(timestamp: Date(), ports: [obsPort(port: 3000), obsPort(port: 22, host: "0.0.0.0", fd: 4)], connections: []))
@@ -63,6 +64,26 @@ import Testing
             try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("summary-live-\(Int(width)).png"))
         }
     }
+    settings.update { value in
+        for id: SummaryTileID in [.cpu, .memory, .gpu, .network, .disk, .applications] {
+            value.panel.summaryLayout.setSpan(4, for: id)
+        }
+    }
+    var gpuSystem = obsSystem(at: 2_000)
+    gpuSystem.gpuProcesses = [100: 24, 101: 18, 102: 12, 103: 8, 104: 3]
+    store.receive(gpuSystem)
+    let large = NSHostingView(rootView: SummaryView(store: store)
+        .frame(width: 1900, height: 1600).background(Color(nsColor: .windowBackgroundColor)))
+    large.frame = CGRect(x: 0, y: 0, width: 1900, height: 1600)
+    large.layoutSubtreeIfNeeded()
+    #expect(large.fittingSize.width <= 1900)
+    if let path = ProcessInfo.processInfo.environment["SMACK_LAYOUT_PREVIEW_DIR"] {
+        let rep = try #require(large.bitmapImageRepForCachingDisplay(in: large.bounds))
+        large.cacheDisplay(in: large.bounds, to: rep)
+        try #require(rep.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: path).appendingPathComponent("summary-large.png"))
+    }
+
 }
 
 @MainActor
@@ -246,7 +267,7 @@ private struct SummaryListRow: Identifiable { let id: String }
     }.frame(width: 444))
     grid.layoutSubtreeIfNeeded()
     #expect(grid.fittingSize.width <= 444)
-    #expect(grid.fittingSize.height >= heights[1])
+    #expect(grid.fittingSize.height == 216) // Fixed square footprint; links scroll within it.
 }
 
 private func summaryAgentSession(_ id: Int32, parent: Int32? = nil, project: String = "smack") -> AgentSession {
@@ -294,4 +315,41 @@ private struct SpanningTile: View {
     }.frame(width: 444))
     // Two columns at this width: a two-column tile pushes the next one onto its own row.
     #expect(grid.fittingSize.height >= single.fittingSize.height * 2)
+}
+
+
+@MainActor
+@Test func summaryTileShapesRenderInArrangeMode() throws {
+    for arranging in [false, true] {
+        let grid = TileGridLayout {
+            ForEach(SummaryTileSize.allCases, id: \.rawValue) { size in
+                SummaryTile(route: .documents, headline: "42 files", caption: size.label,
+                            interactiveVisual: true, open: {}) {
+                    ForEach(0..<size.rowLimit, id: \.self) { index in
+                        Text("Document \(index + 1).swift").font(.caption)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                    }
+                }
+                .summaryTileArrangement(.documents, arranging: arranging, span: size.rawValue,
+                                        onDrag: { _, _ in }, onEnd: {}, onCancel: {}, onSpan: { _ in })
+                .tileSpan(size.rawValue)
+            }
+        }
+        .environment(\.summaryArranging, arranging)
+        .padding(16)
+        .frame(width: 920)
+        .background(Color(nsColor: .windowBackgroundColor))
+        let host = NSHostingView(rootView: grid)
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.width == 920)
+        #expect(host.fittingSize.height == 695)
+        if let path = ProcessInfo.processInfo.environment["SMACK_LAYOUT_PREVIEW_DIR"] {
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let png = try #require(rep.representation(using: .png, properties: [:]))
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+            try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("tile-shapes-\(arranging).png"))
+        }
+    }
 }

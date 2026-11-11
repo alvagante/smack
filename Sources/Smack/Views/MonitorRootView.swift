@@ -94,6 +94,8 @@ struct MonitorRootView: View {
                 case .homebrew: HomebrewDetailView(model: store.homebrewModel)
                 case .devEnvironments: DevEnvironmentDetailView(model: store.devEnvironmentModel)
                 case .projects: ProjectsView(store: store)
+                case .documents: DocumentsView(store: store)
+                case .document(let path): DocumentDetailView(store: store, path: path).id(path)
                 case .project(let root): ProjectDetailView(store: store, root: root)
                 case .agents: AgentDetailView(model: store.agentsModel, store: store)
                 case .agentSession(let id): AgentDetailView(model: store.agentsModel, store: store, session: id)

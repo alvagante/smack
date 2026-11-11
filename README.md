@@ -12,15 +12,16 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 
 - **Onboarding:** a first-launch window to pick the menu-bar Panel or a Standard Window, opening behavior, sound (muted by default), color scheme, glass appearance, Project folders and a Performance preset.
 - **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
-- **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top.
+- **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top; Arrange to drag tiles into order and choose 1×1, 2×1 or 2×2 shapes with size-aware details and top-five resource consumers; neighbors move while dragging and the layout is remembered for next time.
 - **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
 - **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs.
 - **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.
 - **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
 - **Dev servers:** local listeners grouped by project, with git branch, Docker Compose context and every HTTP(S) endpoint linked on an expandable Summary tile.
 - **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, with separate Active Sessions, Saved Sessions (clickable column sorting, combinable agent filter chips, search and key stats), and Configs pages.
-- **Session Timeline:** every prompt, answer, command, MCP and tool call of a Claude Code, Codex or OpenCode session on zoomable lanes, live or replayed from History, with each event's full text, output or diff a click away.
+- **Session Timeline:** every prompt, answer, command, MCP and tool call of a Claude Code, Codex or OpenCode session on zoomable lanes, live or replayed from History, with each event's full text, output or diff a click away and the details box beside or under the chart.
 - **Projects:** Git repositories discovered under your Project folders, with a Summary tile of recent projects and clickable ports, a folder-filtered table with visible sort buttons (latest activity first by default), sortable by name, latest activity, running session start time, size, language, branch, status or location, and a detail page with an at-a-glance Overview (sync and working-tree state, last commit, 12-week activity, what is running, stack install status), the repository's active and saved AI agent sessions, a file browser and text viewer, Git Insights (activity heatmap, punchcard, top authors, line churn and most changed files), local commit history and patches, branches, tags, remotes, deep git status, clickable listening ports, related dev servers, Docker Compose containers (statistics, ports, inspect and start/stop/restart in place), AI agent sessions (the full session detail and Session Timeline in place) and the runtimes each repository pins or carries (virtualenvs, `.tool-versions`, `.nvmrc`, `mise.toml`, each expandable to its version and packages, plus a summary of every language file at the root and whether the runtime it asks for is installed); Summary rows show ports, running agent sessions, container counts and runtimes per project.
+- **Documents:** a Summary tile of recent files, a sortable recent-files table with type icons and full document Detail Pages, plus the shared Projects/Files and User Home folder browser with filesystem details, text contents, Quick Look, Open, Open With, sharing and Finder actions.
 - **Docker:** containers, images, volumes and networks, with start, stop and restart.
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
 - **Startup items:** login items, launch agents, daemons and cron jobs, each with an on/off switch.
@@ -33,7 +34,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Installed apps:** app sizes and uninstall to the Trash.
 - **Dev environments:** 26 languages and runtimes with versions, paths and packages.
 - **Menu-bar icons:** every menu-bar icon in the panel, including those hidden by the notch.
-- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen.
+- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen; size and position are restored after quit.
 - **Quick lookups:** check IP addresses and file hashes on IPinfo, AbuseIPDB, VirusTotal, Shodan and others.
 - **Automation:** `smack://` URLs, a `smack` CLI with JSON/CSV output, and Shortcuts actions. See the [CLI](docs/cli.md) and [URL scheme](docs/url-scheme.md).
 - **Superuser sampling (optional):** a signed helper that also shows other users' processes and files.

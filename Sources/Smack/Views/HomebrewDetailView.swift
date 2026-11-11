@@ -4,6 +4,7 @@ import AppKit
 struct HomebrewSummaryTile: View {
     @ObservedObject var model: HomebrewMonitor
     var open: () -> Void
+    @Environment(\.summaryTileSize) private var tileSize
 
     var body: some View {
         if model.installed {
@@ -15,7 +16,23 @@ struct HomebrewSummaryTile: View {
                 caption: [snapshot?.updateCount.map { "\($0) updates available" } ?? "Updates unavailable",
                           services.map { "\($0) services started" }].compactMap { $0 }.joined(separator: " · "),
                 tone: outdated.isEmpty ? nil : .orange, open: open) {
-                if snapshot?.updatesKnown == true, !outdated.isEmpty {
+                if tileSize == .large {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach((snapshot?.packages ?? []).sorted {
+                            if $0.isOutdated != $1.isOutdated { return $0.isOutdated }
+                            return $0.name < $1.name
+                        }.prefix(tileSize.rowLimit)) { package in
+                            HStack(spacing: 8) {
+                                Text(package.name).font(.caption.weight(.medium)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(package.installedVersion).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                if let version = package.availableVersion {
+                                    Text("→ " + version).font(.caption).foregroundStyle(.orange).lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                } else if snapshot?.updatesKnown == true, !outdated.isEmpty {
                     TagChips(tags: outdated, color: .orange)
                 }
             }

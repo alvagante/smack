@@ -19,7 +19,6 @@ struct UserHomeDetailView: View {
     @State private var selected: String?
     @State private var query = ""
     @State private var refreshID = 0
-    @AppStorage(FileContentsScrollView<EmptyView>.wrapKey) private var wrap = false
 
     private var directory: URL { folders.last ?? rootDirectory ?? model.directory(for: category) }
     private var entries: [HomeEntry] {
@@ -77,100 +76,20 @@ struct UserHomeDetailView: View {
                     }.frame(width: 184, alignment: .top)
                     Divider()
                 }
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Button {
-                            selected = nil
-                            query = ""
-                            folders.removeLast()
-                        } label: { Image(systemName: "chevron.up") }
-                        .disabled(folders.isEmpty)
-                        .accessibilityLabel("Parent folder")
-                        Text(directory.path).font(.caption.monospaced())
-                            .lineLimit(2).truncationMode(.head).textSelection(.enabled)
-                        Spacer(minLength: 0)
-                    }
-                    TextField("Filter this folder", text: $query).textFieldStyle(.roundedBorder)
-                    HStack {
-                        Text("\(entries.count) entries").font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        ToolbarIconButton(title: "Reveal in Finder", systemImage: "folder", color: .blue) { NSWorkspace.shared.activateFileViewerSelecting([current?.url ?? directory]) }
-                            .controlSize(.small)
-                            .help(current == nil ? "Reveal this folder in Finder" : "Reveal the selection in Finder")
-                    }
-                    Text("Click to inspect, double-click a folder to open it.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let warning = model.listing.warning {
-                        Text(warning).font(.caption).foregroundStyle(.orange)
-                    }
-                    if let error = model.listing.error {
-                        ContentUnavailableView("Folder unavailable", systemImage: "folder.badge.questionmark",
-                                               description: Text(error))
-                    } else if entries.isEmpty {
-                        ContentUnavailableView(model.loading ? "Reading folder" : "No matching entries",
-                                               systemImage: "folder")
-                    } else {
-                        List(selection: $selected) {
-                            ForEach(entries) { item in
-                                HStack {
-                                    Image(systemName: item.isDirectory ? "folder" : "doc.text")
-                                        .foregroundStyle(item.isDirectory ? Color.accentColor : .secondary)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(item.name).lineLimit(1).truncationMode(.middle)
-                                        HStack {
-                                            if item.isSymbolicLink { Text("Symbolic link") }
-                                            if !item.isDirectory, let size = item.bytes {
-                                                Text(Formatting.bytes(UInt64(max(0, size))))
-                                            }
-                                        }.font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-                                .tag(item.id)
-                            }
-                        }
-                        .listStyle(.inset)
-                        .contextMenu(forSelectionType: String.self) { ids in
-                            if let item = entries.first(where: { ids.contains($0.id) }) {
-                                Button("Reveal in Finder") { reveal(item) }
-                                if item.isDirectory { Button("Open folder") { openFolder(item) } }
-                            }
-                        } primaryAction: { ids in
-                            if let item = entries.first(where: { ids.contains($0.id) }), item.isDirectory { openFolder(item) }
-                        }
-                    }
-                }.padding(MonitorStyle.spacing).frame(minWidth: 220, idealWidth: 280, maxWidth: 320, maxHeight: .infinity, alignment: .topLeading)
+                FolderBrowserView(directory: directory, listing: model.listing, loading: model.loading,
+                    selected: $selected, query: $query, canGoUp: !folders.isEmpty,
+                    goUp: { selected = nil; query = ""; folders.removeLast() }, openFolder: openFolder)
+                    .frame(minWidth: 220, idealWidth: 280, maxWidth: 320, maxHeight: .infinity, alignment: .topLeading)
                 Divider()
-                FileContentsScrollView(wrap: wrap) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let item = current {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(item.url.path).font(.headline.monospaced()).textSelection(.enabled)
-                                Spacer(minLength: 20)
-                                WrapToggle(wrap: $wrap)
-                                Button("Copy", systemImage: "doc.on.doc") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(model.preview?.text ?? "", forType: .string)
-                                }
-                                .disabled(model.preview?.text.isEmpty ?? true)
-                                .help(item.isDirectory ? "Copy the folder listing" : "Copy the file contents")
-                            }
-                            if let info = model.preview?.info { HomeFileInfoView(info: info) }
-                            Divider()
-                            if model.inspecting {
-                                ProgressView(item.isDirectory ? "Listing folder…" : "Reading contents…")
-                            } else if let preview = model.preview {
-                                if let message = preview.message {
-                                    Text(message).font(.callout).foregroundStyle(.secondary)
-                                }
-                                Text(preview.text).font(.caption.monospaced()).textSelection(.enabled)
-                                    .fixedSize(horizontal: !wrap, vertical: false)
-                            }
-                        } else {
-                            Text("Select a file or folder to show its details.").foregroundStyle(.secondary)
-                        }
-                    }.padding()
+                FileInspectionView(item: current, preview: model.preview, inspecting: model.inspecting) {
+                    Button("Copy", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.preview?.text ?? "", forType: .string)
+                    }
+                    .disabled(model.preview?.text.isEmpty ?? true)
+                    .help(current?.isDirectory == true ? "Copy the folder listing" : "Copy the file contents")
                 }.frame(minWidth: 240, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
             }
         }
         .background(MonitorStyle.page)
@@ -190,14 +109,10 @@ struct UserHomeDetailView: View {
         query = ""
         folders.append(item.url)
     }
-
-    private func reveal(_ item: HomeEntry) {
-        NSWorkspace.shared.activateFileViewerSelecting([item.url])
-    }
 }
 
 /// `stat(1)` fields laid out as a two-pair label grid.
-private struct HomeFileInfoView: View {
+struct HomeFileInfoView: View {
     let info: HomeFileInfo
 
     private var fields: [(String, String)] {

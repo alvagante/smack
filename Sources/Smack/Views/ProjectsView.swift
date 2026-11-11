@@ -11,6 +11,8 @@ struct ProjectsSummaryTile: View {
     var openProject: (String, ProjectSection) -> Void
     var openSession: (String) -> Void
 
+    @Environment(\.summaryTileSize) private var tileSize
+
     var body: some View {
         if !Capabilities.isSandboxed {
             let projects = ProjectSummaryRows.recent(model.snapshot?.projects ?? [])
@@ -30,10 +32,9 @@ struct ProjectsSummaryTile: View {
                     ?? "Git repositories under your project folders",
                 interactiveVisual: true, open: open) {
                 if !projects.isEmpty {
-                    ProjectSummaryRows(projects: projects, links: links, openProject: openProject, openSession: openSession)
+                    ProjectSummaryRows(projects: projects, links: links, openProject: openProject, openSession: openSession, limit: tileSize.rowLimit)
                 }
             }
-            .tileSpan(projects.isEmpty ? 1 : 2)
             .task { if model.snapshot == nil { await model.refresh() } }
         }
     }

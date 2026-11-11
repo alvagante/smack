@@ -25,6 +25,8 @@ enum AppRoute: Hashable {
     case homebrew
     case devEnvironments
     case projects
+    case documents
+    case document(String)
     case project(String)
     case userHome
     case agents
@@ -163,6 +165,7 @@ final class MonitorStore: ObservableObject {
     let projectsModel = ProjectsMonitor()
     private var pendingProjectSection: ProjectSection?
     let userHomeModel = UserHomeMonitor()
+    let documentsModel = DocumentsModel()
     let agentsModel = AgentMonitor()
     let installedAppsModel = InstalledAppsMonitor()
     let baselines = BaselineModel()
@@ -301,7 +304,7 @@ final class MonitorStore: ObservableObject {
         Task { await scheduler.setTemperaturesWanted(wanted) }
     }
 
-    /// The GPU page asks for per-process GPU time while it is on screen; balance every `true` with one `false`.
+    /// GPU views ask for per-process GPU time while on screen; balance every `true` with one `false`.
     func setGPUProcessesWanted(_ wanted: Bool) {
         Task { await scheduler.setGPUProcessesWanted(wanted) }
     }
@@ -366,7 +369,7 @@ final class MonitorStore: ObservableObject {
             hostIdentityKey = addresses
             hostIdentity = .current()
         }
-        // Samples carry GPU clients only while a GPU page is open; once they stop, the live window is dropped.
+        // Samples carry GPU clients only while a GPU view requests them; once they stop, the live window is dropped.
         if let gpu = sample.gpuProcesses {
             recordGPUPoints(gpu, at: sample.timestamp)
         } else if !recentGPUPoints.isEmpty {
