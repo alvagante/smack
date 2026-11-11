@@ -135,7 +135,6 @@ struct DocumentsView: View {
             }.font(.caption)
             Text("\(entries.count) shown · " + state.scope).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
-        .onChange(of: state.scope) { _, _ in state.kind = ""; state.location = ""; state.browserDirectory = nil }
         .onChange(of: state.days) { _, _ in state.kind = ""; state.location = "" }
     }
 

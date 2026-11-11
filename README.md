@@ -14,7 +14,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
 - **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top; Arrange to drag tiles into order and choose 1×1, 2×1 or 2×2 shapes with size-aware details and top-five resource consumers; neighbors move while dragging and the layout is remembered for next time.
 - **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
-- **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs.
+- **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs; filter active and network-facing sockets and expand details.
 - **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.
 - **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
 - **Dev servers:** local listeners grouped by project, with git branch, Docker Compose context and every HTTP(S) endpoint linked on an expandable Summary tile.
@@ -24,7 +24,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Documents:** a Summary tile of recent files, a sortable recent-files table with type icons and full document Detail Pages, plus the shared Projects/Files and User Home folder browser with filesystem details, text contents, Quick Look, Open, Open With, sharing and Finder actions.
 - **Docker:** containers, images, volumes and networks, with start, stop and restart.
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
-- **Startup items:** login items, launch agents, daemons and cron jobs, each with an on/off switch.
+- **Startup items:** login items, launch agents, daemons and cron jobs, with status, expandable details and on/off controls.
 - **Security:** offline checks for SIP, encryption, exposure, MDM, privacy grants and persistence changes.
 - **Timeline:** a record of process starts, new listeners, startup changes, mounts, sleep, power and network events.
 - **History and Insights:** stored system and per-program history, zoomable charts, and top disk writers and new destinations.

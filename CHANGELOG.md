@@ -6,6 +6,20 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Documents:** changing folders clears stale Recent filters in both Browse and Recent.
+
+- **Summary and window restoration:** preserve hidden tiles when arranging, and fit restored windows to their chosen display.
+
+- **Insights:** collapsible sections show a compact summary, with Expand All and Collapse All controls. Display only.
+
+- **Connections:** refined listener rows around their owner, port and scope, with bound addresses and actions in the expanded details. Display only.
+
+- **Startup Items:** show the recorded file contents on demand using the existing 1 MiB text preview limit. No polling, subprocesses or history writes.
+
+- **Connections:** filter established connections, listeners and network-facing listeners; show application icons and expandable socket details. Uses the existing TCP inventory.
+
+- **Startup Items:** clearer enabled and running states, application icons where available, and expandable details for identifiers, paths and controls.
+
 - **Documents inspection:** Browse now uses the Projects/Files stat and text-content pane with a bounded-width file column. Preview, Open With, Share, Copy (contents/path/URL), Reveal in Finder and Document Details stay at the top. Selection reuses the bounded User Home reader (up to 1 MiB), with one preview retained and cancellation on hide; no timers, subprocesses or history writes. Whole-app resource measurement remains pending.
 
 - **Documents Browse:** reuses the Projects/Files and User Home folder browser for navigation, filtering, file rows, sizes, symbolic-link labels and Finder actions. Document actions and explicit Quick Look remain available. No collection, timers or history changes.

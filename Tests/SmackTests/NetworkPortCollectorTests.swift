@@ -155,3 +155,16 @@ import Testing
     listener.protocolName = "UDP"
     #expect(!listener.mayServeHTTP)
 }
+
+@Test func connectionFiltersDistinguishEstablishedAndNetworkFacingListeners() {
+    let owner = SocketOwnerRecord(pid: 42, name: "server", userName: nil)
+    let snapshot = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: owner, descriptor: 1, localAddress: "127.0.0.1:80", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: owner, descriptor: 2, localAddress: "0.0.0.0:81", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: owner, descriptor: 3, localAddress: "192.0.2.1:1234", remoteAddress: "203.0.113.1:443", state: "ESTABLISHED"),
+        SocketRecord(owner: owner, descriptor: 4, localAddress: "192.0.2.1:1235", remoteAddress: "203.0.113.1:443", state: "SYN_SENT")
+    ])
+    #expect(snapshot.connections.filter { NetworkViewMode.active.matches($0) }.map(\.descriptor) == [3])
+    #expect(snapshot.ports.filter { NetworkViewMode.publicListening.matches($0) }.map(\.port) == [81])
+    #expect(snapshot.ports.filter { NetworkViewMode.listening.matches($0) }.count == 2)
+}

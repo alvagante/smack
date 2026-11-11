@@ -266,7 +266,7 @@ struct ProjectOverviewView: View {
                     Text("Install status appears once Development environments discovery has run.").font(.caption).foregroundStyle(.secondary)
                 }
             }
-        } else if manifests == nil && inspecting {
+        } else if self.manifests == nil && inspecting {
             ProgressView("Reading language files…").controlSize(.small)
         }
     }

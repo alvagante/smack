@@ -33,7 +33,15 @@ enum DocumentsMode: String, CaseIterable, Identifiable {
     @Published var kind = ""
     @Published var location = ""
     @Published var days = 30
-    @Published var scope = FileManager.default.homeDirectoryForCurrentUser.path
+    @Published var scope = FileManager.default.homeDirectoryForCurrentUser.path {
+        didSet {
+            if scope != oldValue {
+                kind = ""
+                location = ""
+                browserDirectory = nil
+            }
+        }
+    }
     @Published var sort: DocumentSort = .modified
     @Published var ascending = false
     @Published var browserDirectory: URL?

@@ -119,7 +119,7 @@ struct SummaryView: View {
                     if let drag {
                         let order = drag.order.map(\.rawValue)
                         if order != SummaryLayoutSettings.resolve(order: layout.order, visible: visibleTiles).map(\.rawValue) {
-                            settingsStore.update { $0.panel.summaryLayout.order = order }
+                            settingsStore.update { $0.panel.summaryLayout.reorderVisible(drag.order, visible: visibleTiles) }
                         }
                     }
                     drag = nil
