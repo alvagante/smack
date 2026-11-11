@@ -6,6 +6,8 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Project Git Insights:** simplify author ranking type checking to restore the macOS test build.
+
 - **Documents:** changing folders clears stale Recent filters in both Browse and Recent.
 
 - **Summary and window restoration:** preserve hidden tiles when arranging, and fit restored windows to their chosen display.
