@@ -1,8 +1,20 @@
 import SwiftUI
 
 enum NetworkViewMode: String, CaseIterable, Identifiable {
+    case allConnections = "All"
+    case active = "Active"
     case listening = "Listening"
-    case allConnections = "All Connections"
+    case publicListening = "Network-facing"
+
+    var showsListeners: Bool { self == .listening || self == .publicListening }
+
+    func matches(_ connection: NetworkConnectionDetail) -> Bool {
+        self != .active || connection.state == "ESTABLISHED"
+    }
+
+    func matches(_ port: ListeningPort) -> Bool {
+        self != .publicListening || port.scope == .external
+    }
 
     var id: String { rawValue }
 }
@@ -33,7 +45,7 @@ struct NetworkPortsView: View {
 
     /// One row per process, port and scope: IPv4 and IPv6 listeners side by side, duplicate descriptors once.
     private var ports: [ListeningPortPair] {
-        let ports = (store.networkPorts?.ports ?? []).filter { model.port == nil || $0.port == model.port }
+        let ports = (store.networkPorts?.ports ?? []).filter { (model.port == nil || $0.port == model.port) && model.mode.matches($0) }
         let pairs = ListeningPortPair.pairs(ports, perProcess: true)
         guard !query.isEmpty else { return pairs }
         return pairs.filter { pair in
@@ -45,12 +57,12 @@ struct NetworkPortsView: View {
 
     private var connectionGroups: [ApplicationNetworkConnections] {
         let groups = store.networkPorts?.connectionGroups(applications: store.processes?.applications ?? []) ?? []
-        guard !query.isEmpty else { return groups }
         return groups.compactMap { group in
-            if group.name.localizedCaseInsensitiveContains(query) { return group }
+            let nameMatches = query.isEmpty || group.name.localizedCaseInsensitiveContains(query)
             let connections = group.connections.filter {
-                "\($0.localAddress) \($0.remoteAddress) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.protocolName) \($0.state)"
-                    .localizedCaseInsensitiveContains(query)
+                model.mode.matches($0) && (nameMatches ||
+                    "\($0.localAddress) \($0.remoteAddress) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.protocolName) \($0.state)"
+                        .localizedCaseInsensitiveContains(query))
             }
             guard !connections.isEmpty else { return nil }
             var filtered = group
@@ -97,11 +109,18 @@ struct NetworkPortsView: View {
                 }.padding(.horizontal)
             }
             TextField(
-                model.mode == .listening ? "Search ports, addresses, and processes" : "Search applications, connections, and processes",
+                model.mode.showsListeners ? "Search ports, addresses, and processes" : "Search applications, connections, and processes",
                 text: $model.query
             )
             .textFieldStyle(.roundedBorder)
             .padding([.horizontal, .top])
+
+            if model.mode == .publicListening {
+                Text("Bound beyond localhost. Firewall and network configuration determine actual reachability.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding([.horizontal, .top])
+            }
 
             if let warning = store.networkPorts?.warning, !warning.isEmpty {
                 Label(warning, systemImage: "exclamationmark.triangle")
@@ -112,15 +131,34 @@ struct NetworkPortsView: View {
                     .padding([.horizontal, .top])
             }
 
+            if store.networkPorts != nil {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(model.mode.showsListeners ? "LISTENING PORTS" : "APPLICATIONS")
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.8)
+                        .foregroundStyle(.secondary)
+                    Text(model.mode.showsListeners ? "\(ports.count)" : "\(connectionGroups.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Select a row for details")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
+            }
+
             switch model.mode {
-            case .listening:
+            case .listening, .publicListening:
                 listeningContent
-            case .allConnections:
+            case .allConnections, .active:
                 allConnectionsContent
             }
         }
         .onChange(of: model.mode) { _, mode in
-            if mode == .allConnections { model.port = nil }
+            if !mode.showsListeners { model.port = nil }
         }
         .onAppear {
             if store.networkPorts == nil { store.loadNetworkPorts() }
@@ -142,6 +180,28 @@ struct NetworkPortsView: View {
                     let port = pair.primary
                     let clients = pair.clients
                     DisclosureGroup(isExpanded: expansion(for: pair)) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("BOUND ADDRESSES")
+                                .font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
+                            ForEach([pair.ipv4, pair.ipv6].compactMap { $0 }, id: \.id) { address in
+                                HStack(spacing: 8) {
+                                    Text(ListeningPortPair.isIPv6(address) ? "IPv6" : "IPv4")
+                                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                                        .frame(width: 32, alignment: .leading)
+                                    Text(address.localAddress).font(.caption.monospaced()).textSelection(.enabled)
+                                }
+                            }
+                            HStack(spacing: 16) {
+                                processLink(name: port.processName, pid: port.pid, userName: port.userName, spacing: 3, processIDs: processIDs)
+                                if let url = port.browserURL {
+                                    Link(destination: url) { Label("Open in Browser", systemImage: "safari") }
+                                        .help("Open \(url.absoluteString) in your browser")
+                                }
+                            }
+                            .font(.caption)
+                            .padding(.top, 2)
+                        }
+                        .padding(.vertical, 8)
                         if clients.isEmpty {
                             Label("No active client connections", systemImage: "person.crop.circle.badge.questionmark")
                                 .font(.callout)
@@ -176,33 +236,45 @@ struct NetworkPortsView: View {
                         }
                     } label: {
                         HStack(spacing: 12) {
+                            ownerIcon(pid: port.pid)
                             VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 16) {
-                                    addressColumn(pair.ipv4)
-                                    addressColumn(pair.ipv6)
+                                HStack(spacing: 8) {
+                                    Text(port.processName)
+                                        .font(.callout.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text("PID \(port.pid)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
                                 }
                                 HStack(spacing: 6) {
-                                    Text(port.protocolName)
+                                    Text([pair.ipv4?.localAddress, pair.ipv6?.localAddress].compactMap { $0 }.joined(separator: "  ·  "))
+                                        .font(.caption.monospaced())
+                                        .lineLimit(1).truncationMode(.middle)
                                     Text("·")
-                                    Text(port.scope.rawValue)
-                                        .foregroundStyle(port.scope == .localhost ? .green : .orange)
-                                    Text("·")
-                                    Text("\(clients.count) active client\(clients.count == 1 ? "" : "s")")
+                                    Text(port.protocolName).font(.caption)
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 5) {
+                                Text(":\(port.port)")
+                                    .font(.headline.monospacedDigit())
+                                HStack(spacing: 5) {
+                                    Circle()
+                                        .fill(port.scope == .localhost ? Color.green : Color.orange)
+                                        .frame(width: 6, height: 6)
+                                    Text(port.scope == .localhost ? "Localhost" : "Network-facing")
+                                    if !clients.isEmpty {
+                                        Text("·")
+                                        Text("\(clients.count) active")
+                                    }
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            processLink(name: port.processName, pid: port.pid, userName: port.userName, spacing: 4, processIDs: processIDs)
-                            if let url = port.browserURL {
-                                Link(destination: url) {
-                                    Label("Browser", systemImage: "safari")
-                                        .font(.caption)
-                                }
-                                .help("Open \(url.absoluteString) in your browser")
-                            }
+                            .fixedSize()
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 8)
                     }
                 }
             }
@@ -224,20 +296,32 @@ struct NetworkPortsView: View {
                 ForEach(connectionGroups) { group in
                     DisclosureGroup(isExpanded: expansion(for: group)) {
                         ForEach(group.connections) { connection in
-                            HStack(alignment: .top, spacing: 12) {
-                                IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(connection.localAddress) → \(connection.remoteAddress)")
-                                        .font(.callout.weight(.semibold))
-                                        .textSelection(.enabled)
-                                    Text("\(connection.protocolName) · \(connection.state)")
-                                        .font(.caption)
-                                        .foregroundStyle(connection.state == "ESTABLISHED" ? .green : .secondary)
+                            DisclosureGroup {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("Local: \(connection.localAddress)")
+                                    Text("Remote: \(connection.remoteAddress)")
+                                    Text("Protocol: \(connection.protocolName) · State: \(connection.state)")
+                                    Text("File descriptor: \(connection.descriptor)")
+                                    if let user = connection.userName { Text("User: \(user)") }
+                                    HStack {
+                                        processLink(name: connection.processName, pid: connection.pid, userName: connection.userName, spacing: 3, processIDs: processIDs)
+                                        IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
+                                    }
                                 }
-                                Spacer()
-                                processLink(name: connection.processName, pid: connection.pid, userName: connection.userName, spacing: 3, processIDs: processIDs)
+                                .font(.caption).textSelection(.enabled).padding(.vertical, 6)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(connection.state == "LISTEN" ? connection.localAddress : "\(connection.localAddress) → \(connection.remoteAddress)")
+                                            .font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                                        Text("\(connection.processName) · PID \(connection.pid)")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(connection.state).font(.caption.weight(.semibold))
+                                        .foregroundStyle(connection.state == "ESTABLISHED" ? .green : .secondary)
+                                }.padding(.vertical, 4)
                             }
-                            .padding(.vertical, 4)
                         }
                     } label: {
                         HStack(spacing: 12) {
@@ -284,6 +368,16 @@ struct NetworkPortsView: View {
         }
     }
 
+    @ViewBuilder private func ownerIcon(pid: Int32) -> some View {
+        if let application = store.processes?.applications.first(where: { app in
+            app.processes.contains { $0.identity.pid == pid }
+        }) {
+            ApplicationIcon(application: application, size: 28)
+        } else {
+            Image(systemName: "terminal").foregroundStyle(.secondary).frame(width: 28, height: 28)
+        }
+    }
+
     /// Process name and PID, opening the process Detail Page while it is still running.
     private func processLink(name: String, pid: Int32, userName: String?, spacing: CGFloat, processIDs: [Int32: String]) -> some View {
         let processID = processIDs[pid]
@@ -312,15 +406,6 @@ struct NetworkPortsView: View {
         guard let snapshot = store.processes else { return [:] }
         let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         return Dictionary(processes.map { ($0.identity.pid, $0.id) }, uniquingKeysWith: { first, _ in first })
-    }
-
-    /// Fixed width so IPv4 and IPv6 addresses line up as two columns across rows; empty when the family is absent.
-    private func addressColumn(_ port: ListeningPort?) -> some View {
-        Text(port?.localAddress ?? "")
-            .font(.headline.monospaced())
-            .lineLimit(1).truncationMode(.middle)
-            .textSelection(.enabled)
-            .frame(width: 220, alignment: .leading)
     }
 
     private func expansion(for pair: ListeningPortPair) -> Binding<Bool> {

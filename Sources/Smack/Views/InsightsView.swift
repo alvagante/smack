@@ -5,6 +5,9 @@ struct InsightsView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var model: InsightsModel
     @ObservedObject private var settingsStore: SettingsStore
+    @State private var diskExpanded = true
+    @State private var churnExpanded = true
+    @State private var destinationsExpanded = true
 
     init(store: MonitorStore) {
         self.store = store
@@ -22,6 +25,15 @@ struct InsightsView: View {
                     if let message = model.errorMessage {
                         Label(message, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.secondary)
                     }
+                    HStack {
+                        Text("HISTORY INSIGHTS")
+                            .font(.caption2.weight(.bold)).tracking(0.8).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Expand All") { setExpanded(true) }
+                        Button("Collapse All") { setExpanded(false) }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.link)
                     diskCard
                     churnCard
                     if InsightsModel.supportsDestinations { destinationsCard }
@@ -30,6 +42,12 @@ struct InsightsView: View {
             }
         }
         .task(id: model.range) { await model.load() }
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        diskExpanded = expanded
+        churnExpanded = expanded
+        destinationsExpanded = expanded
     }
 
     private var header: some View {
@@ -65,7 +83,8 @@ struct InsightsView: View {
 
     private var diskCard: some View {
         InsightsCard(title: "Disk writes", systemImage: "internaldrive", color: .pink,
-                     caption: diskCaption) {
+                     summary: model.ledger.map { "\(Formatting.bytes(UInt64($0.attributedTotal))) written · \($0.programCount) programs" } ?? "Unavailable",
+                     caption: diskCaption, isExpanded: $diskExpanded) {
             if !sources.processHistory {
                 SourceHint(text: "Process history is off, so no new writes are recorded.", pane: .processes, store: store)
             }
@@ -110,7 +129,8 @@ struct InsightsView: View {
 
     private var churnCard: some View {
         InsightsCard(title: "Process churn", systemImage: "arrow.triangle.2.circlepath", color: .orange,
-                     caption: "Programs by starts in the range. \"Restarts often\" means launchd started it at least \(ProcessChurn.minimumLaunchdStarts) times, at least once an hour, living \(Int(ProcessChurn.maximumAverageLifetime / 60)) minutes or less on average, outside system paths. Exit status is not recorded, so this does not mean it crashed.") {
+                     summary: "\(model.churn.count) programs · \(model.churn.filter(\.restartsOften).count) restart often",
+                     caption: "Programs by starts in the range. \"Restarts often\" means launchd started it at least \(ProcessChurn.minimumLaunchdStarts) times, at least once an hour, living \(Int(ProcessChurn.maximumAverageLifetime / 60)) minutes or less on average, outside system paths. Exit status is not recorded, so this does not mean it crashed.", isExpanded: $churnExpanded) {
             if !sources.processEvents {
                 SourceHint(text: "Process events are off, so no new starts are recorded.", pane: .processes, store: store)
             }
@@ -145,7 +165,9 @@ struct InsightsView: View {
     // MARK: Destinations
 
     private var destinationsCard: some View {
-        InsightsCard(title: "New destinations, last 24 hours", systemImage: "globe", color: .cyan, caption: destinationsCaption) {
+        InsightsCard(title: "New destinations, last 24 hours", systemImage: "globe", color: .cyan,
+                     summary: model.destinations.map { "\($0.newHostCount) new hosts · \($0.programs.count) programs" } ?? "Unavailable",
+                     caption: destinationsCaption, isExpanded: $destinationsExpanded) {
             if !sources.connectionEvents {
                 SourceHint(text: "Connection events are off by default. Turn on Include connections to record them; they add about 0.1 to 1 MB of events per hour.", pane: .network, store: store)
             }
@@ -274,14 +296,39 @@ private struct InsightsCard<Content: View>: View {
     let title: String
     let systemImage: String
     let color: Color
+    let summary: String
     let caption: String
+    @Binding var isExpanded: Bool
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: systemImage).font(.headline).foregroundStyle(color)
-            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 6) { content }
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: systemImage)
+                        .font(.headline)
+                        .foregroundStyle(color)
+                        .frame(width: 36, height: 36)
+                        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title).font(.headline).foregroundStyle(.primary)
+                        Text(summary).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+            if isExpanded {
+                Divider()
+                Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) { content }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)

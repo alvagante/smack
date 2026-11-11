@@ -107,3 +107,17 @@ import Testing
     #expect(SummaryTileSize.large.rowLimit >= 12)
     #expect(SummaryTileSize.large.rowLimit > SummaryTileSize.wide.rowLimit)
 }
+
+@Test func summaryArrangementPreservesHiddenTilePositions() {
+    var layout = SummaryLayoutSettings(order: ["cpu", "memory", "gpu"], spans: [:])
+    layout.reorderVisible([.gpu, .cpu], visible: [.cpu, .gpu])
+    #expect(layout.order == ["gpu", "memory", "cpu"])
+}
+
+@Test func savedWindowFrameFitsTheScreenItOccupies() {
+    let small = CGRect(x: 0, y: 0, width: 1024, height: 768)
+    let large = CGRect(x: 1024, y: 0, width: 2560, height: 1440)
+    let saved = SavedWindowFrame(CGRect(x: 0, y: 0, width: 1600, height: 900))
+    let frame = saved.clamped(to: [small, large], minimumSize: CGSize(width: 720, height: 340), fallback: small)
+    #expect(small.contains(frame))
+}

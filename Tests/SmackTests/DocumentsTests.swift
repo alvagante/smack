@@ -342,3 +342,14 @@ extension DocumentsTests {
         #expect(!inspector.inspecting)
     }
 }
+
+@Test @MainActor func documentScopeChangeClearsFiltersWhileBrowsing() {
+    let state = DocumentsPresentation()
+    state.mode = .browse
+    state.kind = "PDF"
+    state.location = "Home"
+    state.browserDirectory = URL(fileURLWithPath: "/old/subfolder")
+    state.scope = "/new"
+    #expect(state.kind.isEmpty && state.location.isEmpty)
+    #expect(state.browserDirectory == nil)
+}

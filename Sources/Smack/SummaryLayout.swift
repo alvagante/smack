@@ -107,7 +107,14 @@ struct SummaryLayoutSettings: Codable, Equatable, Sendable {
         } else {
             resolved.append(id)
         }
-        order = resolved.map(\.rawValue)
+        reorderVisible(resolved, visible: visible)
+    }
+
+    mutating func reorderVisible(_ reordered: [SummaryTileID], visible: [SummaryTileID]) {
+        let visibleSet = Set(visible)
+        let all = Self.resolve(order: order, visible: visible + order.compactMap(SummaryTileID.init(rawValue:)))
+        var replacement = reordered.makeIterator()
+        order = all.map { visibleSet.contains($0) ? (replacement.next() ?? $0).rawValue : $0.rawValue }
     }
 
     mutating func setSpan(_ span: Int, for id: SummaryTileID) {
@@ -145,18 +152,16 @@ struct SavedWindowFrame: Codable, Equatable, Sendable {
         let usable = screens.filter { $0.width > 0 && $0.height > 0 }
         guard !usable.isEmpty else { return fallback }
         var frame = cgRect
-        frame.size.width = min(max(frame.width, minimumSize.width), usable.map(\.width).max() ?? frame.width)
-        frame.size.height = min(max(frame.height, minimumSize.height), usable.map(\.height).max() ?? frame.height)
-        let overlaps = usable.contains { $0.intersects(frame) }
+        let screen = usable.first(where: { $0.intersects(frame) }) ?? usable[0]
+        let overlaps = screen.intersects(frame)
+        frame.size.width = min(max(frame.width, minimumSize.width), screen.width)
+        frame.size.height = min(max(frame.height, minimumSize.height), screen.height)
         if !overlaps {
-            let screen = usable.first { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) } ?? usable[0]
             frame.origin.x = screen.midX - frame.width / 2
             frame.origin.y = screen.maxY - frame.height - 6
         }
-        if let screen = usable.first(where: { $0.intersects(frame) }) ?? usable.first {
-            frame.origin.x = min(max(frame.minX, screen.minX), screen.maxX - frame.width)
-            frame.origin.y = min(max(frame.minY, screen.minY), screen.maxY - frame.height)
-        }
+        frame.origin.x = min(max(frame.minX, screen.minX), screen.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, screen.minY), screen.maxY - frame.height)
         return frame
     }
 }

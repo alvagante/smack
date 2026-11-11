@@ -143,84 +143,109 @@ private struct StartupItemRow: View {
     let isPending: Bool
     let setEnabled: (Bool) -> Void
 
+    @State private var expanded = false
+    @State private var showingContents = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            icon
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(item.detail)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                HStack(spacing: 6) {
-                    if let trigger = item.trigger { Text(trigger) }
-                    if let developer = item.developer { Text("·"); Text(developer) }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                icon.frame(width: 36, height: 36)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.name).font(.headline).lineLimit(1)
+                            HStack(spacing: 8) {
+                                Label(item.isEnabled ? "Enabled" : "Disabled", systemImage: item.isEnabled ? "checkmark.circle.fill" : "pause.circle.fill")
+                                    .foregroundStyle(item.isEnabled ? Color.green : Color.secondary)
+                                if item.pid != nil {
+                                    Label("Running", systemImage: "circle.fill").foregroundStyle(.green)
+                                }
+                                if item.note != nil {
+                                    Label("Needs attention", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(item.name), \(item.isEnabled ? "enabled" : "disabled"), \(item.pid != nil ? "running" : "not reported running")")
+                .accessibilityHint(expanded ? "Hide details" : "Show details")
+                if isPending { ProgressView().controlSize(.small) }
+                Toggle(item.isEnabled ? "Enabled" : "Disabled", isOn: Binding(get: { item.isEnabled }, set: { setEnabled($0) }))
+                    .toggleStyle(.switch).labelsHidden()
+                    .disabled(item.isReadOnly || isPending)
+                    .accessibilityLabel("Start \(item.name) automatically")
+            }
+            .padding(.vertical, 8)
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    detailRow(item.category == .scheduled ? "Schedule" : "Identifier", item.detail)
+                    if let trigger = item.trigger { detailRow("Starts", trigger) }
+                    if let developer = item.developer { detailRow("Developer", developer) }
+                    if let program = item.program { detailRow("Program", program) }
+                    if let path = item.path { detailRow("Location", path) }
+                    if let pid = item.pid { detailRow("Process", "PID \(pid)") }
+                    if item.isReadOnly { detailRow("Control", "Read-only") }
+                    if item.requiresAdministrator { detailRow("Control", "Requires administrator password") }
+                    if let note = item.note {
+                        Label(note, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack {
+                        if let path = item.path {
+                            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+                            if URL(fileURLWithPath: path).pathExtension.lowercased() != "app" {
+                                Button("Show File Contents") { showingContents = true }
+                            }
+                        }
+                        if let url = FileLookup.googleURL(searching: item.searchTerm) {
+                            Link("Search online", destination: url)
+                        }
+                    }.padding(.top, 4)
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                if let note = item.note {
-                    Label(note, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
+                .padding(.leading, 48).padding(.bottom, 12)
+                .textSelection(.enabled)
             }
-            Spacer()
-            if let url = FileLookup.googleURL(searching: item.searchTerm) {
-                Link(destination: url) {
-                    Image(systemName: "magnifyingglass")
-                }
-                .font(.caption)
-                .hoverHint("Google: search for \"\(item.searchTerm)\" macOS")
-                .accessibilityLabel("Search Google for \(item.searchTerm)")
-            }
-            if let pid = item.pid {
-                Text("PID \(pid)")
-                    .font(.caption2.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.green)
-                    .hoverHint("Running now")
-            }
-            if item.requiresAdministrator {
-                Image(systemName: "lock")
-                    .foregroundStyle(.secondary)
-                    .hoverHint("Changing this daemon asks for an administrator password.")
-            }
-            if isPending {
-                ProgressView().controlSize(.small)
-            }
-            Toggle(item.isEnabled ? "Enabled" : "Disabled", isOn: Binding(get: { item.isEnabled }, set: { setEnabled($0) }))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .disabled(item.isReadOnly || isPending)
-                .accessibilityLabel("Start \(item.name) automatically")
         }
-        .padding(.vertical, 4)
-        .help(item.program ?? item.detail)
+        .sheet(isPresented: $showingContents) {
+            if let path = item.path {
+                StartupFileContentsView(url: URL(fileURLWithPath: path))
+            }
+        }
         .contextMenu {
             if let path = item.path {
                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
             }
-            if let program = item.program {
-                Button("Copy Program Path") { copy(program) }
-            }
+            if let program = item.program { Button("Copy Program Path") { copy(program) } }
             Button("Copy \(item.category == .scheduled ? "Schedule" : "Identifier")") { copy(item.detail) }
         }
     }
 
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label).foregroundStyle(.secondary).frame(width: 72, alignment: .leading)
+            Text(value).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     @ViewBuilder private var icon: some View {
-        if let path = item.path, path.hasSuffix(".app") {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: path))
-                .resizable()
+        if let appPath = [item.path, item.program].compactMap({ $0 }).compactMap({ path -> String? in
+            guard let range = path.range(of: ".app", options: .caseInsensitive),
+                  range.upperBound == path.endIndex || path[range.upperBound] == "/" else { return nil }
+            return String(path[..<range.upperBound])
+        }).first {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: appPath)).resizable().aspectRatio(contentMode: .fit)
         } else {
-            Image(systemName: symbol)
-                .foregroundStyle(.secondary)
+            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary)
         }
     }
 
@@ -237,5 +262,48 @@ private struct StartupItemRow: View {
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+}
+
+private struct StartupFileContentsView: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var preview: HomePreview?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("File Contents").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            Text(url.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Divider()
+            if let preview {
+                ScrollView([.horizontal, .vertical]) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let message = preview.message {
+                            Text(message).foregroundStyle(.secondary)
+                        }
+                        Text(preview.text).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                ProgressView("Reading contents…")
+            }
+        }
+        .padding()
+        .frame(minWidth: 500, minHeight: 300)
+        .task {
+            let worker = Task.detached(priority: .utility) { UserHomeCollector().preview(url) }
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            if !Task.isCancelled { preview = result }
+        }
     }
 }
