@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Smack.Core/Smack.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Smack.Core.Tests/Smack.Core.Tests.csproj" />
+  </Folder>
+</Solution>

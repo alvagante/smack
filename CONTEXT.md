@@ -19,6 +19,7 @@ Scripts/build-app.sh && open dist/Smack.app               # direct app bundle; n
 - Direct-only code goes behind `#if !SMACK_APP_STORE`. Capabilities per flavor live in `Capabilities.swift`.
 - Run one copy of Smack at a time: two instances fight over the helper and the control socket.
 - Opt-in tests are gated by `SMACK_*` environment variables (benchmarks, live system checks, UI previews). CI also runs the release performance budgets: `SMACK_PERFORMANCE_BUDGETS=1 SMACK_AGENT_BENCHMARK=1 swift test -c release --filter <test>`.
+- The Windows edition is a separate C# codebase in `windows/` (`cd windows && dotnet test`), with its own rules in `docs/development/windows-architecture.md`. The principles, resource-cost discipline and glossary here apply to it; the Swift toolchain and dependency rules do not.
 
 ### Test first
 
@@ -249,6 +250,14 @@ _Avoid_: Live Data, history log
 **Idle Run**:
 A stretch of unchanged, near-zero samples for a process, stored sparsely so charts stay flat without storing every sample.
 _Avoid_: Gap, missing samples
+
+**Source** (Windows edition):
+One data source the collection engine can run, with a declared cost tier (Light, Moderate, Heavy) and a minimum interval.
+_Avoid_: Collector (the function behind it), provider, probe
+
+**Collection Demand** (Windows edition):
+A visible Page's or an enabled feature's request for a Source at an interval. A Source runs only while it has one; with none, nothing is scheduled.
+_Avoid_: Subscription, client count, listener
 
 **Standard Sampling**:
 Process metrics collected by the app with the current user's visibility.
