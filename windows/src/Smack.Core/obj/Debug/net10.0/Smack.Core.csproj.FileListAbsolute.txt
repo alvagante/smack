@@ -1,0 +1,12 @@
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/bin/Debug/net10.0/Smack.Core.deps.json
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/bin/Debug/net10.0/Smack.Core.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/bin/Debug/net10.0/Smack.Core.pdb
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.GeneratedMSBuildEditorConfig.editorconfig
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.AssemblyInfoInputs.cache
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.AssemblyInfo.cs
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.csproj.CoreCompileInputs.cache
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.sourcelink.json
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/refint/Smack.Core.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/Smack.Core.pdb
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/obj/Debug/net10.0/ref/Smack.Core.dll

@@ -1,0 +1,16 @@
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/bin/Debug/net10.0/Smack.Windows.deps.json
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/bin/Debug/net10.0/Smack.Windows.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/bin/Debug/net10.0/Smack.Windows.pdb
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/bin/Debug/net10.0/Smack.Core.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/bin/Debug/net10.0/Smack.Core.pdb
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.csproj.AssemblyReference.cache
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.GeneratedMSBuildEditorConfig.editorconfig
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.AssemblyInfoInputs.cache
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.AssemblyInfo.cs
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.csproj.CoreCompileInputs.cache
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.sourcelink.json
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Wi.AB657B28.Up2Date
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/refint/Smack.Windows.dll
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/Smack.Windows.pdb
+/Users/al/Documents/GITHUB/smack/windows/src/Smack.Windows/obj/Debug/net10.0/ref/Smack.Windows.dll

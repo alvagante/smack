@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "gJm8TZX7Y7M=",
+  "success": true,
+  "projectFilePath": "/Users/al/Documents/GITHUB/smack/windows/src/Smack.Core/Smack.Core.csproj",
+  "expectedPackageFiles": [
+    "/Users/al/.nuget/packages/microsoft.net.illink.tasks/10.0.14/microsoft.net.illink.tasks.10.0.14.nupkg.sha512"
+  ],
+  "logs": []
+}
