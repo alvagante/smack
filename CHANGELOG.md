@@ -4,7 +4,11 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-11
+
 ### Changed
+
+- **CI:** allow enough time for tests and both app bundle builds on macOS runners.
 
 - **Project Git Insights:** simplify author ranking type checking to restore the macOS test build.
 
