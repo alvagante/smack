@@ -29,7 +29,7 @@ import Testing
         #expect(routes.contains(.networkPorts) == Capabilities.supportsNetworkPortInspection)
         #expect(routes.contains(.startupItems) == Capabilities.supportsStartupItems)
         #expect(routes.contains(.security) == Capabilities.supportsPostureChecks)
-        #expect(!sections.contains { $0.title == "Work" })
+        #expect(sections.first { $0.title == "Work" }?.routes == (Capabilities.isSandboxed ? nil : [.documents]))
         #expect(sections.allSatisfy { !$0.routes.isEmpty })
     }
 
@@ -42,7 +42,7 @@ import Testing
     }
 
     @Test func workCategoryOwnsWorkPages() {
-        let workRoutes: [AppRoute] = [.projects, .devServers, .docker, .agents]
+        let workRoutes: [AppRoute] = [.projects, .documents, .devServers, .docker, .agents]
         let sections = MonitorNavigation.sections(settings: CollectionSettings(), hasBattery: true)
         #expect(sections.first { $0.title == "Work" }?.routes == workRoutes)
         for route in workRoutes { #expect(route.category?.title == "Work") }

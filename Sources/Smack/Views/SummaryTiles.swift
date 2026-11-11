@@ -1,47 +1,33 @@
 import SwiftUI
 
-/// Packing for Summary tiles: columns from the width, tiles placed in order, and every row filled to the grid width.
+/// Ordered square-cell packing. A large tile reserves two rows without stretching its neighbors.
 enum TileGrid {
-    struct Cell: Equatable {
-        var index: Int
-        var column: Int
-        var span: Int
-    }
-
-    /// An even count, or 1, so tiles spanning two columns always pair up.
     static func columns(width: CGFloat, minimumColumnWidth: CGFloat, spacing: CGFloat) -> Int {
         guard width.isFinite, width > 0 else { return 1 }
         let fitting = Int((width + spacing) / (minimumColumnWidth + spacing))
         return fitting >= 2 ? fitting - fitting % 2 : 1
     }
 
-    static func rows(spans: [Int], columns: Int) -> [[Cell]] {
-        let columns = max(1, columns)
-        var rows: [[(index: Int, span: Int)]] = []
-        var current: [(index: Int, span: Int)] = []
-        var used = 0
-        for (index, requested) in spans.enumerated() {
-            let span = min(max(1, requested), columns)
-            if used + span > columns {
-                rows.append(current)
-                current = []
-                used = 0
-            }
-            current.append((index, span))
-            used += span
-        }
-        if !current.isEmpty { rows.append(current) }
-        return rows.map { row in
-            var spans = row.map(\.span)
-            // Free columns go to the narrowest tile first, so a short row splits evenly.
-            for _ in 0..<(columns - spans.reduce(0, +)) {
-                let narrowest = spans.indices.min { spans[$0] < spans[$1] }!
-                spans[narrowest] += 1
-            }
-            var column = 0
-            return zip(row, spans).map { item, span in
-                defer { column += span }
-                return Cell(index: item.index, column: column, span: span)
+    static func frames(sizes: [SummaryTileSize], width: CGFloat, minimumColumnWidth: CGFloat, spacing: CGFloat) -> [CGRect] {
+        let columns = columns(width: width, minimumColumnWidth: minimumColumnWidth, spacing: spacing)
+        let unit = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        var occupied = Set<Int>()
+        var cursor = 0
+        return sizes.map { size in
+            let wide = min(size.columns, columns)
+            let tall = size.rows
+            while true {
+                let column = cursor % columns
+                let row = cursor / columns
+                let cells = (0..<tall).flatMap { y in (0..<wide).map { x in (row + y) * columns + column + x } }
+                if column + wide <= columns && cells.allSatisfy({ !occupied.contains($0) }) {
+                    occupied.formUnion(cells)
+                    cursor += wide
+                    return CGRect(x: CGFloat(column) * (unit + spacing), y: CGFloat(row) * (unit + spacing),
+                                  width: CGFloat(wide) * (unit + spacing) - spacing,
+                                  height: CGFloat(tall) * (unit + spacing) - spacing)
+                }
+                cursor += 1
             }
         }
     }
@@ -51,12 +37,112 @@ private struct TileSpan: LayoutValueKey {
     static let defaultValue = 1
 }
 
+private struct SummaryTileSizeKey: EnvironmentKey {
+    static let defaultValue = SummaryTileSize.wide
+}
+
+private struct SummaryArrangingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var summaryTileSize: SummaryTileSize {
+        get { self[SummaryTileSizeKey.self] }
+        set { self[SummaryTileSizeKey.self] = newValue }
+    }
+
+    /// True while the user is rearranging Summary Tiles; navigation from tiles stays off.
+    var summaryArranging: Bool {
+        get { self[SummaryArrangingKey.self] }
+        set { self[SummaryArrangingKey.self] = newValue }
+    }
+}
+
 extension View {
     /// Columns a Summary tile asks for; narrower grids clamp it.
     func tileSpan(_ columns: Int) -> some View { layoutValue(key: TileSpan.self, value: columns) }
+
+    func summaryTileArrangement(
+        _ id: SummaryTileID,
+        arranging: Bool,
+        span: Int,
+        dragging: Bool = false,
+        onDrag: @escaping (CGPoint, CGPoint) -> Void,
+        onEnd: @escaping () -> Void,
+        onCancel: @escaping () -> Void,
+        onSpan: @escaping (Int) -> Void
+    ) -> some View {
+        modifier(SummaryTileArrangement(
+            arranging: arranging, span: span, dragging: dragging,
+            onDrag: onDrag, onEnd: onEnd, onCancel: onCancel, onSpan: onSpan
+        ))
+    }
 }
 
-/// Lays Summary tiles out as `TileGrid` packs them; each row is as tall as its tallest tile.
+private struct SummaryTileArrangement: ViewModifier {
+    let arranging: Bool
+    let span: Int
+    let dragging: Bool
+    let onDrag: (CGPoint, CGPoint) -> Void
+    let onEnd: () -> Void
+    let onCancel: () -> Void
+    let onSpan: (Int) -> Void
+    @GestureState private var gestureActive = false
+
+    func body(content: Content) -> some View {
+        content
+            .allowsHitTesting(!arranging)
+            .overlay {
+                if arranging {
+                    RoundedRectangle(cornerRadius: MonitorStyle.radius)
+                        .fill(Color.clear)
+                        .contentShape(RoundedRectangle(cornerRadius: MonitorStyle.radius))
+                        .gesture(
+                            DragGesture(minimumDistance: 6, coordinateSpace: .named("summary-grid"))
+                                .updating($gestureActive) { _, active, _ in active = true }
+                                .onChanged { onDrag($0.startLocation, $0.location) }
+                                .onEnded { _ in onEnd() }
+                        )
+                        .help("Drag anywhere on the tile; neighboring tiles move as you drag")
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if arranging {
+                    HStack(spacing: 4) {
+                        ForEach(SummaryTileSize.allCases, id: \.rawValue) { size in
+                            Button { onSpan(size.rawValue) } label: {
+                                Image(systemName: size.symbol)
+                                    .font(.caption.weight(.semibold))
+                                    .frame(width: 24, height: 24)
+                                    .contentShape(Rectangle())
+                            }
+                            .help(size.label)
+                            .accessibilityLabel(size.label)
+                            .accessibilityAddTraits(SummaryTileSize(span: span) == size ? .isSelected : [])
+                            .foregroundStyle(SummaryTileSize(span: span) == size ? Color.accentColor : .secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .padding(8)
+                }
+            }
+            .overlay {
+                if dragging {
+                    RoundedRectangle(cornerRadius: MonitorStyle.radius)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .shadow(color: .black.opacity(dragging ? 0.15 : 0), radius: dragging ? 12 : 0, y: dragging ? 5 : 0)
+            .onChange(of: gestureActive) { _, active in
+                if !active { onCancel() }
+            }
+    }
+}
+
+/// Lays Summary Tiles out with fixed square-unit footprints.
 struct TileGridLayout: Layout {
     var minimumColumnWidth: CGFloat = 210
     var spacing: CGFloat = 12
@@ -73,19 +159,8 @@ struct TileGridLayout: Layout {
     }
 
     private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
-        let columns = TileGrid.columns(width: width, minimumColumnWidth: minimumColumnWidth, spacing: spacing)
-        let columnWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-        var frames = Array(repeating: CGRect.zero, count: subviews.count)
-        var y: CGFloat = 0
-        for row in TileGrid.rows(spans: subviews.map { $0[TileSpan.self] }, columns: columns) {
-            let widths = row.map { columnWidth * CGFloat($0.span) + spacing * CGFloat($0.span - 1) }
-            let height = zip(row, widths).map { subviews[$0.index].sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }.max() ?? 0
-            for (cell, cellWidth) in zip(row, widths) {
-                frames[cell.index] = CGRect(x: CGFloat(cell.column) * (columnWidth + spacing), y: y, width: cellWidth, height: height)
-            }
-            y += height + spacing
-        }
-        return frames
+        TileGrid.frames(sizes: subviews.map { SummaryTileSize(span: $0[TileSpan.self]) },
+                        width: width, minimumColumnWidth: minimumColumnWidth, spacing: spacing)
     }
 }
 
@@ -99,6 +174,7 @@ struct SummaryTile<Visual: View>: View {
     var interactiveVisual = false
     let open: () -> Void
     @ViewBuilder var visual: Visual
+    @Environment(\.summaryArranging) private var arranging
     @State private var hovering = false
 
     var body: some View {
@@ -106,36 +182,50 @@ struct SummaryTile<Visual: View>: View {
             if interactiveVisual {
                 surface {
                     VStack(alignment: .leading, spacing: 10) {
-                        Button(action: open) { heading }
+                        Button(action: navigate) { heading }
                             .buttonStyle(.plain)
-                            .help(help ?? "Open \(route.title)")
-                        visual
+                            .help(arranging ? "Drag to reorder, or choose a tile shape" : (help ?? "Open \(route.title)"))
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 10) { visual }
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
                         Spacer(minLength: 0)
                     }
                 }
                 .accessibilityElement(children: .contain)
             } else {
-                Button(action: open) {
+                Button(action: navigate) {
                     surface {
                         VStack(alignment: .leading, spacing: 10) {
                             heading
-                            visual
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 10) { visual }
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                            }
+                            .scrollBounceBehavior(.basedOnSize)
                             Spacer(minLength: 0)
                         }
                     }
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
-                .help(help ?? "Open \(route.title)")
+                .help(arranging ? "Drag to reorder, or choose a tile shape" : (help ?? "Open \(route.title)"))
             }
         }
         .onHover { hovering = $0 }
+    }
+
+    private func navigate() {
+        guard !arranging else { return }
+        open()
     }
 
     private func surface<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
         .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
         .padding(14)
+        .padding(.top, arranging ? 30 : 0)
         .background(Color.primary.opacity(hovering ? 0.035 : 0), in: RoundedRectangle(cornerRadius: MonitorStyle.radius))
         .monitorSurface()
         .contentShape(RoundedRectangle(cornerRadius: MonitorStyle.radius))
@@ -147,8 +237,10 @@ struct SummaryTile<Visual: View>: View {
                 ResourceIcon(systemImage: route.systemImage, color: route.tint, size: 20)
                 Text(route.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.caption2.weight(.bold))
-                    .foregroundStyle(hovering ? .secondary : .tertiary)
+                if !arranging {
+                    Image(systemName: "chevron.right").font(.caption2.weight(.bold))
+                        .foregroundStyle(hovering ? .secondary : .tertiary)
+                }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(headline)
@@ -467,10 +559,12 @@ struct AgentSessionSummaryRows: View {
     let sessions: [AgentSession]
     var open: (String) -> Void = { _ in }
 
+    var limit = 8
+
     var entries: [AgentSessionList.Entry] { AgentSessionList(sessions: sessions).live }
 
     var body: some View {
-        ExpandableRows(rows: entries, limit: 8, spacing: 2) { entry in
+        ExpandableRows(rows: entries, limit: limit, spacing: 2) { entry in
             AgentSessionSummaryRow(entry: entry) { open(entry.session.id) }
         }
     }

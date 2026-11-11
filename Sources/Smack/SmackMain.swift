@@ -389,6 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// preference updates in `UserDefaults` are synchronously committed to disk before process exit.
     /// - Parameter notification: The termination notification posted by `NSApplication`.
     func applicationWillTerminate(_ notification: Notification) {
+        panelController?.rememberWindowFrame()
         store?.stopSecurityMonitoring()
 #if !SMACK_APP_STORE
         controlSettingsObservation = nil

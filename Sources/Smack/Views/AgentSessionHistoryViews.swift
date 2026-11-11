@@ -33,7 +33,7 @@ struct PastSessionDetail: View {
             SessionTimelineView(source: transcript.source, session: nil,
                                 transcripts: store.settingsStore.settings.devTools.readSessionTranscripts,
                                 interval: store.settingsStore.settings.sampling.liveRefreshSeconds,
-                                visibility: store.panelVisibility, onIndex: onIndex)
+                                visibility: store.panelVisibility, settingsStore: store.settingsStore, onIndex: onIndex)
         }
         .padding(MonitorStyle.inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

@@ -169,7 +169,7 @@ struct AgentSessionDetail: View {
                     SessionTimelineView(session: session, points: points,
                                         transcripts: store.settingsStore.settings.devTools.readSessionTranscripts,
                                         interval: store.settingsStore.settings.sampling.liveRefreshSeconds,
-                                        visibility: store.panelVisibility)
+                                        visibility: store.panelVisibility, settingsStore: store.settingsStore)
                 }
                 .padding(MonitorStyle.inset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

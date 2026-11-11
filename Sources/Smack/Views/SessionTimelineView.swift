@@ -6,6 +6,7 @@ import SwiftUI
 struct SessionTimelineView: View {
     @StateObject private var model: SessionTimelineModel
     @ObservedObject var visibility: PanelVisibility
+    @ObservedObject private var settingsStore: SettingsStore
     let session: AgentSession?
     let points: [AgentSessionPoint]
     let transcripts: Bool
@@ -14,14 +15,22 @@ struct SessionTimelineView: View {
     @State private var animation: ViewportAnimation?
 
     init(source: TranscriptSource? = nil, session: AgentSession?, points: [AgentSessionPoint] = [], transcripts: Bool,
-         interval: TimeInterval, visibility: PanelVisibility, onIndex: @escaping (TranscriptIndex) -> Void = { _ in }) {
+         interval: TimeInterval, visibility: PanelVisibility, settingsStore: SettingsStore,
+         onIndex: @escaping (TranscriptIndex) -> Void = { _ in }) {
         _model = StateObject(wrappedValue: SessionTimelineModel(source: source))
         self.session = session
         self.points = points
         self.transcripts = transcripts
         self.interval = interval
         self.visibility = visibility
+        self.settingsStore = settingsStore
         self.onIndex = onIndex
+    }
+
+    private var detailsUnder: Bool { settingsStore.settings.devTools.sessionDetailsUnderTimeline }
+
+    private func toggleDetails() {
+        settingsStore.update { $0.devTools.sessionDetailsUnderTimeline.toggle() }
     }
 
     private var live: Bool { session.map { $0.endedAt == nil } ?? false }
@@ -38,24 +47,34 @@ struct SessionTimelineView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             TimelineSessionSummary(model: model)
-            TimelineToolbar(model: model, animation: $animation)
+            TimelineToolbar(model: model, animation: $animation, detailsUnder: detailsUnder, toggleDetails: toggleDetails)
             if model.events.isEmpty {
                 placeholder.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if let notice { Label(notice, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary) }
                 TimelineLaneChips(model: model)
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(spacing: 8) {
-                        TimelineMinimap(model: model, animation: animation)
-                            .frame(height: 30)
-                        TimelineStage(model: model, points: points, animation: $animation)
-                    }
-                    .padding(10)
-                    .monitorSurface()
-                    TimelineInspector(model: model, animation: $animation)
-                        .frame(width: 320)
+                let pane = VStack(spacing: 8) {
+                    TimelineMinimap(model: model, animation: animation)
+                        .frame(height: 30)
+                    TimelineStage(model: model, points: points, animation: $animation)
                 }
-                .frame(maxHeight: .infinity)
+                .padding(10)
+                .monitorSurface()
+                if detailsUnder {
+                    VStack(spacing: 12) {
+                        pane
+                        TimelineInspector(model: model, animation: $animation, belowTimeline: true)
+                            .frame(minHeight: 140, idealHeight: 220, maxHeight: 240)
+                    }
+                    .frame(maxHeight: .infinity)
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        pane
+                        TimelineInspector(model: model, animation: $animation)
+                            .frame(width: 320)
+                    }
+                    .frame(maxHeight: .infinity)
+                }
                 TimelineStats(model: model)
             }
         }
@@ -212,6 +231,8 @@ private struct TimelineSessionSummary: View {
 private struct TimelineToolbar: View {
     @ObservedObject var model: SessionTimelineModel
     @Binding var animation: ViewportAnimation?
+    var detailsUnder: Bool
+    var toggleDetails: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -245,6 +266,8 @@ private struct TimelineToolbar: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
                 .onSubmit { model.nextMatch() }
+            ToolbarIconButton(title: detailsUnder ? "Event details beside the timeline" : "Event details under the timeline",
+                              systemImage: detailsUnder ? "rectangle.split.2x1" : "rectangle.split.1x2") { toggleDetails() }
             Image(systemName: "keyboard")
                 .foregroundStyle(.secondary)
                 .help("Scroll or pinch to zoom; drag to pan; drag on the time ruler or ⇧-drag to zoom into a range; click a cluster to drill in; double-click to fit; ←/→ step through events; F fits, L follows live, Esc clears.")
@@ -843,11 +866,28 @@ enum TimelineRenderer {
 
 // MARK: - Inspector
 
-private struct TimelineInspector: View {
+/// Event Details: the box that shows the event chosen on the Session Timeline, beside it or, with the Setting on,
+/// under it at full width.
+struct TimelineInspector: View {
     @ObservedObject var model: SessionTimelineModel
     @Binding var animation: ViewportAnimation?
+    /// In the under-timeline layout the box is a short, full-width strip, so its whole column scrolls as one.
+    var belowTimeline = false
 
     var body: some View {
+        Group {
+            if belowTimeline {
+                ScrollView { column }
+            } else {
+                column
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .monitorSurface()
+    }
+
+    private var column: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text("Event details").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -861,9 +901,6 @@ private struct TimelineInspector: View {
                 placeholder
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .monitorSurface()
     }
 
     @ViewBuilder private func content(_ event: TranscriptEvent) -> some View {
@@ -917,21 +954,31 @@ private struct TimelineInspector: View {
             .controlSize(.small)
         }
         Divider()
+        sections
+    }
+
+    @ViewBuilder private var sections: some View {
         if model.loadingDetail {
             ProgressView().controlSize(.small)
         }
         if let detail = model.detail {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(detail.sections) { section in TimelineDetailSection(section: section) }
-                    if detail.truncated {
-                        Text("Long content is shortened here; reveal the transcript to read all of it.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if belowTimeline {
+                sectionList(detail)
+            } else {
+                ScrollView { sectionList(detail) }
             }
         }
+    }
+
+    private func sectionList(_ detail: TranscriptDetail) -> some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(detail.sections) { section in TimelineDetailSection(section: section) }
+            if detail.truncated {
+                Text("Long content is shortened here; reveal the transcript to read all of it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func chip(_ text: String, _ color: Color) -> some View {

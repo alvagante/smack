@@ -356,6 +356,22 @@ final class SpyUserDefaults: UserDefaults {
     #expect(budget.fileFactsEntries == 200)
 }
 
+/// The Session Timeline's event details kept sitting beside the timeline before this Setting existed; upgrades must
+/// keep that layout, while a stored true survives a round trip.
+@Test func sessionDetailsUnderTimelineDefaultsToBesideAndPersists() throws {
+    let legacy = #"{"devTools": {"readSessionTranscripts": true}}"#.data(using: .utf8)!
+    let legacyDecoded = try JSONDecoder().decode(CollectionSettings.self, from: legacy)
+    #expect(!legacyDecoded.devTools.sessionDetailsUnderTimeline)
+    #expect(legacyDecoded.devTools.readSessionTranscripts)
+
+    var settings = CollectionSettings()
+    #expect(!settings.devTools.sessionDetailsUnderTimeline)
+    settings.devTools.sessionDetailsUnderTimeline = true
+    settings.validate()
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.devTools.sessionDetailsUnderTimeline)
+}
+
 @Test func tuningSettingsClampAndRoundTrip() throws {
     var settings = CollectionSettings()
     settings.sampling.liveRefreshSeconds = 3

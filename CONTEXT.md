@@ -73,7 +73,7 @@ Rules that keep the cost low:
 ### Panel and navigation
 
 **Panel**:
-The floating window opened from the menu-bar icon; all of Smack's UI lives in it.
+The floating window opened from the menu-bar icon; all of Smack's UI lives in it. Its last size and position are restored on the next open.
 _Avoid_: Popover, main window
 
 **Pinned Panel**:
@@ -81,7 +81,7 @@ A Panel kept in front that ignores mouse-away and outside-click dismissal until 
 _Avoid_: Always on top, sticky
 
 **Standard Window**:
-The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen.
+The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen. Closing or quitting saves the frame; the next open restores that size and position.
 _Avoid_: Main window, app mode
 
 **Onboarding**:
@@ -103,6 +103,10 @@ _Avoid_: Section, group
 **Summary Tile**:
 One area's entry on Summary, colored by its Page Category: the Page it opens, its key figure, and optionally a live visual drawn from data already collected. Tiles of every category share one grid.
 _Avoid_: Card, widget, row
+
+**Summary Layout**:
+The user's order and square-unit footprints (1×1, 2×1 or 2×2) for Summary Tiles, arranged on Summary and restored on the next launch.
+_Avoid_: Dashboard layout, widget layout, grid preferences
 
 **Summary Concern**:
 A condition worth attention right now (Thermal State, memory pressure, low battery, security findings, busy CPU), derived from Live Data and shown at the top of Summary with a link to its Page.
@@ -231,7 +235,7 @@ The Small, Standard, or Large bound on memory held by caches and on-demand repor
 _Avoid_: Cache size, memory limit
 
 **Inventory Cache**:
-How long a local environment inventory (Docker, Homebrew, Development Environments, Projects, AI Agents) is reused before it is collected again.
+How long a local environment inventory (Docker, Homebrew, Development Environments, Projects, Documents, AI Agents) is reused before it is collected again.
 _Avoid_: TTL, refresh interval
 
 **Background Collection**:
@@ -322,6 +326,10 @@ _Avoid_: Repo (in the interface), workspace
 A runtime a Project declares at its root, read during discovery: a version pin (`.tool-versions`, `.nvmrc`, `.python-version`, `mise.toml`, `rust-toolchain`, `.envrc`) or a local virtual environment folder.
 _Avoid_: Development Environment (a discovered executable), toolchain
 
+**Document**:
+A saved file browsed in Work through the local Spotlight index or the folder browser. Recent lists indexed metadata; its Detail Page adds current file information and explicit Open, Preview and sharing actions. Browse uses native file selection and Quick Look on request. Documents does not record saves.
+_Avoid_: Recent item (which may only have been opened), save event
+
 **AI Agent**:
 A locally installed coding agent whose configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions, and sessions Smack can browse.
 _Avoid_: Assistant, bot, Privileged Helper
@@ -341,6 +349,10 @@ _Avoid_: Archive (Smack does not copy transcripts), History (reserved for collec
 **Session Timeline**:
 One Agent Session's Transcript and observed processes in time order on lanes (prompts, answers, thinking, commands, MCP, files, web, tools, subagents, context, processes), live while the session runs and replayed from History afterwards.
 _Avoid_: Timeline alone (the Activity Timeline), trace, log
+
+**Event Details**:
+The box on the Session Timeline that shows the reading of the event chosen on it: its prompt, answer, command output, MCP result or diff. It sits beside the chart or, with its Setting on, under it at full width.
+_Avoid_: Inspector, details pane
 
 **User Home Area**:
 One category of the user's home browsed as a unit: dotfiles, XDG configuration, preferences, application support, launch agents, app and group containers, or Library.

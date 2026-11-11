@@ -15,6 +15,8 @@ struct AgentsSummaryTile: View {
         self.openSession = openSession
     }
 
+    @Environment(\.summaryTileSize) private var tileSize
+
     var body: some View {
         if !Capabilities.isSandboxed {
             let sessions = live.sessions.filter { $0.endedAt == nil }
@@ -23,10 +25,9 @@ struct AgentsSummaryTile: View {
                 caption: sessions.isEmpty ? "No sessions running" : "\(sessions.count) \(sessions.count == 1 ? "session" : "sessions") running",
                 interactiveVisual: true, open: open) {
                 if !sessions.isEmpty {
-                    AgentSessionSummaryRows(sessions: sessions, open: openSession)
+                    AgentSessionSummaryRows(sessions: sessions, open: openSession, limit: tileSize.rowLimit)
                 }
             }
-            .tileSpan(sessions.isEmpty ? 1 : 2)
             .task { if model.snapshot == nil { await model.refresh() } }
         }
     }

@@ -40,13 +40,41 @@ import SwiftUI
 }
 
 @Test @MainActor func savedSessionNavigationAndSummaryRenderAtPanelWidths() throws {
+    let suite = "SessionTimelineViewTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
     for width in [900.0, 1400.0] {
-        let view = SessionTimelineView(session: nil, transcripts: false, interval: 5, visibility: PanelVisibility())
+        let view = SessionTimelineView(session: nil, transcripts: false, interval: 5,
+                                       visibility: PanelVisibility(), settingsStore: settingsStore)
         let host = NSHostingView(rootView: view.frame(width: width, height: 650))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 650)
         host.layoutSubtreeIfNeeded()
         #expect(host.fittingSize.width >= width)
     }
+}
+
+/// The under-timeline Event Details strip scrolls its whole column, so even a long prompt answers within its
+/// bounded height; the beside column keeps its own scrolling region and stays 320 points wide.
+@Test @MainActor func eventDetailsFitBesideAndScrollUnderTheTimeline() async throws {
+    let files = MemoryTranscriptFiles()
+    files.set("/t.jsonl", claudeTranscript)
+    let model = SessionTimelineModel(source: .file(path: "/t.jsonl", format: .claude), files: files)
+    await model.refresh(session: nil, transcripts: true, live: false)
+    #expect(!model.events.isEmpty)
+    model.select(model.events.last?.id)
+    for width in [900.0, 1400.0] {
+        let host = NSHostingView(rootView: TimelineInspector(model: model, animation: .constant(nil), belowTimeline: true)
+            .frame(width: width, height: 220))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 220)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.width <= width + 1)
+    }
+    let host = NSHostingView(rootView: TimelineInspector(model: model, animation: .constant(nil), belowTimeline: false)
+        .frame(width: 320, height: 480))
+    host.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+    host.layoutSubtreeIfNeeded()
+    #expect(host.fittingSize.width <= 321)
 }
 
 @Test func savedSessionsColumnOrderAndAgentChips() {

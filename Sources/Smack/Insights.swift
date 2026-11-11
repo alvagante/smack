@@ -326,6 +326,8 @@ struct InsightsDigest: Sendable, Equatable {
     var eventCounts: [ActivityEventKind: Int]
     var newExternalPrograms: [String]
     var restartingPrograms: [String]
+    var topConsumers: [NamedValue] = []
+    var topWriters: [NamedValue] = []
 
     static func make(window: DateInterval, peakCPU: Double?, peakPressure: Double?, programs: [HistoricalProgram],
                      ledger: DiskWriteLedger?, eventCounts: [ActivityEventKind: Int],
@@ -342,7 +344,11 @@ struct InsightsDigest: Sendable, Equatable {
             eventCounts: eventCounts,
             // With less than a day of earlier connections, nearly every program would look new.
             newExternalPrograms: destinations.map { $0.hasShortCoverage ? [] : $0.programs.filter(\.isNew).map(\.name) } ?? [],
-            restartingPrograms: churn.filter(\.restartsOften).map(\.name)
+            restartingPrograms: churn.filter(\.restartsOften).map(\.name),
+            topConsumers: programs.filter { $0.cpuTotal > 0 }.sorted {
+                $0.cpuTotal == $1.cpuTotal ? $0.name < $1.name : $0.cpuTotal > $1.cpuTotal
+            }.prefix(5).map { NamedValue(name: $0.name, value: $0.cpuTotal / minutes) },
+            topWriters: Array((ledger?.rows ?? []).prefix(5).map { NamedValue(name: $0.name, value: $0.total) })
         )
     }
 
@@ -367,6 +373,14 @@ struct InsightsDigest: Sendable, Equatable {
         let parts = notable.filter { $0.0 > 0 }.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
         if !parts.isEmpty { lines.append(parts.joined(separator: " · ")) }
         return lines
+    }
+
+    var expandedLines: [String] {
+        var lines = topConsumers.map { "CPU · " + $0.name + " · " + Formatting.percent($0.value) + " avg" }
+        lines += topWriters.map { "Disk writes · " + $0.name + " · " + Formatting.bytes(UInt64(max(0, $0.value))) }
+        lines += restartingPrograms.prefix(12).map { "Restarts often · " + $0 }
+        lines += newExternalPrograms.prefix(12).map { "First internet connection · " + $0 }
+        return Array(lines.prefix(12))
     }
 
     var usageLine: String {

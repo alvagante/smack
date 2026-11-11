@@ -4,6 +4,7 @@ import AppKit
 struct DevEnvironmentSummaryTile: View {
     @ObservedObject var model: DevEnvironmentMonitor
     var open: () -> Void
+    @Environment(\.summaryTileSize) private var tileSize
 
     private var languages: [String] {
         let environments = model.snapshot?.environments ?? []
@@ -23,7 +24,22 @@ struct DevEnvironmentSummaryTile: View {
             SummaryTile(route: .devEnvironments,
                 headline: model.snapshot.map { "\($0.environments.count) environments" } ?? (model.loading ? "Discovering…" : "Explore runtimes"),
                 caption: model.snapshot.map { _ in "\(languages.count) languages detected" } ?? "Languages, packages and paths", open: open) {
-                if !languages.isEmpty {
+                if tileSize == .large {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach((model.snapshot?.environments ?? []).prefix(tileSize.rowLimit)) { environment in
+                            HStack(spacing: 8) {
+                                Text(environment.language.rawValue).font(.caption.weight(.medium))
+                                Text(environment.source).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer(minLength: 4)
+                                if environment.onPath {
+                                    Text("PATH").font(.caption2).foregroundStyle(.teal)
+                                }
+                            }
+                            Text(environment.executable).font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                } else if !languages.isEmpty {
                     TagChips(tags: languages, color: .teal)
                 }
             }
