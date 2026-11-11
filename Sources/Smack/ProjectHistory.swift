@@ -150,9 +150,12 @@ struct ProjectGitStats: Sendable, Equatable {
 
     /// The most frequent authors; past `limit`, the rest are summed as "Others".
     func authors(limit: Int) -> [ProjectAuthorShare] {
-        let counts = Dictionary(stamps.map { ($0.author, 1) }, uniquingKeysWith: +)
-            .map { ProjectAuthorShare(name: $0.key, commits: $0.value) }
-            .sorted { $0.commits != $1.commits ? $0.commits > $1.commits : $0.name < $1.name }
+        let totals: [String: Int] = Dictionary(stamps.map { ($0.author, 1) }, uniquingKeysWith: +)
+        let shares = totals.map { ProjectAuthorShare(name: $0.key, commits: $0.value) }
+        let counts = shares.sorted {
+            if $0.commits != $1.commits { return $0.commits > $1.commits }
+            return $0.name < $1.name
+        }
         guard counts.count > limit, limit > 0 else { return counts }
         let top = Array(counts.prefix(limit - 1))
         return top + [ProjectAuthorShare(name: "Others", commits: counts.dropFirst(limit - 1).reduce(0) { $0 + $1.commits })]

@@ -46,6 +46,21 @@ private let monday = Date(timeIntervalSince1970: 1_794_182_400)
     #expect(stats.first == monday.addingTimeInterval(-10 * day))
 }
 
+@Test func gitStatsAuthorsSortTiesAndRespectLimits() {
+    let stamps = ["Linus", "Grace", "Ada", "Ada"].map { ProjectCommitStamp(date: monday, author: $0) }
+    let stats = ProjectGitStats(stamps: stamps)
+    let all = [
+        ProjectAuthorShare(name: "Ada", commits: 2),
+        ProjectAuthorShare(name: "Grace", commits: 1),
+        ProjectAuthorShare(name: "Linus", commits: 1),
+    ]
+    #expect(stats.authors(limit: 0) == all)
+    #expect(stats.authors(limit: 3) == all)
+    #expect(stats.authors(limit: 1) == [ProjectAuthorShare(name: "Others", commits: 4)])
+    #expect(stats.authors(limit: 2) == [all[0], ProjectAuthorShare(name: "Others", commits: 2)])
+    #expect(ProjectGitStats().authors(limit: 2).isEmpty)
+}
+
 @Test func gitStatsParseNumstatIntoWeeklyChurnAndHotFiles() {
     let week: TimeInterval = 7 * 86_400
     let output = """
