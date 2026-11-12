@@ -63,27 +63,9 @@ struct AgentDetailView: View {
         _mode = State(initialValue: session != nil || model.live.liveCount > 0 ? .sessions : .configs)
     }
 
-    private var overview: some View {
-        ResourceStatsRow(headline: model.snapshot.map { String($0.agents.count) } ?? "–", unit: "agents", stats: [
-            ResourceStat(title: "Executables", systemImage: "terminal", value: model.snapshot.map { String($0.agents.filter { $0.executable != nil }.count) } ?? "Unavailable"),
-            ResourceStat(title: "Artifacts", systemImage: "doc.text", value: model.snapshot.map { String($0.agents.reduce(0) { $0 + $1.artifacts.count }) } ?? "Unavailable")
-        ], headlineWidth: 120)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            DetailPageHeader {
-                ResourceTitle(title: "AI agents", systemImage: "sparkles", color: AppRoute.agents.tint,
-                              subtitle: mode == .configs ? model.snapshot.map { "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp))" } : nil)
-            } actions: {
-                AgentPageModePicker(live: model.live, mode: $mode)
-                if mode == .configs {
-                    if model.loading { ProgressView().controlSize(.small) }
-                    RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
-                }
-            } overview: {
-                if mode == .sessions { AgentSessionsOverview(live: model.live) } else if mode == .configs { overview }
-            }
+            AgentPageHeader(model: model, mode: $mode)
             Divider()
             if mode == .sessions {
                 AgentSessionsView(live: model.live, store: store, selectedID: session)
@@ -182,6 +164,40 @@ struct AgentDetailView: View {
     }
 }
 
+/// Title row of the AI agents page: one row with the title, the figures of the current mode and the mode picker.
+struct AgentPageHeader: View {
+    @ObservedObject var model: AgentMonitor
+    @Binding var mode: AgentPageMode
+
+    private var overview: some View {
+        ResourceStatsRow(headline: model.snapshot.map { String($0.agents.count) } ?? "–", unit: "agents", stats: [
+            ResourceStat(title: "Executables", systemImage: "terminal", value: model.snapshot.map { String($0.agents.filter { $0.executable != nil }.count) } ?? "Unavailable"),
+            ResourceStat(title: "Artifacts", systemImage: "doc.text", value: model.snapshot.map { String($0.agents.reduce(0) { $0 + $1.artifacts.count }) } ?? "Unavailable")
+        ], compact: true)
+    }
+
+    var body: some View {
+        DetailPageHeader {
+            ResourceTitle(title: "AI agents", systemImage: "sparkles", color: AppRoute.agents.tint,
+                          subtitle: mode == .configs ? model.snapshot.map { "Checked \(Formatting.dated($0.timestamp.formatted(date: .omitted, time: .shortened), $0.timestamp))" } : nil)
+        } actions: {
+            AgentPageModePicker(live: model.live, mode: $mode)
+            if mode == .configs {
+                if model.loading { ProgressView().controlSize(.small) }
+                RefreshButton { Task { await model.refresh() } }.disabled(model.loading)
+            } else if mode == .saved {
+                SavedSessionsActions(history: model.transcripts)
+            }
+        } overview: {
+            switch mode {
+            case .sessions: AgentSessionsOverview(live: model.live)
+            case .saved: SavedSessionsOverview(history: model.transcripts)
+            case .configs: overview
+            }
+        }
+    }
+}
+
 enum AgentPageMode: String, CaseIterable, Identifiable {
     case sessions = "Active Sessions"
     case saved = "Saved Sessions"
@@ -189,16 +205,16 @@ enum AgentPageMode: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
-private struct AgentPageModePicker: View {
+struct AgentPageModePicker: View {
     @ObservedObject var live: AgentSessionsModel
     @Binding var mode: AgentPageMode
 
     var body: some View {
         PageModeSwitch(options: [
-            PageModeOption(id: AgentPageMode.sessions, title: "Active Sessions", systemImage: "terminal",
+            PageModeOption(id: AgentPageMode.sessions, title: "Active", systemImage: "terminal",
                            count: live.liveCount,
                            help: "Running and recently ended Agent Sessions, with their processes, commands, network and log."),
-            PageModeOption(id: AgentPageMode.saved, title: "Saved Sessions", systemImage: "clock.arrow.circlepath",
+            PageModeOption(id: AgentPageMode.saved, title: "Saved", systemImage: "clock.arrow.circlepath",
                            help: "Browse, filter and sort recorded agent transcripts."),
             PageModeOption(id: AgentPageMode.configs, title: "Configs", systemImage: "slider.horizontal.3",
                            help: "Installed agents and their configuration, skills, memory, instructions, MCP servers, hooks and extensions."),
@@ -206,7 +222,7 @@ private struct AgentPageModePicker: View {
     }
 }
 
-private struct AgentSessionsOverview: View {
+struct AgentSessionsOverview: View {
     @ObservedObject var live: AgentSessionsModel
 
     var body: some View {
@@ -221,6 +237,6 @@ private struct AgentSessionsOverview: View {
             ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(topLevel.reduce(0) { $0 + $1.totals.cpu })),
             ResourceStat(title: "Memory", systemImage: "memorychip", value: Formatting.bytes(topLevel.reduce(0) { $0 + $1.totals.memory })),
             ResourceStat(title: "MCP servers", systemImage: "server.rack", value: String(running.reduce(0) { $0 + $1.mcpServers.count }))
-        ], headlineWidth: 80)
+        ], compact: true)
     }
 }

@@ -4,21 +4,39 @@ on:
   push:
     tags:
       - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag
+        required: true
+        type: string
+      runner:
+        description: Runner for the release
+        required: true
+        type: choice
+        default: self-hosted
+        options:
+          - self-hosted
+          - github-hosted
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: ${{ fromJSON(inputs.runner == 'self-hosted' && '["self-hosted", "macOS", "ARM64"]' || '["macos-15"]') }}
     timeout-minutes: 40
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Run tests
         run: swift test --no-parallel
@@ -72,7 +90,7 @@ jobs:
 
       - name: Package release
         run: |
-          ARCHIVE_NAME="Smack-${GITHUB_REF_NAME//\//-}-macOS-arm64"
+          ARCHIVE_NAME="Smack-${RELEASE_TAG//\//-}-macOS-arm64"
           ditto -c -k --sequesterRsrc --keepParent dist/Smack.app "dist/${ARCHIVE_NAME}.zip"
           (cd dist && shasum -a 256 "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256")
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> "$GITHUB_ENV"
@@ -103,15 +121,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" \
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
               "dist/${ARCHIVE_NAME}.zip" \
               "dist/${ARCHIVE_NAME}.zip.sha256" \
               "dist/${ARCHIVE_NAME}.dmg" \
               "dist/${ARCHIVE_NAME}.dmg.sha256" \
               --clobber
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$RELEASE_TAG" \
               "dist/${ARCHIVE_NAME}.zip" \
               "dist/${ARCHIVE_NAME}.zip.sha256" \
               "dist/${ARCHIVE_NAME}.dmg" \
@@ -127,7 +145,7 @@ jobs:
             echo "::notice::HOMEBREW_TAP_TOKEN is not configured; skipping cask update."
             exit 0
           fi
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           SHA="$(cut -d' ' -f1 "dist/${ARCHIVE_NAME}.zip.sha256")"
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/alvagante/homebrew-tap.git" "$RUNNER_TEMP/tap"
           cd "$RUNNER_TEMP/tap"
@@ -141,3 +159,9 @@ jobs:
           git commit -am "smack ${VERSION}"
           git pull --rebase
           git push
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/AuthKey.p8"

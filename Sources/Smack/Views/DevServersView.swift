@@ -73,17 +73,17 @@ struct DevServersView: View {
                 LazyVStack(alignment: .leading, spacing: MonitorStyle.spacing) {
                     ForEach(servers) { row in
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(row.project?.name ?? row.container?.name ?? "Other listeners").font(.headline)
-                            Text("\(row.processName) · PID \(row.process.pid)").font(.caption).foregroundStyle(.secondary)
+                            cardHeader(row)
                             if let project = row.project {
                                 Text(project.directory).font(.callout.monospaced()).textSelection(.enabled)
-                                Text([project.root, project.kind?.rawValue, project.git?.branch ?? project.git?.commit]
-                                    .compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle).help(project.directory)
                             }
                             if let container = row.container {
-                                Text([container.name, container.composeProject, container.composeWorkingDirectory]
-                                    .compactMap { $0 }.joined(separator: " · ")).font(.caption)
+                                Text([container.composeProject, container.composeWorkingDirectory]
+                                    .compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
                             }
+                            Divider()
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(row.portPairs) { pair in
                                     DualStackRow(trailingWidth: 70) {
@@ -156,6 +156,37 @@ struct DevServersView: View {
                         }
                     }
                 }
+        }
+    }
+
+    /// Icon, name and badges of one server: the process's application icon, a container tile or a terminal tile.
+    private func cardHeader(_ row: DevServer) -> some View {
+        let path = store.process(id: row.process.id)?.executablePath
+        let session = row.agentSession.flatMap { id in store.agentsModel.live.sessions.first { $0.id == id } }
+        return HStack(spacing: 10) {
+            if row.container != nil {
+                SymbolIconTile(systemImage: "shippingbox.fill", color: .blue, size: 32)
+            } else {
+                ProgramIcon(executablePath: path, size: 32)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.project?.name ?? row.container?.name ?? "Other listeners").font(.headline).lineLimit(1)
+                Text("\(row.processName) · PID \(row.process.pid)").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if let session {
+                HStack(spacing: 4) {
+                    AgentIcon(agentID: session.agentID, size: 14)
+                    Text(session.agentName)
+                }.font(.caption2.weight(.medium)).padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(AppRoute.agents.tint.opacity(0.14), in: Capsule())
+                    .help("Started by an AI Agent session")
+            }
+            if let kind = row.project?.kind { DetailBadge(text: kind.rawValue.capitalized, color: .secondary) }
+            if let branch = row.project?.git?.branch ?? row.project?.git?.commit {
+                Label(branch, systemImage: "arrow.triangle.branch").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
         }
     }
 

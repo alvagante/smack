@@ -85,7 +85,7 @@ The Window style that shows the Panel as an ordinary app window: a Dock icon, mi
 _Avoid_: Main window, app mode
 
 **Onboarding**:
-The one-time window shown on first launch, and after an upgrade that raises its revision, where the user picks the Window style, Project Folders and a few basic Settings, prefilled from the current values. Finishing unchanged changes nothing; skipping or closing it is final.
+The window shown on first launch and after an upgrade that raises its revision, or reopened from General Settings, where the user picks the Window style, Project Folders and a few basic Settings, prefilled from the current values. Finishing unchanged changes nothing; skipping or closing it dismisses the window.
 _Avoid_: Setup assistant, welcome screen, wizard
 
 **Page**:

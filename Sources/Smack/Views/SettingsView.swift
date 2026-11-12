@@ -252,6 +252,15 @@ struct SettingsView: View {
         }
         Section {
             LabeledContent {
+                Button("Show Onboarding") {
+                    _ = NSApplication.shared.sendAction(#selector(AppDelegate.showOnboarding(_:)), to: nil, from: nil)
+                }
+            } label: {
+                SettingsLabel("Onboarding", subtitle: "Review the welcome choices using your current Settings.")
+            }
+        }
+        Section {
+            LabeledContent {
                 Button("Quit Smack", role: .destructive, action: onQuit)
             } label: {
                 SettingsLabel("Quit", subtitle: "Stops all collection until Smack is opened again. Saved history is kept.")
@@ -684,6 +693,13 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var otherPagesPane: some View {
+        Section {
+            FolderListRows(folders: localBinding(\.devTools.documentFolders), addTitle: "Add Documents Folder…", empty: "No saved folders")
+        } header: {
+            Text("Documents")
+        } footer: {
+            SettingsFooter("Saved locations are available in Documents. Search or browse one folder at a time; adding folders does not start a scan.")
+        }
         Section {
             summaryToggle(.installedApps)
         } header: {

@@ -34,6 +34,19 @@ struct DocumentsView: View {
                         ?? "Recently modified saved files")
                     .frame(minWidth: 240, alignment: .leading)
             } actions: {
+                if !store.settingsStore.settings.devTools.documentFolders.isEmpty {
+                    Menu {
+                        ForEach(store.settingsStore.settings.devTools.documentFolders, id: \.self) { folder in
+                            Button(folder) {
+                                state.scope = folder
+                                state.browserDirectory = URL(fileURLWithPath: folder)
+                            }
+                        }
+                    } label: {
+                        Label("Saved folders", systemImage: "folder")
+                    }
+                    .help("Open a saved Documents folder")
+                }
                 ToolbarIconButton(title: "Choose folder…", systemImage: "folder.badge.plus", color: .blue, action: chooseFolder)
                 RefreshButton { model.invalidate(); revision += 1 }.disabled(model.loading && state.mode == .recent)
             } overview: {
@@ -115,6 +128,12 @@ struct DocumentsView: View {
                         Button(name) { state.scope = home + "/" + name }
                     }
                     Button("iCloud Drive") { state.scope = home + "/Library/Mobile Documents/com~apple~CloudDocs" }
+                    if !store.settingsStore.settings.devTools.documentFolders.isEmpty {
+                        Divider()
+                        ForEach(store.settingsStore.settings.devTools.documentFolders, id: \.self) { folder in
+                            Button(folder) { state.scope = folder }
+                        }
+                    }
                     Divider()
                     Button("Choose folder…", action: chooseFolder)
                 } label: { Label(state.scope == home ? "Home" : URL(fileURLWithPath: state.scope).lastPathComponent, systemImage: "folder") }

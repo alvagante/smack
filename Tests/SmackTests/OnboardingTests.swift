@@ -88,6 +88,42 @@ import Testing
     #expect(settings.sampling == expected.sampling && settings.history == expected.history)
 }
 
+@Test func onboardingCollectionChoicesPreserveIntervalsAndOverridePreset() {
+    var settings = CollectionSettings()
+    settings.sampling.backgroundSystemInterval = 42
+    settings.sampling.backgroundProcessInterval = 23
+    var choices = OnboardingChoices(settings: settings)
+    choices.backgroundSystemEnabled = false
+    choices.backgroundProcessEnabled = false
+    choices.showTopBarIcons = false
+    choices.privilegedSampling = true
+    choices.apply(to: &settings)
+    #expect(settings.sampling.backgroundSystemInterval == nil)
+    #expect(settings.sampling.backgroundProcessInterval == nil)
+    #expect(!settings.panel.showTopBarIcons && settings.sampling.privilegedSampling)
+
+    choices.backgroundSystemEnabled = true
+    choices.backgroundProcessEnabled = true
+    choices.apply(to: &settings)
+    #expect(settings.sampling.backgroundSystemInterval == 42)
+    #expect(settings.sampling.backgroundProcessInterval == 23)
+
+    choices.preset = .minimal
+    choices.backgroundProcessEnabled = true
+    choices.apply(to: &settings)
+    #expect(settings.sampling.backgroundProcessInterval == 23)
+}
+
+@Test func onboardingDocumentFoldersAreSavedAndValidated() throws {
+    var settings = CollectionSettings()
+    var choices = OnboardingChoices(settings: settings)
+    choices.documentFolders = ["/Users/me/docs", "/Users/me/work", "/Users/me/docs", "relative"]
+    choices.apply(to: &settings)
+    settings.validate()
+    let decoded = try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings))
+    #expect(decoded.devTools.documentFolders == ["/Users/me/docs", "/Users/me/work"])
+}
+
 @Test(.enabled(if: ProcessInfo.processInfo.environment["SMACK_ONBOARDING_PREVIEW_DIR"] != nil))
 @MainActor func onboardingLayoutPreview() throws {
     let path = try #require(ProcessInfo.processInfo.environment["SMACK_ONBOARDING_PREVIEW_DIR"])

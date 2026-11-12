@@ -608,6 +608,7 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
     var inventoryCache = InventoryCachePreset.standard
     /// Folders searched for project-local runtimes and virtual environments.
     var devProjectFolders: [String] = []
+    var documentFolders: [String] = []
     var devScanDepth = 4
     /// Catalog agent identifiers left out of discovery.
     var excludedAgents: [String] = []
@@ -623,6 +624,7 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
         if !CollectionSettings.dockerRefreshChoices.contains(dockerRefreshSeconds) { dockerRefreshSeconds = 15 }
         devScanDepth = min(max(devScanDepth, CollectionSettings.devScanDepthRange.lowerBound), CollectionSettings.devScanDepthRange.upperBound)
         devProjectFolders = Self.uniqueAbsolutePaths(devProjectFolders)
+        documentFolders = Self.uniqueAbsolutePaths(documentFolders)
         customAgentFolders = Self.uniqueAbsolutePaths(customAgentFolders)
         excludedAgents = Array(Set(excludedAgents)).sorted()
     }
@@ -645,6 +647,7 @@ struct DevToolsSettings: Codable, Equatable, Sendable {
         dockerLiveStats = c.value(.dockerLiveStats, or: d.dockerLiveStats)
         inventoryCache = c.value(.inventoryCache, or: d.inventoryCache)
         devProjectFolders = c.value(.devProjectFolders, or: d.devProjectFolders)
+        documentFolders = c.value(.documentFolders, or: d.documentFolders)
         devScanDepth = c.value(.devScanDepth, or: d.devScanDepth)
         excludedAgents = c.value(.excludedAgents, or: d.excludedAgents)
         customAgentFolders = c.value(.customAgentFolders, or: d.customAgentFolders)

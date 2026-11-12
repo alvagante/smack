@@ -39,17 +39,8 @@ struct SavedSessionsView: View {
     private var list: some View {
         let all = history.result.items
         let items = SavedSessionList.items(all, query: query, agents: agents, sort: sort, ascending: ascending)
+        // The page header (title, figures, refresh) belongs to the AI agents page: see `SavedSessionsOverview`.
         return VStack(alignment: .leading, spacing: 0) {
-            DetailPageHeader {
-                ResourceTitle(title: "Saved Sessions", systemImage: "clock.arrow.circlepath", color: AppRoute.agents.tint,
-                              subtitle: "Recorded sessions from your AI Agents")
-            } actions: {
-                if history.loading { ProgressView().controlSize(.small) }
-                RefreshButton { Task { await history.load(maxAge: 0, force: true) } }.disabled(history.loading)
-            } overview: {
-                overview(all)
-            }
-            Divider()
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     TextField("Filter by title, project or agent", text: $query)
@@ -80,17 +71,6 @@ struct SavedSessionsView: View {
                 }
             }.padding(MonitorStyle.inset)
         }.background(MonitorStyle.page)
-    }
-
-    private func overview(_ items: [PastTranscript]) -> some View {
-        let summary = SavedSessionSummary(items: items)
-        return ResourceStatsRow(headline: String(items.count), unit: "loaded sessions", stats: [
-            ResourceStat(title: "Projects", systemImage: "folder", value: String(summary.projects)),
-            ResourceStat(title: "AI Agents", systemImage: "sparkles", value: String(summary.agents)),
-            ResourceStat(title: "Known tokens", systemImage: "number", value: summary.knownTokens?.formatted() ?? "Unavailable",
-                         detail: "\(summary.tokenSessions) of \(items.count) sessions",
-                         help: "Input and output tokens from opened sessions only. Other transcripts are not read for these totals.")
-        ], headlineWidth: 150)
     }
 
     private func agentFilters(_ items: [PastTranscript]) -> some View {
@@ -195,5 +175,32 @@ struct SavedSessionsView: View {
         }
         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         .padding(.horizontal, 12).padding(.vertical, 12).contentShape(Rectangle())
+    }
+}
+
+/// Key figures of the Saved Sessions mode, shown in the AI agents page header.
+struct SavedSessionsOverview: View {
+    @ObservedObject var history: TranscriptHistoryModel
+
+    var body: some View {
+        let items = history.result.items
+        let summary = SavedSessionSummary(items: items)
+        ResourceStatsRow(headline: String(items.count), unit: "loaded", stats: [
+            ResourceStat(title: "Projects", systemImage: "folder", value: String(summary.projects)),
+            ResourceStat(title: "AI Agents", systemImage: "sparkles", value: String(summary.agents)),
+            ResourceStat(title: "Known tokens", systemImage: "number", value: summary.knownTokens?.formatted() ?? "Unavailable",
+                         detail: "\(summary.tokenSessions) of \(items.count) sessions",
+                         help: "Input and output tokens from opened sessions only. Other transcripts are not read for these totals.")
+        ], headlineHelp: "Loaded sessions", compact: true)
+    }
+}
+
+/// Reload control of the Saved Sessions mode, shown in the AI agents page header.
+struct SavedSessionsActions: View {
+    @ObservedObject var history: TranscriptHistoryModel
+
+    var body: some View {
+        if history.loading { ProgressView().controlSize(.small) }
+        RefreshButton { Task { await history.load(maxAge: 0, force: true) } }.disabled(history.loading)
     }
 }
