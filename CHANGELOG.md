@@ -4,6 +4,16 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
+- **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
+
+### Added
+
+- **Onboarding:** reopen the welcome window from General Settings, prefilled with current choices.
+- **Onboarding:** choose background system and process collection, Superuser Sampling, top bar icons, and saved Documents folders. Saved Documents folders can also be managed in Settings and selected in Documents; they add no background scanning.
+
 ## [1.2.0] - 2026-11-11
 
 ### Changed
@@ -11,6 +21,8 @@ All notable changes to Smack are documented in this file.
 - **CI:** allow enough time for tests and both app bundle builds on macOS runners.
 
 - **Project Git Insights:** simplify author ranking type checking to restore the macOS test build.
+
+- **AI agents:** one compact header for Active, Saved and Configs: title, key figures and shortened selectors share a single row from about 1100 pt of page width. Saved Sessions no longer repeats its own title row.
 
 - **Documents:** changing folders clears stale Recent filters in both Browse and Recent.
 

@@ -188,6 +188,7 @@ struct InsightsView: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
+                            programIcon(name: program.name, path: nil)
                             Text(program.name).lineLimit(1)
                             if program.isNew { DetailBadge(text: "First connection", systemImage: "sparkle", color: .cyan) }
                             Spacer()
@@ -225,6 +226,7 @@ struct InsightsView: View {
     private func programLink<Content: View>(name: String, path: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         let route = detailRoute(name: name, path: path)
         let label = HStack(spacing: 10) {
+            programIcon(name: name, path: path)
             content()
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 .opacity(route == nil ? 0 : 1)
@@ -238,6 +240,16 @@ struct InsightsView: View {
                 label
             }
             historyLink(name: name)
+        }
+    }
+
+    /// The running application's icon, else the icon for the program's path, else a terminal tile.
+    @ViewBuilder private func programIcon(name: String, path: String?) -> some View {
+        let application = store.processes?.applications.first { $0.name == name || (path?.isEmpty == false && $0.executablePath == path) }
+        if let application {
+            ApplicationIcon(application: application, size: 20)
+        } else {
+            ProgramIcon(executablePath: path, size: 20)
         }
     }
 

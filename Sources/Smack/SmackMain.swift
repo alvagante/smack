@@ -151,6 +151,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         terminateApplication()
     }
 
+    @objc func showOnboarding(_ sender: Any?) {
+        if let onboarding {
+            onboarding.show()
+            return
+        }
+        guard let store else { return }
+        let onboarding = OnboardingWindowController(store: store) { [weak self] in
+            self?.onboarding = nil
+        }
+        self.onboarding = onboarding
+        onboarding.show()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)

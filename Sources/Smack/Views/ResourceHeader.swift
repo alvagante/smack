@@ -14,10 +14,12 @@ struct ResourceTitle: View {
     let color: Color
     var subtitle: String? = nil
     var status: ResourceStatus? = nil
+    /// Replaces the icon tile, such as with an application icon.
+    var icon: AnyView? = nil
 
     var body: some View {
         HStack(spacing: 16) {
-            ResourceIcon(systemImage: systemImage, color: color)
+            if let icon { icon } else { ResourceIcon(systemImage: systemImage, color: color) }
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(MonitorStyle.title)
                 // Bounded, so a long program name or path truncates instead of pushing the key figures under the title.
@@ -60,8 +62,15 @@ struct ResourceStatsRow: View {
     /// Reserved headline width, so live values of varying length do not shift the stats beside it.
     var headlineWidth: CGFloat? = nil
     var headlineHelp: String = ""
+    /// Smaller headline and tighter stats without the detail line (shown as help), for headers that share
+    /// their row with a title and a mode picker.
+    var compact = false
 
     private static let statWidth: CGFloat = 104
+    private static let compactStatWidth: CGFloat = 72
+
+    private var statWidth: CGFloat { compact ? Self.compactStatWidth : Self.statWidth }
+    private var spacing: CGFloat { compact ? 14 : 20 }
 
     /// Splits a formatted figure such as "5 KB/s" or "62 °C" into the headline number and its unit.
     static func parts(_ formatted: String) -> (value: String, unit: String?) {
@@ -71,13 +80,13 @@ struct ResourceStatsRow: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 20) {
+            HStack(alignment: .center, spacing: spacing) {
                 headlineView
-                ForEach(stats) { item($0).fixedSize().frame(minWidth: Self.statWidth, alignment: .leading) }
+                ForEach(stats) { item($0).fixedSize().frame(minWidth: statWidth, alignment: .leading) }
             }
-            HStack(alignment: .center, spacing: 20) {
+            HStack(alignment: .center, spacing: spacing) {
                 headlineView
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.statWidth), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: statWidth), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 12) {
                     ForEach(stats) { item($0) }
                 }
             }
@@ -88,14 +97,14 @@ struct ResourceStatsRow: View {
     @ViewBuilder private var headlineView: some View {
         if let headline {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(headline == "Unavailable" ? "–" : headline).font(.system(size: 40, weight: .semibold)).monospacedDigit()
-                if let unit { Text(unit).font(.title3).foregroundStyle(.secondary) }
+                Text(headline == "Unavailable" ? "–" : headline).font(.system(size: compact ? 26 : 40, weight: .semibold)).monospacedDigit()
+                if let unit { Text(unit).font(compact ? .callout : .title3).foregroundStyle(.secondary) }
             }
             .lineLimit(1)
             .fixedSize()
-            .frame(minWidth: headlineWidth, alignment: .leading)
+            .frame(minWidth: compact ? nil : headlineWidth, alignment: .leading)
             .help(headlineHelp)
-            if !stats.isEmpty { Divider().frame(height: 44) }
+            if !stats.isEmpty { Divider().frame(height: compact ? 30 : 44) }
         }
     }
 
@@ -107,11 +116,11 @@ struct ResourceStatsRow: View {
                 Image(systemName: stat.systemImage).foregroundStyle(stat.color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
             }
             .font(.caption).foregroundStyle(.secondary)
-            Text(stat.value).font(.title3.weight(.semibold)).monospacedDigit()
-            Text(stat.detail ?? " ").font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+            Text(stat.value).font(compact ? .headline : .title3.weight(.semibold)).monospacedDigit()
+            if !compact { Text(stat.detail ?? " ").font(.caption2).foregroundStyle(.secondary).monospacedDigit() }
         }
         .lineLimit(1)
-        .help(stat.help)
+        .help([stat.help, compact ? stat.detail : nil].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 }
 

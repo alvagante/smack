@@ -83,3 +83,77 @@ struct ApplicationIcon: View {
             .accessibilityHidden(true)
     }
 }
+
+/// Desktop applications that belong to an AI Agent, in order of preference. Most agents are command-line
+/// tools with no bundle, so a missing application is normal and falls back to a symbol.
+enum AgentApplications {
+    static let bundleIdentifiers: [String: [String]] = [
+        "claude": ["com.anthropic.claudefordesktop"],
+        "codex": ["com.openai.codex"],
+        "cursor": ["com.todesktop.230313mzl4w4u92"],
+        "windsurf": ["com.exafunction.windsurf"],
+        "zed": ["dev.zed.Zed"],
+        "kiro": ["dev.kiro.desktop"],
+        "antigravity": ["com.google.antigravity"],
+        "cline": ["com.microsoft.VSCode"],
+        "continue": ["com.microsoft.VSCode"],
+        "copilot": ["com.microsoft.VSCode"],
+    ]
+
+    @MainActor private static var resolved: [String: String?] = [:]
+
+    /// The bundle identifier of the first installed application for this agent.
+    @MainActor static func installedBundleIdentifier(for agentID: String) -> String? {
+        if let known = resolved[agentID] { return known }
+        let found = bundleIdentifiers[agentID]?.first {
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+        }
+        resolved[agentID] = .some(found)
+        return found
+    }
+}
+
+/// A rounded tile holding a symbol, used where a program has no application icon of its own.
+struct SymbolIconTile: View {
+    let systemImage: String
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.5, weight: .medium))
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.24))
+            .accessibilityHidden(true)
+    }
+}
+
+/// The agent's desktop application icon when one is installed, otherwise its tile.
+struct AgentIcon: View {
+    let agentID: String
+    var size: CGFloat = 24
+
+    var body: some View {
+        if let id = AgentApplications.installedBundleIdentifier(for: agentID) {
+            ApplicationIcon(bundleIdentifier: id, executablePath: nil, size: size)
+        } else {
+            SymbolIconTile(systemImage: "sparkles", color: AppRoute.agents.tint, size: size)
+        }
+    }
+}
+
+/// The icon of the application a program belongs to, or a terminal tile for a command-line program.
+struct ProgramIcon: View {
+    var bundleIdentifier: String? = nil
+    let executablePath: String?
+    var size: CGFloat = 20
+
+    var body: some View {
+        if bundleIdentifier != nil || executablePath.flatMap(ApplicationReadings.bundleURL(executablePath:)) != nil {
+            ApplicationIcon(bundleIdentifier: bundleIdentifier, executablePath: executablePath, size: size)
+        } else {
+            SymbolIconTile(systemImage: "terminal", color: .secondary, size: size)
+        }
+    }
+}

@@ -36,3 +36,8 @@ import Testing
         #expect(terminationRequests == 1)
     }
 }
+
+@Test @MainActor func appDelegateHandlesShowOnboardingAction() {
+    let delegate = AppDelegate()
+    #expect(delegate.responds(to: #selector(AppDelegate.showOnboarding(_:))))
+}

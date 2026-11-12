@@ -31,7 +31,20 @@ struct OnboardingChoices: Equatable {
     /// Whether the starting values matched no preset, so Custom stays selectable after trying a preset.
     let startedCustom: Bool
     var projectFolders: [String]
+    var documentFolders: [String]
     var shownPages: Set<SummaryPage>
+    var showTopBarIcons: Bool
+    var privilegedSampling: Bool
+    var backgroundSystemEnabled: Bool?
+    var backgroundProcessEnabled: Bool?
+    private let initialSampling: SamplingSettings
+
+    var effectiveSampling: SamplingSettings {
+        var settings = CollectionSettings()
+        settings.sampling = initialSampling
+        preset?.apply(to: &settings)
+        return settings.sampling
+    }
 
     init(settings: CollectionSettings) {
         windowStyle = settings.panel.windowStyle
@@ -45,7 +58,11 @@ struct OnboardingChoices: Equatable {
         preset = PerformancePreset.matching(settings)
         startedCustom = preset == nil
         projectFolders = settings.devTools.devProjectFolders
+        documentFolders = settings.devTools.documentFolders
         shownPages = Set(SummaryPage.allCases.filter(settings.shows))
+        showTopBarIcons = settings.panel.showTopBarIcons
+        privilegedSampling = settings.sampling.privilegedSampling
+        initialSampling = settings.sampling
     }
 
     func apply(to settings: inout CollectionSettings) {
@@ -58,7 +75,16 @@ struct OnboardingChoices: Equatable {
         settings.panel.glassMode = glassMode
         settings.panel.glassOpacity = glassOpacity
         preset?.apply(to: &settings)
+        if let enabled = backgroundSystemEnabled {
+            settings.sampling.backgroundSystemInterval = enabled ? (settings.sampling.backgroundSystemInterval ?? initialSampling.backgroundSystemInterval ?? 5) : nil
+        }
+        if let enabled = backgroundProcessEnabled {
+            settings.sampling.backgroundProcessInterval = enabled ? (settings.sampling.backgroundProcessInterval ?? initialSampling.backgroundProcessInterval ?? 10) : nil
+        }
+        settings.sampling.privilegedSampling = privilegedSampling
+        settings.panel.showTopBarIcons = showTopBarIcons
         settings.devTools.devProjectFolders = projectFolders
+        settings.devTools.documentFolders = documentFolders
         settings.hiddenPages = SummaryPage.allCases.filter { !shownPages.contains($0) }
     }
 }

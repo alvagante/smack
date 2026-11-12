@@ -40,11 +40,15 @@ struct AgentSessionsView: View {
                 if showsList {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: SidebarStyle.rowSpacing) {
+                            if !list.live.isEmpty {
+                                Text("Running (\(list.live.count))").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                    .padding(.horizontal, SidebarStyle.rowInset)
+                            }
                             ForEach(list.live) { entry in
                                 card(entry.session, selected: highlighted).padding(.leading, CGFloat(entry.depth) * 14)
                             }
                             if !list.ended.isEmpty {
-                                Text("Recently ended").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                Text("Recently ended (\(list.ended.count))").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                     .padding(.horizontal, SidebarStyle.rowInset).padding(.top, 10)
                                 ForEach(list.ended) { card($0, selected: highlighted) }
                             }
@@ -106,7 +110,12 @@ struct AgentSessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Circle().fill(session.activity.color).frame(width: 7, height: 7).help(session.activity.title)
+                AgentIcon(agentID: session.agentID, size: 22)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(session.activity.color).frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(.background, lineWidth: 1.5))
+                            .offset(x: 2, y: 2).help(session.activity.title)
+                    }
                 Text(session.agentName).font(.callout.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 4)
                 VStack(alignment: .trailing, spacing: 1) {
@@ -130,7 +139,7 @@ struct AgentSessionCard: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 13)
+            .padding(.leading, 28)
             .help(session.project?.directory ?? "The session's working directory is not readable")
             if session.endedAt == nil {
                 Sparkline(series: [SparklineSeries(values: points.map(\.cpu), color: .blue)], minHeight: 20, maxHeight: 20)
@@ -210,7 +219,8 @@ struct AgentSessionDetail: View {
                         [project.name, project.git?.branch].compactMap { $0 }.joined(separator: " · ") + " · " + project.directory
                     } ?? "PID \(session.root.pid)",
                     status: ResourceStatus(title: session.activity.title, color: session.activity.color,
-                        help: "Working when the session's processes use at least \(Int(AgentSessionActivity.workingCPU))% CPU."))
+                        help: "Working when the session's processes use at least \(Int(AgentSessionActivity.workingCPU))% CPU."),
+                    icon: AnyView(AgentIcon(agentID: session.agentID, size: 44)))
                 Spacer(minLength: 8)
                 AgentSessionTabSwitch(tab: $tab)
                 if let root {
@@ -308,6 +318,7 @@ struct AgentSessionDetail: View {
                 ForEach(children) { child in
                     let process = store.process(id: child.id)
                     HStack(spacing: 10) {
+                        ProgramIcon(executablePath: child.executablePath, size: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(child.name).lineLimit(1)
                             Text(child.classification == "helper" ? (child.executablePath ?? "") : child.classification)
