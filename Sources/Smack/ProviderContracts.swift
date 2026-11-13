@@ -50,6 +50,10 @@ protocol PrivilegedSecurityQuerying: AnyObject, Sendable {
     func listConfigurationProfiles() async -> String?
 }
 
+protocol PrivilegedLogQuerying: AnyObject, Sendable {
+    func queryUnifiedLog(start: Date, end: Date) async -> UnifiedLogPayload?
+}
+
 /// The helper's storage scan job, polled by `StorageScanModel`.
 protocol PrivilegedStorageScanning: AnyObject, Sendable {
     func setAvailable(_ value: Bool)

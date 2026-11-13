@@ -8,6 +8,48 @@ import Testing
 // MARK: Timeline view model
 
 @MainActor
+@Test func extendedRangesAndFullRangeUseAvailableEvents() async {
+    let model = TimelineViewModel()
+    let now = Date(timeIntervalSince1970: 3_000_000)
+    model.select(range: .days15)
+    #expect(model.window(now: now).duration == 15 * 86_400)
+    model.select(range: .month1)
+    #expect(model.window(now: now).duration == 30 * 86_400)
+    model.select(range: .full)
+    let oldest = obsEvent(at: 100, subject: "old")
+    let newest = obsEvent(at: 200, subject: "new")
+    var queryStart: Date?
+    await model.load { start, _, _ in
+        queryStart = start
+        return [newest, oldest]
+    }
+    #expect(queryStart == Date(timeIntervalSince1970: 0))
+    #expect(model.window(now: now).start == oldest.timestamp)
+}
+
+@MainActor
+@Test func graphEventNavigationFollowsTimeAndCurrentFilters() async {
+    let model = TimelineViewModel()
+    let older = obsEvent(.processStarted, at: 100, subject: "older")
+    let middle = obsEvent(.systemWake, at: 200, subject: "middle")
+    let newer = obsEvent(.processExited, at: 300, subject: "newer")
+    await model.load { _, _, _ in [middle, older, newer] }
+    #expect(model.graphSelectedEvent?.id == older.id)
+    model.navigateGraphEvent(.next)
+    #expect(model.graphSelectedEvent?.id == middle.id)
+    model.navigateGraphEvent(.last)
+    #expect(model.graphSelectedEvent?.id == newer.id)
+    model.navigateGraphEvent(.previous)
+    #expect(model.graphSelectedEvent?.id == middle.id)
+    model.query = "older"
+    #expect(model.graphSelectedEvent?.id == older.id)
+    model.navigateGraphEvent(.first)
+    #expect(model.graphSelectedEvent?.id == older.id)
+    model.query = "missing"
+    #expect(model.graphSelectedEvent == nil)
+}
+
+@MainActor
 @Test func timelineGroupsByMinuteNewestFirst() {
     let events = [
         obsEvent(at: 3_660, subject: "c"), obsEvent(at: 3_630, subject: "b"), obsEvent(at: 3_610, subject: "a"),

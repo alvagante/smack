@@ -269,8 +269,14 @@ A timestamped, persisted fact about a change in the system, as opposed to a metr
 _Avoid_: Log entry, alert
 
 **Timeline**:
-The chronological view of Activity Events, system-wide or scoped to one Application.
+The chronological view of Activity Events and, when requested, local unified log entries and diagnostic reports, system-wide or scoped to one Application. External entries are read on demand and are not stored as Historical Data.
 _Avoid_: Log, feed
+
+**Timeline Source**:
+The origin of a Timeline entry: Smack, the unified log, a diagnostic report, or a log file. Source availability, time coverage and truncation differ.
+
+**Source Coverage**:
+The earliest and latest timestamps observed for a Timeline Source. A sampled log file can have unobserved records and gaps; inferred years and unavailable timestamps are labelled.
 
 **Event Marker**:
 An Activity Event drawn on a History chart.

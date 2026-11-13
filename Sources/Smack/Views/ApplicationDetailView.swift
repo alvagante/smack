@@ -815,7 +815,7 @@ private struct ApplicationTimelineTab: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 Picker("Range", selection: $model.range) {
-                    ForEach(TimelineRange.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(TimelineRange.allCases.filter { $0 != .full }) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 if model.loading { ProgressView().controlSize(.small) }

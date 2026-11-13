@@ -24,6 +24,26 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendab
         runProbe("/usr/bin/profiles", ["show", "-type", "configuration", "-output", "stdout-xml"], reply: reply)
     }
 
+    func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void) {
+        guard start.isFinite, end.isFinite, start >= 0, end > start, end <= Date().timeIntervalSince1970 + 60 else {
+            reply(nil, "Invalid log time range")
+            return
+        }
+        let completion = Reply(reply)
+        probe.withLock { task in
+            guard task == nil else { completion.send(nil, "A helper probe is already running"); return }
+            task = Task {
+                let arguments = ["show", "--style", "ndjson", "--start", "@\(Int64(start))", "--end", "@\(Int64(end))"]
+                let result = await Subprocess.run("/usr/bin/log", arguments, timeout: 10, outputLimit: 1_048_576)
+                let message = result.timedOut ? "Unified log query timed out; narrow the range."
+                    : result.truncated ? "Unified log output reached 1 MB; narrow the range."
+                    : result.status != 0 ? "Unified log query failed: \(String(result.error.prefix(500)))" : nil
+                self.encode(UnifiedLogPayload(output: result.output, message: message), reply: completion.send)
+                self.probe.withLock { $0 = nil }
+            }
+        }
+    }
+
     private final class Reply: @unchecked Sendable {
         let send: (Data?, String?) -> Void
         init(_ send: @escaping (Data?, String?) -> Void) { self.send = send }

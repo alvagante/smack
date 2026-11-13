@@ -26,7 +26,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Homebrew:** browse, install, update, uninstall, services and cleanup.
 - **Startup items:** login items, launch agents, daemons and cron jobs, with status, expandable details and on/off controls.
 - **Security:** offline checks for SIP, encryption, exposure, MDM, privacy grants and persistence changes.
-- **Timeline:** a record of process starts, new listeners, startup changes, mounts, sleep, power and network events.
+- **Timeline:** Smack activity, on-demand unified logs, diagnostic reports and selected log files, with source coverage, custom time ranges and event inspection.
 - **History and Insights:** stored system and per-program history, zoomable charts, and top disk writers and new destinations.
 - **Baselines:** snapshot a Mac and see what has changed since, or compare it with another Mac ([format](docs/baseline-format.md)).
 - **Alerts:** local notifications for thresholds and events (CPU, memory, disk, battery, new listeners, persistence).

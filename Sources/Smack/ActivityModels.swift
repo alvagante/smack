@@ -13,6 +13,7 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
     case powerSourceChanged
     case thermalPressureChanged
     case memoryPressureChanged
+    case systemLog, diagnosticReport, fileLog
 
     case alertFired, postureChanged, persistenceFileChanged, driftDetected
 
@@ -36,7 +37,7 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
              .networkInterfaceUp, .networkInterfaceDown, .networkAddressChanged: .network
         case .startupItemAdded, .startupItemRemoved, .startupItemChanged: .startup
         case .volumeMounted, .volumeUnmounted, .systemSleep, .systemWake, .powerSourceChanged,
-             .thermalPressureChanged, .memoryPressureChanged: .system
+             .thermalPressureChanged, .memoryPressureChanged, .systemLog, .diagnosticReport, .fileLog: .system
         }
     }
 
@@ -67,6 +68,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
         case .powerSourceChanged: "Power source changed"
         case .thermalPressureChanged: "Thermal pressure changed"
         case .memoryPressureChanged: "Memory pressure changed"
+        case .systemLog: "Unified log"
+        case .diagnosticReport: "Diagnostic report"
+        case .fileLog: "Log file"
         }
     }
 
@@ -89,6 +93,9 @@ enum ActivityEventKind: String, Codable, CaseIterable, Sendable {
         case .powerSourceChanged: "powerplug"
         case .thermalPressureChanged: "thermometer.medium"
         case .memoryPressureChanged: "memorychip"
+        case .systemLog: "text.alignleft"
+        case .diagnosticReport: "doc.text.magnifyingglass"
+        case .fileLog: "doc.text"
         }
     }
 }

@@ -6,11 +6,16 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Version:** prepare 1.3.0 (build 13); Summary, About and baseline exports report the new version.
+- **Timeline:** add 15-day, 30-day and Full ranges; Full starts at the oldest event loaded from enabled sources.
+- **Timeline:** show selected event details beneath the graph, with chronological first, previous, next and last navigation.
 - **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
 - **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
 
 ### Added
 
+- **Timeline:** discover local log files and add selected files, with sampled source coverage bars and events. Scans are on demand and bounded to 200 files and 64 KiB at each end; release performance measurements are pending.
+- **Timeline:** inspect Smack events alongside opt-in unified logs and diagnostic reports over custom time ranges. Queries run only on the Timeline, with a 10-second, 1 MiB limit per log request; no log data is stored. Performance measurements are pending.
 - **Onboarding:** reopen the welcome window from General Settings, prefilled with current choices.
 - **Onboarding:** choose background system and process collection, Superuser Sampling, top bar icons, and saved Documents folders. Saved Documents folders can also be managed in Settings and selected in Documents; they add no background scanning.
 

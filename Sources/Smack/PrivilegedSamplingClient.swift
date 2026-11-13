@@ -7,7 +7,7 @@ import SmackIPC
 /// unprivileged collectors instead of showing an error.
 /// `@unchecked`: `NSXPCConnection` is not Sendable, so the connection lives behind `lock`, which guards every
 /// access to the mutable state below.
-final class PrivilegedSamplingClient: PrivilegedSamplingProviding, PrivilegedSecurityQuerying, PrivilegedStorageScanning,
+final class PrivilegedSamplingClient: PrivilegedSamplingProviding, PrivilegedSecurityQuerying, PrivilegedStorageScanning, PrivilegedLogQuerying,
     @unchecked Sendable {
     // NSXPCConnection supports concurrent invalidation; this reference is immutable.
     private struct ConnectionReference: @unchecked Sendable { let value: NSXPCConnection }
@@ -57,6 +57,13 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, PrivilegedSec
     func listConfigurationProfiles() async -> String? {
         guard await protocolVersion() >= 2, !Task.isCancelled else { return nil }
         return await request(timeout: 6) { proxy, reply in proxy.listConfigurationProfiles?(reply: reply) }
+    }
+
+    func queryUnifiedLog(start: Date, end: Date) async -> UnifiedLogPayload? {
+        guard await protocolVersion() >= 3, !Task.isCancelled else { return nil }
+        return await request(timeout: 12) { proxy, reply in
+            proxy.queryUnifiedLog?(start: start.timeIntervalSince1970, end: end.timeIntervalSince1970, reply: reply)
+        }
     }
 
     /// The controller sets this only when the daemon reports `.enabled`. Without it every

@@ -1,8 +1,34 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import Smack
 
 struct ResourceBudgetTests {
+    @Test @MainActor func timelineFileInventoryScansOnlyWhenRequested() async {
+        let calls = Mutex(0)
+        let model = TimelineViewModel()
+        let scan: @Sendable ([Data]) -> [TimelineFileSource] = { _ in
+            calls.withLock { $0 += 1 }
+            return []
+        }
+        #expect(calls.withLock { $0 } == 0)
+        await model.scanFiles(bookmarks: [], using: scan)
+        #expect(calls.withLock { $0 } == 1)
+    }
+    @Test @MainActor func timelineQueriesPrivilegedLogsOnlyWhenSelected() async {
+        let calls = Commands()
+        let model = TimelineViewModel()
+        model.useHelper = true
+        let query: (DateInterval) async -> TimelineSources.Result = { _ in
+            await calls.record(["log", "show"])
+            return TimelineSources.Result()
+        }
+        await model.load(privilegedLogs: query) { _, _, _ in [] }
+        #expect(await calls.values.isEmpty)
+        model.includeLogs = true
+        await model.load(privilegedLogs: query) { _, _, _ in [] }
+        #expect(await calls.values.count == 1)
+    }
     private actor Commands {
         var values: [[String]] = []
         func record(_ args: [String]) { values.append(args) }

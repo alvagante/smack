@@ -52,6 +52,10 @@ private final class HelperFixture: OldHelperFixture, @unchecked Sendable {
         }
     }
     func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void) { dumpBackgroundTasks(reply: reply) }
+    func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void) {
+        calls.withLock { $0.operations += 1 }
+        reply(try? JSONEncoder().encode(UnifiedLogPayload(output: "log", message: nil)), nil)
+    }
 }
 
 private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
@@ -90,6 +94,20 @@ private final class HelperListenerFixture: NSObject, NSXPCListenerDelegate, @unc
     malformed.setAvailable(true)
     defer { malformed.setAvailable(false); malformedFixture.listener.invalidate() }
     #expect(await malformed.dumpBackgroundTasks() == nil)
+}
+
+@Test func helperLogQueryRequiresVersionThree() async {
+    for version in [2, 3] {
+        let service = HelperFixture(version: version)
+        let fixture = HelperListenerFixture(service)
+        let client = fixture.client()
+        client.setAvailable(true)
+        let result = await client.queryUnifiedLog(start: Date(timeIntervalSince1970: 10), end: Date(timeIntervalSince1970: 20))
+        #expect(result?.output == (version == 3 ? "log" : nil))
+        #expect(service.calls.withLock { $0.operations } == (version == 3 ? 1 : 0))
+        client.setAvailable(false)
+        fixture.listener.invalidate()
+    }
 }
 
 @Test func helperOldAndSilentVersionDegradeWithoutV2Operations() async {
