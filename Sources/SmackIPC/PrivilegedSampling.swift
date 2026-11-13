@@ -2,7 +2,7 @@ import Foundation
 
 /// Names shared by the app and its privileged helper.
 public enum SmackIPC {
-    public static let helperProtocolVersion = 2
+    public static let helperProtocolVersion = 3
     public static let appBundleIdentifier = "it.lab42.smack"
     public static let helperIdentifier = "it.lab42.smack.helper"
     public static let machServiceName = helperIdentifier
@@ -19,6 +19,7 @@ public enum SmackIPC {
     @objc optional func protocolVersion(reply: @escaping (Int) -> Void)
     @objc optional func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void)
     @objc optional func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void)
+    @objc optional func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void)
     func startStorageScan(reply: @escaping (Data?, String?) -> Void)
     func storageScanStatus(reply: @escaping (Data?, String?) -> Void)
     func cancelStorageScan(reply: @escaping (Data?, String?) -> Void)
@@ -26,6 +27,12 @@ public enum SmackIPC {
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
     func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void)
+}
+
+public struct UnifiedLogPayload: Codable, Sendable {
+    public var output: String
+    public var message: String?
+    public init(output: String, message: String?) { self.output = output; self.message = message }
 }
 
 /// A process observation as read from libproc. The helper is root, so it can see processes

@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum TimelineRange: String, CaseIterable, Identifiable {
     case minutes15 = "15m"
@@ -7,6 +8,9 @@ enum TimelineRange: String, CaseIterable, Identifiable {
     case hours6 = "6h"
     case hours24 = "24h"
     case days7 = "7d"
+    case days15 = "15d"
+    case month1 = "1mo"
+    case full = "Full"
 
     var id: Self { self }
 
@@ -17,6 +21,9 @@ enum TimelineRange: String, CaseIterable, Identifiable {
         case .hours6: 21_600
         case .hours24: 86_400
         case .days7: 604_800
+        case .days15: 1_296_000
+        case .month1: 2_592_000
+        case .full: 0
         }
     }
 
@@ -27,6 +34,9 @@ enum TimelineRange: String, CaseIterable, Identifiable {
         case .hours6: "the last 6 hours"
         case .hours24: "the last 24 hours"
         case .days7: "the last 7 days"
+        case .days15: "the last 15 days"
+        case .month1: "the last 30 days"
+        case .full: "all available events"
         }
     }
 }
@@ -35,6 +45,10 @@ struct TimelineMinuteGroup: Identifiable, Equatable {
     var id: Date { minute }
     var minute: Date
     var events: [ActivityEvent]
+}
+
+enum TimelineEventNavigation {
+    case first, previous, next, last
 }
 
 @MainActor
@@ -54,6 +68,20 @@ final class TimelineViewModel: ObservableObject {
     @Published private(set) var loaded: [ActivityEvent] = []
     @Published private(set) var loading = false
     @Published private(set) var loadFailed = false
+    @Published var includeLogs = false
+    @Published var includeReports = false
+    @Published var useHelper = false
+    @Published var sourceMessage: String?
+    @Published var selectedEvent: ActivityEvent?
+    @Published var customStart = Date().addingTimeInterval(-86_400)
+    @Published var customEnd = Date()
+    @Published var sourceRevision = 0
+    @Published var sourceFilter = "All"
+    @Published var visibleCount = 500
+    @Published private(set) var smackCount = 0
+    @Published var fileSources: [TimelineFileSource] = []
+    @Published var checkedFiles: Set<String> = []
+    @Published var scanningFiles = false
 
     func select(range: TimelineRange) {
         customWindow = nil
@@ -64,18 +92,28 @@ final class TimelineViewModel: ObservableObject {
         customWindow = window
     }
 
+    func applyCustomWindow() {
+        guard customStart < customEnd else { return }
+        customWindow = DateInterval(start: customStart, end: customEnd)
+    }
+
     var requestID: String {
         if let customWindow { return "custom-\(customWindow.start.timeIntervalSince1970)-\(customWindow.end.timeIntervalSince1970)" }
         return range.rawValue
     }
 
     func window(now: Date = Date()) -> DateInterval {
-        customWindow ?? DateInterval(start: now.addingTimeInterval(-range.interval), end: now)
+        if let customWindow { return customWindow }
+        if range == .full {
+            let oldest = (loaded + checkedFileEvents).map(\.timestamp).min() ?? now.addingTimeInterval(-1)
+            return DateInterval(start: min(oldest, now.addingTimeInterval(-1)), end: now)
+        }
+        return DateInterval(start: now.addingTimeInterval(-range.interval), end: now)
     }
 
     var windowPhrase: String {
         guard let customWindow else { return range.phrase }
-        return "the window since \(customWindow.start.formatted(date: .omitted, time: .shortened))"
+        return "\(customWindow.start.formatted(date: .abbreviated, time: .shortened)) to \(customWindow.end.formatted(date: .abbreviated, time: .shortened))"
     }
 
     func toggle(_ kind: ActivityEventKind) {
@@ -94,11 +132,54 @@ final class TimelineViewModel: ObservableObject {
 
     /// All events passing the kind filter and search, newest first.
     var filtered: [ActivityEvent] {
-        loaded.filter { (selectedKinds.isEmpty || selectedKinds.contains($0.kind)) && $0.matches(search: query) }
+        let range = window()
+        return (loaded + checkedFileEvents.filter { range.contains($0.timestamp) }).filter {
+            let source = $0.kind == .systemLog ? "Unified log" : $0.kind == .diagnosticReport ? "Report" : $0.kind == .fileLog ? "File logs" : "Smack"
+            return (sourceFilter == "All" || sourceFilter == source || sourceFilter == $0.details["path"])
+                && (selectedKinds.isEmpty || selectedKinds.contains($0.kind)) && $0.matches(search: query)
+        }.sorted { $0.timestamp > $1.timestamp }
     }
 
-    var visibleEvents: [ActivityEvent] { Array(filtered.prefix(Self.visibleLimit)) }
-    var isCapped: Bool { filtered.count > Self.visibleLimit }
+    var checkedFileEvents: [ActivityEvent] {
+        fileSources.filter { checkedFiles.contains($0.path) }.flatMap(\.events)
+    }
+
+    func scanFiles(bookmarks: [Data], using scan: @escaping @Sendable ([Data]) -> [TimelineFileSource] = TimelineFileSources.scan) async {
+        scanningFiles = true
+        defer { scanningFiles = false }
+        let task = Task.detached(priority: .utility) { scan(bookmarks) }
+        let sources = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard !Task.isCancelled else { return }
+        fileSources = sources
+    }
+
+    var visibleEvents: [ActivityEvent] { Array(filtered.prefix(visibleCount)) }
+    var isCapped: Bool { filtered.count > visibleCount }
+
+    var graphSelectedEvent: ActivityEvent? {
+        let events = filtered
+        return selectedEvent.flatMap { selected in events.first { $0.id == selected.id } } ?? events.last
+    }
+
+    var graphSelectedIndex: Int? {
+        let events = filtered
+        guard let selected = graphSelectedEvent, let index = events.firstIndex(where: { $0.id == selected.id }) else { return nil }
+        return events.count - 1 - index
+    }
+
+    func navigateGraphEvent(_ direction: TimelineEventNavigation) {
+        let events = filtered
+        guard !events.isEmpty else { return }
+        let index = graphSelectedEvent.flatMap { selected in events.firstIndex { $0.id == selected.id } } ?? events.count - 1
+        let next: Int
+        switch direction {
+        case .first: next = events.count - 1
+        case .previous: next = min(index + 1, events.count - 1)
+        case .next: next = max(index - 1, 0)
+        case .last: next = 0
+        }
+        selectedEvent = events[next]
+    }
 
     /// Events grouped by minute, newest first, ready for sticky headers.
     var groups: [TimelineMinuteGroup] {
@@ -129,7 +210,7 @@ final class TimelineViewModel: ObservableObject {
 
     /// When the read limit cut older events off, the oldest loaded instant; the graph shades the window before it.
     var truncatedBefore: Date? {
-        loaded.count >= fetchLimit ? loaded.map(\.timestamp).min() : nil
+        smackCount >= fetchLimit ? loaded.filter { $0.kind != .systemLog && $0.kind != .diagnosticReport }.map(\.timestamp).min() : nil
     }
 
     /// Events in `lane` within `tolerance` of `date`, closest first; the graph's hover hit test.
@@ -140,15 +221,38 @@ final class TimelineViewModel: ObservableObject {
     }
 
     func load(limit: Int = ActivitySettings().timelineReadLimit,
+              privilegedLogs: ((_ window: DateInterval) async -> TimelineSources.Result)? = nil,
               using loader: (_ start: Date, _ end: Date, _ limit: Int) async throws -> [ActivityEvent]) async {
         loading = true
         defer { loading = false }
-        let window = window()
+        let now = Date()
+        let window = customWindow == nil && range == .full
+            ? DateInterval(start: Date(timeIntervalSince1970: 0), end: now)
+            : window(now: now)
         do {
-            let events = try await loader(window.start, window.end, limit)
+            var events = try await loader(window.start, window.end, limit)
+            let recordedCount = events.count
+            var messages: [String] = []
+            if includeReports {
+                let result = await Task.detached(priority: .utility) { TimelineSources.reports(in: window) }.value
+                events += result.events
+                if let message = result.message { messages.append(message) }
+            }
+            if includeLogs {
+                let result: TimelineSources.Result
+                if useHelper {
+                    result = await privilegedLogs?(window) ?? TimelineSources.Result(message: "Privileged Helper unavailable. Install or update it in Settings.")
+                } else {
+                    result = await TimelineSources.logs(in: window)
+                }
+                events += result.events
+                if let message = result.message { messages.append(message) }
+            }
             guard !Task.isCancelled else { return }
             fetchLimit = limit
-            loaded = events
+            smackCount = recordedCount
+            loaded = events.sorted { $0.timestamp > $1.timestamp }
+            sourceMessage = messages.isEmpty ? nil : messages.joined(separator: "\n")
             loadFailed = false
         } catch {
             guard !Task.isCancelled else { return }
@@ -164,6 +268,11 @@ struct TimelineView: View {
     @ObservedObject private var activity: ActivityFeedModel
     @ObservedObject private var settingsStore: SettingsStore
     @AppStorage("timeline.graphLayout") private var graphLayout = false
+    @AppStorage("timeline.fileBookmarks") private var fileBookmarks = ""
+    @State private var scanRevision = 0
+    @State private var showFilePicker = false
+    @State private var showCoverage = true
+    @State private var fileSelectionError: String?
 
     init(store: MonitorStore) {
         self.store = store
@@ -178,13 +287,70 @@ struct TimelineView: View {
             Divider()
             content
         }
+        .onChange(of: graphLayout) { _, _ in model.selectedEvent = nil }
+        .onDisappear { model.fileSources = [] }
+        .task(id: scanRevision) {
+            let bookmarks = ((try? JSONDecoder().decode([String].self, from: Data(fileBookmarks.utf8))) ?? []).compactMap { Data(base64Encoded: $0) }
+            await model.scanFiles(bookmarks: bookmarks)
+        }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { fileSelectionError = "Could not select the log files."; return }
+            fileSelectionError = nil
+            var bookmarks = (try? JSONDecoder().decode([String].self, from: Data(fileBookmarks.utf8))) ?? []
+            for url in urls where bookmarks.count < TimelineFileSources.fileLimit {
+                let active = url.startAccessingSecurityScopedResource()
+                defer { if active { url.stopAccessingSecurityScopedResource() } }
+                if let bookmark = try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                                        includingResourceValuesForKeys: nil, relativeTo: nil) {
+                    let value = bookmark.base64EncodedString()
+                    if !bookmarks.contains(value) { bookmarks.append(value) }
+                    model.checkedFiles.insert(url.path)
+                } else { fileSelectionError = "Could not retain access to one or more selected files." }
+            }
+            if bookmarks.count >= TimelineFileSources.fileLimit { fileSelectionError = "The 200-file limit has been reached." }
+            if let data = try? JSONEncoder().encode(bookmarks), let text = String(data: data, encoding: .utf8) { fileBookmarks = text }
+            scanRevision += 1
+        }
         // New events from this session refresh the list; the short sleep coalesces bursts into one query.
-        .task(id: "\(model.requestID)|\(settingsStore.settings.activity.timelineReadLimit)|\(activity.recentEvents.first?.id ?? "")") {
+        .task(id: "\(model.requestID)|\(settingsStore.settings.activity.timelineReadLimit)|\(model.includeLogs)|\(model.includeReports)|\(model.useHelper)|\(model.sourceRevision)|\(model.includeLogs || model.includeReports ? "" : activity.recentEvents.first?.id ?? "")") {
             if !model.loaded.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
-            await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit) { start, end, limit in
+            await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit, privilegedLogs: { window in
+                guard let payload = await store.privilegedSampling?.queryUnifiedLog(window: window) else {
+                    return TimelineSources.Result(message: "Privileged Helper unavailable or outdated. Install or update it in Settings.")
+                }
+                return TimelineSources.Result(events: TimelineSources.parseLog(payload.output), message: payload.message)
+            }) { start, end, limit in
                 try await activity.loadEvents(from: start, to: end, kinds: nil, search: "", limit: limit)
             }
+        }
+        .sheet(item: Binding(get: { graphLayout ? nil : model.selectedEvent },
+                             set: { model.selectedEvent = $0 })) { event in
+            VStack(alignment: .leading, spacing: 12) {
+                Text(event.subject).font(.headline).textSelection(.enabled)
+                Text(event.timestamp, format: .dateTime).foregroundStyle(.secondary)
+                Text(sourceName(event)).font(.caption.weight(.semibold))
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(event.details.keys.sorted(), id: \.self) { key in
+                            VStack(alignment: .leading) {
+                                Text(key).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                Text(event.details[key] ?? "").textSelection(.enabled)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                HStack {
+                    if event.kind == .diagnosticReport, let path = event.details["path"] {
+                        Button("Open Report") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                    }
+                    if let process = store.liveProcess(for: event) {
+                        Button("Open Process") { model.selectedEvent = nil; store.route = .process(process.id) }
+                    }
+                    Spacer()
+                    Button("Close") { model.selectedEvent = nil }
+                }
+            }.padding().frame(minWidth: 500, minHeight: 350)
         }
     }
 
@@ -202,7 +368,7 @@ struct TimelineView: View {
                     ResourceStat(title: "Matching", systemImage: "line.3.horizontal.decrease.circle", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(model.filtered.count)),
                     ResourceStat(title: "Kinds", systemImage: "square.stack", value: model.loading ? "Loading…" : model.loadFailed ? "Unavailable" : String(Set(model.loaded.map(\.kind)).count))
                 ], headlineWidth: 150,
-                   headlineHelp: model.loaded.count >= model.fetchLimit ? "Read limit reached (\(model.fetchLimit.formatted()) events). Raise Timeline read limit to load more." : "Events in the selected window")
+                   headlineHelp: model.smackCount >= model.fetchLimit ? "Smack read limit reached (\(model.fetchLimit.formatted()) events)." : "Events in the selected window")
             }
             HStack(spacing: 8) {
                 Picker("Layout", selection: $graphLayout) {
@@ -220,6 +386,55 @@ struct TimelineView: View {
                 }
                 TextField("Search subject, process or details", text: $model.query).textFieldStyle(.roundedBorder)
                 if model.loading { ProgressView().controlSize(.small) }
+            }
+            HStack {
+                DatePicker("From", selection: $model.customStart).labelsHidden()
+                Text("to").foregroundStyle(.secondary)
+                DatePicker("To", selection: $model.customEnd).labelsHidden()
+                Button("Show Range") { model.applyCustomWindow() }.disabled(model.customStart >= model.customEnd)
+                Button { shiftWindow(-1) } label: { Image(systemName: "chevron.left") }.help("Previous interval")
+                Button { shiftWindow(1) } label: { Image(systemName: "chevron.right") }.help("Next interval")
+            }.controlSize(.small)
+            HStack {
+                Toggle("Unified logs", isOn: $model.includeLogs)
+                Toggle("Reports", isOn: $model.includeReports)
+                Button { model.sourceRevision += 1 } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Reload the selected sources")
+            }.controlSize(.small)
+            DisclosureGroup(isExpanded: $showCoverage) {
+                sourceCoverage
+            } label: {
+                HStack {
+                    Text("Log sources").font(.subheadline.weight(.semibold))
+                    if model.scanningFiles { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button("Add log") { showFilePicker = true }
+                    Button("Rescan") { scanRevision += 1 }
+                }
+            }
+            if let fileSelectionError {
+                Text(fileSelectionError).font(.caption).foregroundStyle(.orange)
+            }
+            if model.includeLogs {
+                HStack {
+                    Toggle("Use Privileged Helper", isOn: $model.useHelper)
+                    if let controller = store.privilegedSampling {
+                        Button("Install or update helper") { Task { await controller.install(); model.sourceRevision += 1 } }
+                        Text(controller.statusDescription).font(.caption).foregroundStyle(.secondary)
+                    }
+                }.controlSize(.small)
+                Text("System log access and retention vary. Narrow the range if results are incomplete.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Picker("Source", selection: $model.sourceFilter) {
+                ForEach(["All", "Smack", "Unified log", "Report", "File logs"], id: \.self) { Text($0).tag($0) }
+            }.pickerStyle(.segmented).fixedSize()
+            if let message = model.sourceMessage {
+                Text(message).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+            }
+            if model.range == .full && model.customWindow == nil {
+                Text("Full starts at the oldest loaded event from enabled sources; source limits can leave gaps.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
                 ForEach(ActivityEventKind.Group.allCases, id: \.self) { group in
@@ -245,6 +460,56 @@ struct TimelineView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+
+    private var sourceCoverage: some View {
+        let sources = model.fileSources
+        let dates = sources.flatMap { [$0.start, $0.end].compactMap { $0 } }
+            + model.loaded.map(\.timestamp)
+        let lower = dates.min() ?? Date()
+        let upper = dates.max() ?? lower
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Bars show observed timestamps; sampled files and loaded events may have gaps.")
+                .font(.caption2).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(["Smack", "Unified log", "Report"], id: \.self) { name in
+                        let events = model.loaded.filter { sourceName($0) == name }
+                        coverageRow(name: name, start: events.map(\.timestamp).min(), end: events.map(\.timestamp).max(),
+                                    lower: lower, upper: upper, note: events.isEmpty ? "Unavailable" : "Loaded events")
+                    }
+                    ForEach(sources) { source in
+                        HStack {
+                            Toggle("", isOn: Binding(get: { model.checkedFiles.contains(source.path) }, set: { checked in
+                                if checked { model.checkedFiles.insert(source.path) } else { model.checkedFiles.remove(source.path) }
+                            })).labelsHidden().disabled(source.error != nil)
+                            coverageRow(name: source.path, start: source.start, end: source.end, lower: lower, upper: upper,
+                                        note: source.error ?? (source.start == nil ? "Unavailable" : [source.sampled ? "Sampled" : nil, source.inferredYear ? "Year inferred" : nil].compactMap { $0 }.joined(separator: ", ")))
+                        }
+                    }
+                }
+            }.frame(maxHeight: 220)
+            Text("Scans up to 5,000 directory entries and 200 files; selected entries come from bounded samples.").font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private func coverageRow(name: String, start: Date?, end: Date?, lower: Date, upper: Date, note: String) -> some View {
+        HStack(spacing: 8) {
+            Text(name).lineLimit(1).truncationMode(.middle).frame(width: 180, alignment: .leading).help(name)
+            GeometryReader { geometry in
+                let duration = max(upper.timeIntervalSince(lower), 1)
+                if let start, let end {
+                    let x = min(max(0, geometry.size.width - 3), max(0, start.timeIntervalSince(lower) / duration) * geometry.size.width)
+                    let width = max(3, end.timeIntervalSince(start) / duration * geometry.size.width)
+                    Capsule().fill(Color.accentColor.opacity(0.65)).frame(width: width, height: 6).offset(x: x, y: 4)
+                }
+            }.frame(minWidth: 60).frame(height: 14)
+            if let start, let end {
+                Text("\(start.formatted(date: .abbreviated, time: .shortened)) - \(end.formatted(date: .abbreviated, time: .shortened))")
+                    .monospacedDigit()
+            }
+            Text(note).foregroundStyle(.secondary)
+        }.font(.caption2)
     }
 
     /// Same limit as Settings › Timeline › Timeline read limit: how many newest events this page loads.
@@ -327,8 +592,14 @@ struct TimelineView: View {
             ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
                                    description: Text("No activity events in \(model.windowPhrase)."))
         } else if graphLayout {
-            TimelineGraph(store: store, events: model.filtered, lanes: model.lanes, window: model.window(), truncatedBefore: model.truncatedBefore)
-                .padding()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    TimelineGraph(store: store, events: model.filtered, lanes: model.lanes, window: model.window(),
+                                  truncatedBefore: model.truncatedBefore, selected: model.graphSelectedEvent,
+                                  inspect: { model.selectedEvent = $0 })
+                    graphEventDetails
+                }.padding()
+            }
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -345,8 +616,7 @@ struct TimelineView: View {
                         }
                     }
                     if model.isCapped {
-                        Text("Showing latest \(TimelineViewModel.visibleLimit) events")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Show 500 more") { model.visibleCount += 500 }
                             .frame(maxWidth: .infinity).padding(10)
                     }
                 }
@@ -354,10 +624,71 @@ struct TimelineView: View {
         }
     }
 
+    private var graphEventDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Event Details").font(.headline)
+                Spacer()
+                if let index = model.graphSelectedIndex {
+                    Text("\(index + 1) of \(model.filtered.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                navigationButton("First event", symbol: "backward.end.fill", direction: .first, disabled: model.graphSelectedIndex == 0)
+                navigationButton("Previous event", symbol: "chevron.left", direction: .previous, disabled: model.graphSelectedIndex == 0)
+                navigationButton("Next event", symbol: "chevron.right", direction: .next,
+                                 disabled: model.graphSelectedIndex == model.filtered.count - 1)
+                navigationButton("Last event", symbol: "forward.end.fill", direction: .last,
+                                 disabled: model.graphSelectedIndex == model.filtered.count - 1)
+            }
+            if let event = model.graphSelectedEvent {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(event.kind.title, systemImage: event.kind.systemImage).font(.subheadline.weight(.semibold))
+                    Text(sourceName(event)).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(event.timestamp, format: .dateTime).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                Text(event.subject).font(.subheadline).textSelection(.enabled)
+                HStack(spacing: 12) {
+                    Text(event.severity.rawValue.capitalized)
+                    if let name = event.processName { Text(name) }
+                    if let processID = event.processID { Text(processID).monospaced() }
+                }.font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(event.details.keys.sorted(), id: \.self) { key in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(key).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                Text(event.details[key] ?? "").textSelection(.enabled)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 240)
+                HStack {
+                    if event.kind == .diagnosticReport, let path = event.details["path"] {
+                        Button("Open Report") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                    }
+                    if let process = store.liveProcess(for: event) {
+                        Button("Open Process") { store.route = .process(process.id) }
+                    }
+                }
+            } else {
+                Text("No matching event selected.").foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func navigationButton(_ title: String, symbol: String, direction: TimelineEventNavigation, disabled: Bool) -> some View {
+        Button { model.navigateGraphEvent(direction) } label: { Image(systemName: symbol) }
+            .help(title).accessibilityLabel(title)
+            .disabled(disabled || model.graphSelectedEvent == nil)
+    }
+
     private func row(_ event: ActivityEvent) -> some View {
         let target = store.liveProcess(for: event)
         return Button {
-            if let target { store.route = .process(target.id) }
+            model.selectedEvent = event
         } label: {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
@@ -376,17 +707,34 @@ struct TimelineView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                Text(sourceName(event)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Text(event.kind.title).font(.caption).foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                    .opacity(target == nil ? 0 : 1)
+                    .opacity(1)
             }
             .padding(.horizontal).padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(target == nil)
-        .help(target == nil ? event.detailSummary : "Open \(event.processName ?? event.subject)")
+        .help("Inspect event")
         .accessibilityElement(children: .combine)
+    }
+
+    private func sourceName(_ event: ActivityEvent) -> String {
+        switch event.kind {
+        case .systemLog: "Unified log"
+        case .diagnosticReport: "Report"
+        case .fileLog: event.details["path"] ?? "File logs"
+        default: "Smack"
+        }
+    }
+
+    private func shiftWindow(_ direction: Double) {
+        let window = model.window()
+        let shift = window.duration * direction
+        model.customStart = window.start.addingTimeInterval(shift)
+        model.customEnd = window.end.addingTimeInterval(shift)
+        model.applyCustomWindow()
     }
 
     /// Application icon when the event belongs to one, otherwise the executable's icon. A named process with no
@@ -468,6 +816,8 @@ struct TimelineGraph: View {
     let window: DateInterval
     /// When the read limit cut older events off, the oldest loaded instant; the window before it is shaded.
     var truncatedBefore: Date?
+    var selected: ActivityEvent? = nil
+    var inspect: ((ActivityEvent) -> Void)? = nil
     @State private var hover: TimelineHover?
 
     var body: some View {
@@ -488,6 +838,14 @@ struct TimelineGraph: View {
                         .foregroundStyle(event.kind.group.color.opacity(0.75))
                         .symbol(symbol(event.severity))
                         .symbolSize(symbolSize(event.severity))
+                }
+                if let selected {
+                    RuleMark(x: .value("Selected", selected.timestamp))
+                        .foregroundStyle(selected.kind.group.color.opacity(0.5))
+                    PointMark(x: .value("Time", selected.timestamp), y: .value("Group", selected.kind.group.rawValue))
+                        .foregroundStyle(selected.kind.group.color)
+                        .symbol(symbol(selected.severity))
+                        .symbolSize(symbolSize(selected.severity) * 3)
                 }
                 if let first = nearby.first {
                     RuleMark(x: .value("Pointer", first.timestamp))
@@ -535,8 +893,9 @@ struct TimelineGraph: View {
                             }
                         }
                         .onTapGesture {
-                            if let first = nearby.first, let target = store.liveProcess(for: first) {
-                                store.route = .process(target.id)
+                            if let first = nearby.first {
+                                if let inspect { inspect(first) }
+                                else if let target = store.liveProcess(for: first) { store.route = .process(target.id) }
                             }
                         }
                 }
@@ -581,8 +940,12 @@ struct TimelineGraph: View {
             if events.count > shown.count {
                 Text("+\(events.count - shown.count) more nearby").font(.caption2).foregroundStyle(.secondary)
             }
-            if let first = events.first, store.liveProcess(for: first) != nil {
-                Text("Click to open \(first.processName ?? first.subject)").font(.caption2).foregroundStyle(.tertiary)
+            if let first = events.first {
+                if inspect != nil {
+                    Text("Click to inspect event").font(.caption2).foregroundStyle(.tertiary)
+                } else if store.liveProcess(for: first) != nil {
+                    Text("Click to open \(first.processName ?? first.subject)").font(.caption2).foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(8)
