@@ -105,7 +105,7 @@ One area's entry on Summary, colored by its Page Category: the Page it opens, it
 _Avoid_: Card, widget, row
 
 **Summary Layout**:
-The user's order and square-unit footprints (1×1, 2×1 or 2×2) for Summary Tiles, arranged on Summary and restored on the next launch.
+The user's order and grid-unit footprints (1×1, 2×1 or 2×2) for Summary Tiles, arranged on Summary and restored on the next launch.
 _Avoid_: Dashboard layout, widget layout, grid preferences
 
 **Summary Concern**:

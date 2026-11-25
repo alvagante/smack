@@ -1,6 +1,6 @@
 import Foundation
 
-/// Footprint in square grid units. Raw values also migrate the saved column-span settings.
+/// Footprint in grid units. Raw values also migrate the saved column-span settings.
 enum SummaryTileSize: Int, CaseIterable, Sendable {
     case square = 1, wide = 2, large = 4
 
@@ -9,9 +9,9 @@ enum SummaryTileSize: Int, CaseIterable, Sendable {
     var rows: Int { self == .large ? 2 : 1 }
     var label: String {
         switch self {
-        case .square: "1×1 square"
+        case .square: "1×1"
         case .wide: "2×1 horizontal"
-        case .large: "2×2 square"
+        case .large: "2×2"
         }
     }
     var symbol: String {
