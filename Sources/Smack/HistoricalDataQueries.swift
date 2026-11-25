@@ -72,7 +72,7 @@ final class HistoricalDataQueries {
         await query([]) { try await history.instances(named: program, from: Date().addingTimeInterval(-hours * 3600)) }
     }
 
-    private func query<T>(_ fallback: T, _ body: () async throws -> T) async -> T {
+    private func query<T>(_ fallback: T, _ body: @MainActor () async throws -> T) async -> T {
         do {
             return try await body()
         } catch {
