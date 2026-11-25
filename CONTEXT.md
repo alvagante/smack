@@ -18,7 +18,7 @@ Scripts/build-app.sh && open dist/Smack.app               # direct app bundle; n
 - Targets: `Smack` (app), `SmackIPC` (shared types and socket protocol), `SmackCLI`, `SmackHelper` (root daemon).
 - Direct-only code goes behind `#if !SMACK_APP_STORE`. Capabilities per flavor live in `Capabilities.swift`.
 - Run one copy of Smack at a time: two instances fight over the helper and the control socket.
-- Opt-in tests are gated by `SMACK_*` environment variables (benchmarks, live system checks, UI previews). CI also runs the release performance budgets: `SMACK_PERFORMANCE_BUDGETS=1 SMACK_AGENT_BENCHMARK=1 swift test -c release --filter <test>`.
+- Opt-in tests are gated by `SMACK_*` environment variables (benchmarks, live system checks, UI previews). CI also runs the release performance budgets: `SMACK_PERFORMANCE_BUDGETS=1 SMACK_AGENT_BENCHMARK=1 swift test -c release --filter <test>`. A budget exceeded by up to 50% only warns (`PerformanceBudget`); beyond that CI fails.
 
 ### Test first
 

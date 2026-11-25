@@ -4,6 +4,10 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **CI:** a release performance budget exceeded by up to 50% now raises a warning instead of failing the run.
+
 ## [1.3.0] - 2026-11-25
 
 ### Added

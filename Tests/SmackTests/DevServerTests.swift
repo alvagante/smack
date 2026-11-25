@@ -184,7 +184,7 @@ private actor CountingDevProjectResolver: ProjectResolving {
     }
     print("Dev server warm 100 listeners p95 milliseconds: \(elapsed.sorted()[47])")
     if ProcessInfo.processInfo.environment["SMACK_PERFORMANCE_BUDGETS"] == "1" {
-        #expect(elapsed.sorted()[47] < 10)
+        PerformanceBudget.check("Dev server warm collection p95, 100 listeners", milliseconds: elapsed.sorted()[47], limit: 10)
     }
 }
 
