@@ -4,32 +4,7 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Window:** the Panel and the Standard Window keep their last position and size after a force quit or a reboot: moves and resizes are saved as they happen, the Standard Window no longer shrinks at relaunch, and quitting without opening the window no longer overwrites the saved frame. Cost: at most two preference writes per second while moving or resizing, none otherwise; a frame-only save re-applies no feature settings (not measured).
-
-### Changed
-
-- **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
-- **Summary:** tile rows no longer grow with column width: they are capped at 210 points, so tiles on wide Panels have much less empty space. Layout only; no collection or persistence changes.
-- **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
-- **Internal:** split the largest collectors and parsers into smaller functions (baseline sections, runtime discovery, manifest parsing, agent session update, persistence scan, history v5 copy, CLI parsing). Same work and the same results; no collection or persistence changes.
-- **Internal:** deep-link filters now belong to each Page's view model, and environment monitoring reads the Panel state from `MonitorStore` instead of keeping its own copy. The app and the Privileged Helper share one unified log query.
-- **Timeline:** new **Unified log range** Setting (Activity Timeline pane: 1 hour, 6 hours, 1 day, 7 days or 30 days; default 30 days) sets the widest stretch of unified log one Timeline load reads. Longer windows keep their most recent part and say so. The Privileged Helper now refuses ranges wider than 30 days instead of letting `log show` scan the whole log store until its 10 s timeout. Narrower ranges reduce `log show` CPU time and its output (still capped at 1 MB); nothing is stored.
-- **Release:** the release workflow removes the Homebrew tap clone, which holds the tap token in its remote URL, from self-hosted runners.
-- **Timeline:** closing the Timeline or an Open Log File view now cancels the diagnostic report scan, log file discovery and log reads in progress. Log file parsing builds its date parsers once instead of once per file (up to 200 files per scan).
-- **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
-- **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
-- **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.
-- **AI Agents:** resize the Session Timeline and event details with their divider, move lane controls below the timeline, and add hide-all and first/last event navigation.
-- **Connections:** show the browser link in listener headers and use the full row width for expansion.
-
-- **Version:** prepare 1.3.0 (build 13); Summary, About and baseline exports report the new version.
-- **Timeline:** add 15-day, 30-day and Full ranges; Full starts at the oldest event loaded from enabled sources.
-- **Timeline:** show selected event details beneath the graph, with chronological first, previous, next and last navigation.
-- **Timeline:** log file discovery no longer enumerates folders below the two levels it reads, so a deep `~/Library/Logs` costs no more than its top. Log file, diagnostic report and Application log reads go through one injected file seam, so their tests no longer touch the disk.
-- **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
-- **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
+## [1.3.0] - 2026-11-25
 
 ### Added
 
@@ -38,6 +13,33 @@ All notable changes to Smack are documented in this file.
 - **Timeline:** inspect Smack events alongside opt-in unified logs and diagnostic reports over custom time ranges. Queries run only on the Timeline, with a 10-second, 1 MiB limit per log request; no log data is stored. Performance measurements are pending.
 - **Onboarding:** reopen the welcome window from General Settings, prefilled with current choices.
 - **Onboarding:** choose background system and process collection, Superuser Sampling, top bar icons, and saved Documents folders. Saved Documents folders can also be managed in Settings and selected in Documents; they add no background scanning.
+- **Timeline:** add 15-day, 30-day and Full ranges; Full starts at the oldest event loaded from enabled sources.
+- **Timeline:** show selected event details beneath the graph, with chronological first, previous, next and last navigation.
+- **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
+
+### Changed
+
+- **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
+- **Summary:** tile rows no longer grow with column width: they are capped at 210 points, so tiles on wide Panels have much less empty space. Layout only; no collection or persistence changes.
+- **Timeline:** new **Unified log range** Setting (Activity Timeline pane: 1 hour, 6 hours, 1 day, 7 days or 30 days; default 30 days) sets the widest stretch of unified log one Timeline load reads. Longer windows keep their most recent part and say so. The Privileged Helper now refuses ranges wider than 30 days instead of letting `log show` scan the whole log store until its 10 s timeout. Narrower ranges reduce `log show` CPU time and its output (still capped at 1 MB); nothing is stored.
+- **Timeline:** closing the Timeline or an Open Log File view now cancels the diagnostic report scan, log file discovery and log reads in progress. Log file parsing builds its date parsers once instead of once per file (up to 200 files per scan).
+- **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.
+- **AI Agents:** resize the Session Timeline and event details with their divider, move lane controls below the timeline, and add hide-all and first/last event navigation.
+- **Connections:** show the browser link in listener headers and use the full row width for expansion.
+- **Timeline:** log file discovery no longer enumerates folders below the two levels it reads, so a deep `~/Library/Logs` costs no more than its top. Log file, diagnostic report and Application log reads go through one injected file seam, so their tests no longer touch the disk.
+- **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
+- **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
+- **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
+- **Internal:** split the largest collectors and parsers into smaller functions (baseline sections, runtime discovery, manifest parsing, agent session update, persistence scan, history v5 copy, CLI parsing). Same work and the same results; no collection or persistence changes.
+- **Internal:** deep-link filters now belong to each Page's view model, and environment monitoring reads the Panel state from `MonitorStore` instead of keeping its own copy. The app and the Privileged Helper share one unified log query.
+- **Internal:** more tests for Startup Item toggles (commands, AppleScript quoting, crontab safety), Session Timeline Event Details, CLI query filtering and validation, and Privileged Helper gating on ad hoc builds. Startup Item toggles now take an injected command runner; no behavior or cost change.
+- **Version:** prepare 1.3.0 (build 13); Summary, About and baseline exports report the new version.
+
+### Fixed
+
+- **Window:** the Panel and the Standard Window keep their last position and size after a force quit or a reboot: moves and resizes are saved as they happen, the Standard Window no longer shrinks at relaunch, and quitting without opening the window no longer overwrites the saved frame. Cost: at most two preference writes per second while moving or resizing, none otherwise; a frame-only save re-applies no feature settings (not measured).
+- **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
+- **Release:** the release workflow removes the Homebrew tap clone, which holds the tap token in its remote URL, from self-hosted runners.
 
 ## [1.2.0] - 2026-11-11
 

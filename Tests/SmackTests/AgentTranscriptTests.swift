@@ -542,3 +542,99 @@ func liveTranscriptsParse() {
     #expect(result.items.map(\.updated) == result.items.map(\.updated).sorted(by: >))
     #expect(TranscriptCatalog.claudeFolder("/Users/al/GITHUB/pabawi.example42.com") == "-Users-al-GITHUB-pabawi-example42-com")
 }
+
+// MARK: - Event Details
+
+private func details(_ line: String, _ format: TranscriptFormat, id: String, kind: TranscriptEventKind,
+                     output: String? = nil) -> TranscriptDetail {
+    let files = MemoryTranscriptFiles()
+    let all = [line, output].compactMap { $0 }
+    files.set("/d.jsonl", lines(all))
+    var offset: UInt64 = 0
+    let ranges = all.map { value in
+        defer { offset += UInt64(value.utf8.count + 1) }
+        return TranscriptByteRange(offset: offset, length: value.utf8.count)
+    }
+    let event = TranscriptEvent(id: id, kind: kind, start: .distantPast, title: "t", ref: .lines(ranges))
+    return TranscriptDetailReader.read(event, source: .file(path: "/d.jsonl", format: format), files: files)
+}
+
+private func claudeTool(_ name: String, _ input: String) -> TranscriptDetail {
+    details(#"{"message":{"content":[{"type":"tool_use","id":"t1","name":"\#(name)","input":\#(input)}]}}"#,
+            .claude, id: "t1", kind: .fileChange)
+}
+
+private func titled(_ detail: TranscriptDetail) -> [String] { detail.sections.map { "\($0.title): \($0.body)" } }
+
+@Test func claudeFileToolsAreShownAsDiffs() {
+    let edit = claudeTool("Edit", #"{"file_path":"/a","old_string":"x\ny","new_string":"z"}"#)
+    #expect(titled(edit) == ["/a: -x\n-y\n+z"])
+    let multi = claudeTool("MultiEdit", #"{"file_path":"/a","edits":[{"old_string":"1","new_string":"2"},{"old_string":"","new_string":"3"}]}"#)
+    #expect(titled(multi) == ["/a: -1\n+2", "/a: +3"])
+    let write = claudeTool("Write", #"{"file_path":"/b","content":"n1\nn2"}"#)
+    #expect(titled(write) == ["/b: +n1\n+n2"])
+    #expect([edit, multi, write].allSatisfy { $0.sections.allSatisfy { $0.style == .diff } })
+    #expect(claudeTool("Grep", #"{"pattern":"p"}"#).sections.first?.title == "Input")
+}
+
+@Test func claudeMessagesShowTheirTextAndSayWhenReasoningIsHidden() {
+    let answer = details(#"{"message":{"model":"m1","content":[{"type":"thinking","thinking":""},{"type":"text","text":"Done"}]}}"#,
+                         .claude, id: "msg#1", kind: .answer)
+    #expect(titled(answer) == ["Answer: Done", "Model: m1"])
+    let hidden = details(#"{"message":{"content":[{"type":"thinking","thinking":""}]}}"#, .claude, id: "msg#0", kind: .thinking)
+    #expect(titled(hidden) == ["Thinking: The model's reasoning is not stored in readable form."])
+    let prompt = details(#"{"message":{"content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}}"#, .claude, id: "u", kind: .prompt)
+    #expect(titled(prompt) == ["Prompt: a\n\nb"])
+    // A line with nothing recognizable is shown whole rather than as an empty box.
+    #expect(details(#"{"other":1}"#, .claude, id: "x", kind: .answer).sections.first?.title == "Line")
+}
+
+@Test func codexCompletedItemsShowWhatTheyDid() {
+    func item(_ json: String) -> [String] {
+        titled(details(#"{"payload":{"type":"item_completed","item":\#(json)}}"#, .codex, id: "i", kind: .tool))
+    }
+    #expect(item(#"{"type":"CommandExecution","command":"ls","cwd":"file:///w","exit_code":2,"stdout":"o","stderr":"e"}"#)
+            == ["Command: ls", "Directory: /w", "Exit code: 2", "Output: o", "Errors: e"])
+    #expect(item(#"{"type":"Reasoning","summary_text":[]}"#) == ["Summary: Codex stores this reasoning encrypted; only its timing is shown."])
+    #expect(item(#"{"type":"McpToolCall","server":"s","tool":"t","result":{"content":[{"type":"text","text":"ok"}]}}"#)
+            == ["Tool: s › t", "Result: ok"])
+    #expect(item(#"{"type":"Extension","query":"q","results":"r"}"#) == ["Query: q", "Results: r"])
+    #expect(item(#"{"type":"FileChange","changes":{"/n":{"type":"add","content":"1"},"/d":{"type":"delete","content":"2"},"/m":{"type":"move"}}}"#)
+            == ["/d: -2", "/m: move", "/n: +1"])
+    #expect(item(#"{"type":"AgentMessage","content":[{"type":"text","text":"hi"}]}"#) == ["Answer: hi"])
+}
+
+@Test func codexEventLinesAndCallOutputsAreRead() {
+    let call = details(#"{"payload":{"type":"function_call","arguments":"{\"cmd\":\"make\",\"workdir\":\"/w\"}"}}"#,
+                       .codex, id: "c", kind: .command, output: #"{"payload":{"output":"built"}}"#)
+    #expect(titled(call) == ["Command: make", "Directory: /w", "Output: built"])
+    let patch = details(#"{"payload":{"type":"custom_tool_call","input":"*** patch"}}"#, .codex, id: "p", kind: .fileChange)
+    #expect(patch.sections.first?.title == "Patch" && patch.sections.first?.style == .diff)
+    for (type, field, title) in [("user_message", "message", "Prompt"), ("agent_message", "message", "Answer"),
+                                 ("agent_reasoning", "text", "Reasoning"), ("web_search_end", "query", "Query")] {
+        #expect(titled(details(#"{"payload":{"type":"\#(type)","\#(field)":"v"}}"#, .codex, id: "e", kind: .tool)) == ["\(title): v"])
+    }
+}
+
+@Test func openCodeDetailsAreReadFromTheStoredMessage() throws {
+    let path = try makeOpenCodeDatabase()
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    let source = TranscriptSource.openCode(database: path, session: "ses_1")
+    func read(_ message: String, _ part: Int?, _ kind: TranscriptEventKind) -> [String] {
+        let event = TranscriptEvent(id: "e", kind: kind, start: .distantPast, title: "t", ref: .openCode(messageID: message, part: part))
+        return titled(TranscriptDetailReader.read(event, source: source, files: MemoryTranscriptFiles()))
+    }
+    #expect(read("m1", nil, .prompt) == ["Prompt: Fix the login"])
+    #expect(read("m2", 0, .answer) == ["Answer: Looking", "Model: deepseek"])
+    #expect(read("m2", 1, .command).first == "Command: npm test")
+    #expect(read("m2", 9, .tool) == ["Details: OpenCode no longer has this part."])
+    #expect(read("gone", nil, .prompt) == ["Details: OpenCode no longer has this message."])
+}
+
+@Test func missingTranscriptLinesAreReportedAndProcessEventsNeedNoTranscript() {
+    let event = TranscriptEvent(id: "e", kind: .command, start: .distantPast, title: "node", subtitle: "/bin/node",
+                                ref: .lines([TranscriptByteRange(offset: 0, length: 5)]))
+    let gone = TranscriptDetailReader.read(event, source: .file(path: "/gone", format: .claude), files: MemoryTranscriptFiles())
+    #expect(titled(gone) == ["Details: The transcript no longer contains this event."])
+    #expect(titled(TranscriptDetailReader.process(event)) == ["Process: node", "Path: /bin/node"])
+}

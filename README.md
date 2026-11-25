@@ -36,7 +36,7 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 - **Installed apps:** app sizes and uninstall to the Trash.
 - **Dev environments:** 26 languages and runtimes with versions, paths and packages.
 - **Menu-bar icons:** every menu-bar icon in the panel, including those hidden by the notch.
-- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen; size and position are restored after quit.
+- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen. In both window styles, size and position survive quit, force quit and reboot.
 - **Quick lookups:** check IP addresses and file hashes on IPinfo, AbuseIPDB, VirusTotal, Shodan and others.
 - **Automation:** `smack://` URLs, a `smack` CLI with JSON/CSV output, and Shortcuts actions. See the [CLI](docs/cli.md) and [URL scheme](docs/url-scheme.md).
 - **Superuser sampling (optional):** a signed helper that also shows other users' processes and files.

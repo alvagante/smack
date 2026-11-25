@@ -28,6 +28,46 @@ import Testing
 }
 
 @MainActor
+@Test func checkedLogFilesJoinTheWindowAndCanBeFilteredByPath() async {
+    let model = TimelineViewModel()
+    let inside = obsEvent(.processStarted, at: 150, subject: "smack")
+    var line = obsEvent(.fileLog, at: 160, subject: "line")
+    line.details["path"] = "/logs/a.log"
+    var late = obsEvent(.fileLog, at: 900, subject: "late")
+    late.details["path"] = "/logs/a.log"
+    model.customStart = Date(timeIntervalSince1970: 200)
+    model.customEnd = Date(timeIntervalSince1970: 100)
+    model.applyCustomWindow()
+    #expect(model.customWindow == nil, "a reversed range is ignored")
+    model.customStart = Date(timeIntervalSince1970: 100)
+    model.customEnd = Date(timeIntervalSince1970: 200)
+    model.applyCustomWindow()
+    await model.load { _, _, _ in [inside] }
+    model.fileSources = [TimelineFileSource(path: "/logs/a.log", start: line.timestamp, end: late.timestamp,
+                                            sampled: false, events: [line, late])]
+    #expect(model.filtered.map(\.subject) == ["smack"], "unchecked files add nothing")
+    model.checkedFiles = ["/logs/a.log"]
+    #expect(model.filtered.map(\.subject) == ["line", "smack"])
+    #expect(model.graphSelectedIndex == 0)
+    model.sourceFilter = "/logs/a.log"
+    #expect(model.filtered.map(\.subject) == ["line"])
+    model.sourceFilter = "File logs"
+    #expect(model.filtered.map(\.subject) == ["line"])
+    model.sourceFilter = "Smack"
+    #expect(model.filtered.map(\.subject) == ["smack"])
+}
+
+@MainActor
+@Test func aMissingPrivilegedHelperIsReportedBesideRecordedEvents() async {
+    let model = TimelineViewModel()
+    model.includeLogs = true
+    model.useHelper = true
+    await model.load { _, _, _ in [obsEvent(at: Date().timeIntervalSince1970 - 5, subject: "smack")] }
+    #expect(model.loaded.map(\.subject) == ["smack"])
+    #expect(model.sourceMessage?.contains("Privileged Helper unavailable") == true)
+}
+
+@MainActor
 @Test func graphEventNavigationFollowsTimeAndCurrentFilters() async {
     let model = TimelineViewModel()
     let older = obsEvent(.processStarted, at: 100, subject: "older")

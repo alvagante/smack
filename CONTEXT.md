@@ -262,7 +262,7 @@ Process metrics collected through the Privileged Helper, which includes processe
 _Avoid_: Admin mode, root mode
 
 **Privileged Helper**:
-A separately signed root daemon offering a fixed set of read-only operations (process metrics and inventory, listening ports, File Activity) to Smack only.
+A separately signed root daemon offering a fixed set of read-only operations (process metrics and inventory, listening ports, File Activity, storage measurement, background item and profile listings, and a time-bounded unified log query) to Smack only.
 _Avoid_: Root process, agent
 
 ### Activity

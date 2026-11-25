@@ -761,3 +761,55 @@ func controlConcurrentSymlinkAncestorExchangeStress() async throws {
     print("symlink stress: 8192 exchanges, 512 listener attempts, \(started) started, target mode and sentinel unchanged, final round trip passed")
 }
 #endif
+
+@MainActor @Test func controlQueriesFilterSortAndRejectBadInput() async throws {
+    let root = try obsTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let history = try HistoryRepository(databaseURL: root.appendingPathComponent("history.sqlite"))
+    let suite = "ControlQueryTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = SettingsStore(defaults: defaults, legacyDefaults: nil)
+    let scheduler = CollectionScheduler(systemCollector: SystemCollector(),
+        processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: PrivilegedSamplingClient()),
+        inventoryCollector: InventoryCollector(), networkPortCollector: NetworkPortCollector(),
+        history: history, settings: settings.settings, onSystem: { _ in }, onProcesses: { _ in })
+    let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
+    AutomationSnapshot.store = store
+    defer { AutomationSnapshot.store = nil }
+
+    for op in ["ps", "apps", "ports", "posture", "startup"] {
+        #expect(AutomationSnapshot.response(ControlRequest(op: op)).error == .unavailable, "\(op) before any sample")
+    }
+    store.receive(obsSnapshot([obsProcess(10, cpu: 1), obsProcess(11, cpu: 9)], apps: [obsProcess(12, cpu: 5)]))
+    #expect(AutomationSnapshot.response(ControlRequest(op: "ps")).records.map { $0.fields["pid"] } == ["11", "12", "10"])
+    var limited = ControlRequest(op: "ps")
+    limited.limit = 1
+    #expect(AutomationSnapshot.response(limited).records.count == 1)
+    var oneApp = ControlRequest(op: "ps")
+    oneApp.app = "App"
+    #expect(AutomationSnapshot.response(oneApp).records.map { $0.fields["pid"] } == ["12"])
+    oneApp.app = "Missing"
+    #expect(AutomationSnapshot.response(oneApp).records.isEmpty)
+    #expect(AutomationSnapshot.response(ControlRequest(op: "apps")).records.map(\.title) == ["App"])
+
+#if !SMACK_APP_STORE
+    store.receive(NetworkPortSnapshot(timestamp: Date(), ports: [obsPort(pid: 10, port: 80), obsPort(pid: 11, port: 443, fd: 4)], connections: []))
+    var onePort = ControlRequest(op: "ports")
+    onePort.port = 443
+    #expect(AutomationSnapshot.response(onePort).records.map { $0.fields["pid"] } == ["11"])
+#endif
+
+    var badKind = ControlRequest(op: "events")
+    badKind.kinds = ["notAKind"]
+    #expect(await AutomationSnapshot.query(badKind).error == .invalidRequest)
+    #expect(await AutomationSnapshot.query(ControlRequest(op: "history")).error == .invalidRequest)
+    var tooWide = ControlRequest(op: "events")
+    tooWide.since = 0
+    tooWide.until = 32 * 86_400
+    #expect(await AutomationSnapshot.query(tooWide).error == .invalidRequest)
+    var badBaseline = ControlRequest(op: "baseline")
+    badBaseline.action = "create"
+    badBaseline.sections = ["notASection"]
+    #expect(await AutomationSnapshot.query(badBaseline).error == .invalidRequest)
+}
