@@ -10,6 +10,8 @@ Smack lives in the notch and menu bar. Move the pointer up to see what your Mac 
 
 ## Features
 
+- **Agent session metrics:** visualize transcript activity, input and output token mix, and each event's share of session duration.
+- **Application logs:** inspect recent nonempty log files held open by an application's processes, with process filtering and live tailing.
 - **Onboarding:** a first-launch window to pick the menu-bar Panel or a Standard Window, opening behavior, sound (muted by default), color scheme, glass appearance, Project folders and a Performance preset. Reopen it from General Settings.
 - **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
 - **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top; Arrange to drag tiles into order and choose 1×1, 2×1 or 2×2 shapes with size-aware details and top-five resource consumers; neighbors move while dragging and the layout is remembered for next time.

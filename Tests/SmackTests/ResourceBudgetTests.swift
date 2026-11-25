@@ -4,6 +4,18 @@ import Testing
 @testable import Smack
 
 struct ResourceBudgetTests {
+    @Test func applicationLogDiscoveryBoundsMetadataReads() {
+        let process = ProcessRef(id: "p", pid: 1, name: "app")
+        let rows = (0..<600).map { AggregatedPath(id: "\($0)", path: "/tmp/\($0).log", descriptorType: "VNODE", processes: [process]) }
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        var reads = 0
+        let files = ApplicationLogFiles.discover(rows, now: now) { _ in
+            reads += 1
+            return (1, now)
+        }
+        #expect(reads == 500)
+        #expect(files.count == 500)
+    }
     @Test @MainActor func timelineFileInventoryScansOnlyWhenRequested() async {
         let calls = Mutex(0)
         let model = TimelineViewModel()

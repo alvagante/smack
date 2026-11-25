@@ -9,6 +9,7 @@ struct AgentSessionsView: View {
     /// Only these sessions, such as a Project's; nil shows every tracked session.
     let scope: [AgentSession]?
     @State private var selectedID: String?
+    @State private var summaries: [String: SessionMetricSummary] = [:]
 
     init(live: AgentSessionsModel, store: MonitorStore,
          selectedID: String? = nil, scope: [AgentSession]? = nil) {
@@ -25,6 +26,7 @@ struct AgentSessionsView: View {
         let list = AgentSessionList(sessions: sessions)
         let selected = sessions.first { $0.id == selectedID } ?? list.live.first?.session ?? list.ended.first
         content(list, selected: selected)
+            .onChange(of: sessions.map(\.id)) { summaries = summaries.filter { id, _ in sessions.contains { $0.id == id } } }
             // Pin what is shown, so a newer session does not replace it; fall back only when it is gone.
             .onChange(of: selected?.id, initial: true) { _, id in
                 if selectedID.map({ current in !sessions.contains { $0.id == current } }) ?? true { selectedID = id }
@@ -58,7 +60,8 @@ struct AgentSessionsView: View {
                 }
                 if let selected {
                     AgentSessionDetail(session: selected, points: live.history.points(for: selected.id),
-                                       sessions: live.sessions, store: store) { selectedID = $0 }
+                                       sessions: live.sessions, store: store,
+                                       onIndex: { summaries[selected.id] = SessionMetricSummary(index: $0, session: selected) }) { selectedID = $0 }
                         .id(selected.id)
                 }
             }
@@ -73,7 +76,7 @@ struct AgentSessionsView: View {
         Button {
             selectedID = session.id
         } label: {
-            AgentSessionCard(session: session, points: live.history.points(for: session.id))
+            AgentSessionCard(session: session, points: live.history.points(for: session.id), metrics: summaries[session.id])
         }.buttonStyle(DetailNavigationStyle(selected: session.id == selected))
     }
 }
@@ -106,6 +109,7 @@ private struct SessionUptime: View {
 struct AgentSessionCard: View {
     let session: AgentSession
     let points: [AgentSessionPoint]
+    var metrics: SessionMetricSummary? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -145,6 +149,7 @@ struct AgentSessionCard: View {
                 Sparkline(series: [SparklineSeries(values: points.map(\.cpu), color: .blue)], minHeight: 20, maxHeight: 20)
                 Text(summary).font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }
+            SessionMetricsBar(summary: metrics ?? SessionMetricSummary(index: TranscriptIndex(), session: session), compact: true)
         }.padding(.vertical, 4)
     }
 
@@ -161,6 +166,7 @@ struct AgentSessionDetail: View {
     let points: [AgentSessionPoint]
     let sessions: [AgentSession]
     @ObservedObject var store: MonitorStore
+    var onIndex: (TranscriptIndex) -> Void = { _ in }
     var select: (String) -> Void
     @State private var inspection: ProcessMetrics?
     @State private var commandLine: String?
@@ -178,7 +184,7 @@ struct AgentSessionDetail: View {
                     SessionTimelineView(session: session, points: points,
                                         transcripts: store.settingsStore.settings.devTools.readSessionTranscripts,
                                         interval: store.settingsStore.settings.sampling.liveRefreshSeconds,
-                                        visibility: store.panelVisibility, settingsStore: store.settingsStore)
+                                        visibility: store.panelVisibility, settingsStore: store.settingsStore, onIndex: onIndex)
                 }
                 .padding(MonitorStyle.inset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

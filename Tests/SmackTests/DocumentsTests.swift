@@ -2,6 +2,7 @@ import AppKit
 import QuickLookUI
 import SwiftUI
 import Foundation
+import Synchronization
 import Testing
 @testable import Smack
 
@@ -42,6 +43,22 @@ struct DocumentsTests {
         })
         let result = await collector.collect(scope: "/docs", days: 30)
         #expect(result.entries.map(\.path) == ["/docs/new.pdf", "/docs/old.pdf"])
+        #expect(result.warning != nil)
+    }
+
+    @Test func collectorStopsInspectingAtTheTwoSecondDeadline() async {
+        let clock = Mutex<TimeInterval>(100)
+        let inspected = Mutex(0)
+        let collector = DocumentsCollector(run: { _, _, _, _ in
+            .init(status: 0, output: "/docs/a.pdf\0/docs/b.pdf\0/docs/c.pdf\0", error: "")
+        }, metadata: { path in
+            inspected.withLock { $0 += 1 }
+            clock.withLock { $0 += 2.5 }
+            return DocumentRecord(path: path, kind: "PDF")
+        }, uptime: { clock.withLock { $0 } })
+        let result = await collector.collect(scope: "/docs", days: 30)
+        #expect(inspected.withLock { $0 } == 1)
+        #expect(result.entries.map(\.path) == ["/docs/a.pdf"])
         #expect(result.warning != nil)
     }
 

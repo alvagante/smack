@@ -191,15 +191,9 @@ struct NetworkPortsView: View {
                                     Text(address.localAddress).font(.caption.monospaced()).textSelection(.enabled)
                                 }
                             }
-                            HStack(spacing: 16) {
-                                processLink(name: port.processName, pid: port.pid, userName: port.userName, spacing: 3, processIDs: processIDs)
-                                if let url = port.browserURL {
-                                    Link(destination: url) { Label("Open in Browser", systemImage: "safari") }
-                                        .help("Open \(url.absoluteString) in your browser")
-                                }
-                            }
-                            .font(.caption)
-                            .padding(.top, 2)
+                            processLink(name: port.processName, pid: port.pid, userName: port.userName, spacing: 3, processIDs: processIDs)
+                                .font(.caption)
+                                .padding(.top, 2)
                         }
                         .padding(.vertical, 8)
                         if clients.isEmpty {
@@ -256,6 +250,11 @@ struct NetworkPortsView: View {
                                 .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 8)
+                            if let url = port.browserURL {
+                                Link(destination: url) { Label("Open in Browser", systemImage: "safari") }
+                                    .font(.caption)
+                                    .help("Open \(url.absoluteString) in your browser")
+                            }
                             VStack(alignment: .trailing, spacing: 5) {
                                 Text(":\(port.port)")
                                     .font(.headline.monospacedDigit())
@@ -274,6 +273,8 @@ struct NetworkPortsView: View {
                             }
                             .fixedSize()
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                         .padding(.vertical, 8)
                     }
                 }

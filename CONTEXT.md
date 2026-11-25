@@ -170,6 +170,9 @@ _Avoid_: Command line, Provenance (which is about origin and identity)
 A short, on-demand trace of the files a process touches, taken through the Privileged Helper.
 _Avoid_: Open Files (a snapshot, not a trace), fs_usage
 
+**Open Log File**:
+A nonempty, recently modified file with a log-like path held open by an Application process, discovered from its Open Files snapshot and readable on demand.
+
 **Profiling Run**:
 An on-demand, time-limited diagnostic of one Application process by a developer tool (footprint, vmmap, heap, leaks, sample), reduced to highlights next to the full output.
 _Avoid_: Diagnostics, profile

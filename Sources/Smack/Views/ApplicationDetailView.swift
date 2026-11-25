@@ -471,6 +471,10 @@ struct ApplicationDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             case .processes: processesList(app)
             case .diagnostics: ApplicationDiagnosticsTab(app: app, model: profile)
+            case .logs:
+                ApplicationLogFilesView(app: app, inventory: inspection.applicationInventory,
+                                        loading: inspection.applicationInventoryLoading) { model.refreshCount += 1 }
+                ApplicationInspectionTab(store: store, app: app, tab: .logs)
             default:
                 if let inspected = tab.inspection { ApplicationInspectionTab(store: store, app: app, tab: inspected) }
             }

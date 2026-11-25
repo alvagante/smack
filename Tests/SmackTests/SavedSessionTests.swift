@@ -3,6 +3,65 @@ import Testing
 import SwiftUI
 @testable import Smack
 
+private struct TimelineBounds: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, new in new }) }
+}
+
+private struct MeasuredTimeline<Content: View>: View {
+    let name: String
+    let content: Content
+    var body: some View {
+        content.background(GeometryReader { geometry in
+            Color.clear.preference(key: TimelineBounds.self, value: [name: geometry.frame(in: .named("test"))])
+        })
+    }
+}
+
+@Test @MainActor func compactTimelineKeepsDetailsAboveLaneControls() throws {
+    let model = SessionTimelineModel()
+    var bounds: [String: CGRect] = [:]
+    let view = VStack(spacing: 10) {
+        TimelineResizablePanes(vertical: true) {
+            Color.blue.frame(minHeight: 300)
+        } detail: {
+            MeasuredTimeline(name: "detail", content: TimelineInspector(model: model, animation: .constant(nil), belowTimeline: true))
+        }
+        MeasuredTimeline(name: "controls", content: Text("Processes  Hide all"))
+    }
+    .coordinateSpace(name: "test")
+    .onPreferenceChange(TimelineBounds.self) { bounds = $0 }
+    .frame(width: 700, height: 350)
+    let host = NSHostingView(rootView: view)
+    host.frame = NSRect(x: 0, y: 0, width: 700, height: 350)
+    let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.contentView = host
+    window.displayIfNeeded()
+    host.layoutSubtreeIfNeeded()
+    let detail = try #require(bounds["detail"])
+    let controls = try #require(bounds["controls"])
+    #expect(detail.maxY <= controls.minY, "Event details must remain above the lane controls")
+}
+
+
+@Test @MainActor func timelineFirstAndLastFollowVisibleLanes() async throws {
+    let files = MemoryTranscriptFiles()
+    files.set("/t.jsonl", claudeTranscript)
+    let model = SessionTimelineModel(source: .file(path: "/t.jsonl", format: .claude), files: files)
+    await model.refresh(session: nil, transcripts: true, live: false)
+    let firstLane = try #require(model.events.first?.lane)
+    model.hiddenLanes = [firstLane]
+    let visible = model.events.filter { !model.hiddenLanes.contains($0.lane) }
+    #expect(!visible.isEmpty)
+    model.jumpToBoundary(first: true)
+    #expect(model.selection == visible.first?.id)
+    model.jumpToBoundary(first: false)
+    #expect(model.selection == visible.last?.id)
+    model.hiddenLanes = Set(model.availableLanes)
+    model.jumpToBoundary(first: true)
+    #expect(model.selection == visible.last?.id)
+}
+
 @Test func savedSessionsFilterAndSortWithUnavailableTokensLast() {
     let a = PastTranscript(source: .file(path: "/a", format: .claude), directory: "/work/api",
                            title: "Fix login", started: Date(timeIntervalSince1970: 10),

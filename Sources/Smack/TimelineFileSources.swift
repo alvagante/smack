@@ -61,61 +61,51 @@ enum TimelineFileSources {
         return scan(custom: custom, roots: roots, systemPaths: ["/private/var/log/system.log", "/private/var/log/install.log"])
     }
 
-    static func scan(custom: [Data], roots: [URL], systemPaths: [String]) -> [TimelineFileSource] {
-        let fm = FileManager.default
+    static func scan(custom: [Data], roots: [URL], systemPaths: [String],
+                     files: any LogFileAccess = LocalLogFileAccess()) -> [TimelineFileSource] {
         var candidates: [(URL, Bool)] = []
         var inaccessible: [TimelineFileSource] = []
         var visited = 0
         for data in custom.prefix(fileLimit) {
-            var stale = false
-            if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale) {
-                candidates.append((url, true))
-            }
+            if let url = files.resolveBookmark(data) { candidates.append((url, true)) }
         }
-        for path in systemPaths where fm.fileExists(atPath: path) {
+        for path in systemPaths where files.exists(path) {
             candidates.append((URL(fileURLWithPath: path), false))
         }
         for root in roots {
-            guard fm.isReadableFile(atPath: root.path),
-                  let iterator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-                                               options: [.skipsHiddenFiles]) else {
-                inaccessible.append(TimelineFileSource(path: root.path, start: nil, end: nil, sampled: false, events: [], error: "Unavailable"))
-                continue
-            }
-            for case let url as URL in iterator {
+            let readable = files.walk(root, levels: 2) { url, isFile in
                 visited += 1
-                if Task.isCancelled || candidates.count >= fileLimit || visited > 5_000 { break }
-                if iterator.level > 2 { iterator.skipDescendants(); continue }
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                guard values?.isRegularFile == true, values?.isSymbolicLink != true,
-                      ["log", "_log", "its"].contains(url.pathExtension.lowercased()) else { continue }
-                candidates.append((url, false))
+                if Task.isCancelled || candidates.count >= fileLimit || visited > 5_000 { return false }
+                if isFile, ["log", "_log", "its"].contains(url.pathExtension.lowercased()) { candidates.append((url, false)) }
+                return true
+            }
+            if !readable {
+                inaccessible.append(unavailable(root.path))
+                continue
             }
             if candidates.count >= fileLimit || visited > 5_000 || Task.isCancelled { break }
         }
         var seen = Set<String>()
-        let files: [TimelineFileSource] = candidates.prefix(fileLimit).compactMap { url, scoped in
+        let sources: [TimelineFileSource] = candidates.prefix(fileLimit).compactMap { url, scoped in
             guard seen.insert(url.path).inserted, !Task.isCancelled else { return nil }
-            let active = scoped && url.startAccessingSecurityScopedResource()
-            defer { if active { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let file = try FileHandle(forReadingFrom: url)
-                defer { try? file.close() }
-                let size = try file.seekToEnd()
-                try file.seek(toOffset: 0)
-                let head = try file.read(upToCount: sampleBytes) ?? Data()
-                var tail = Data()
-                if size > UInt64(sampleBytes) {
-                    try file.seek(toOffset: max(UInt64(sampleBytes), size > UInt64(sampleBytes) ? size - UInt64(sampleBytes) : 0))
-                    tail = try file.read(upToCount: sampleBytes) ?? Data()
-                }
-                let reference = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
-                return parse(path: url.path, head: String(decoding: head, as: UTF8.self),
-                             tail: String(decoding: tail, as: UTF8.self), sampled: size > UInt64(sampleBytes * 2), reference: reference)
-            } catch {
-                return TimelineFileSource(path: url.path, start: nil, end: nil, sampled: false, events: [], error: "Unavailable")
-            }
+            return files.withAccess(to: url, scoped: scoped) { sample(url.path, files: files) }
         }
-        return inaccessible + files
+        return inaccessible + sources
+    }
+
+    /// Parses at most `sampleBytes` from each end of a file.
+    private static func sample(_ path: String, files: any LogFileAccess) -> TimelineFileSource {
+        let limit = UInt64(sampleBytes)
+        guard let size = files.size(of: path),
+              let head = size == 0 ? Data() : files.read(path, offset: 0, length: sampleBytes),
+              let tail = size > limit ? files.read(path, offset: max(limit, size - limit), length: sampleBytes) : Data() else {
+            return unavailable(path)
+        }
+        return parse(path: path, head: String(decoding: head, as: UTF8.self), tail: String(decoding: tail, as: UTF8.self),
+                     sampled: size > limit * 2, reference: files.modified(path) ?? Date())
+    }
+
+    private static func unavailable(_ path: String) -> TimelineFileSource {
+        TimelineFileSource(path: path, start: nil, end: nil, sampled: false, events: [], error: "Unavailable")
     }
 }

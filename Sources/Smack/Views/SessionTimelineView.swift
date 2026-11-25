@@ -46,13 +46,12 @@ struct SessionTimelineView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TimelineSessionSummary(model: model)
+            TimelineSessionSummary(model: model, session: session)
             TimelineToolbar(model: model, animation: $animation, detailsUnder: detailsUnder, toggleDetails: toggleDetails)
             if model.events.isEmpty {
                 placeholder.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if let notice { Label(notice, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary) }
-                TimelineLaneChips(model: model)
                 let pane = VStack(spacing: 8) {
                     TimelineMinimap(model: model, animation: animation)
                         .frame(height: 30)
@@ -60,21 +59,13 @@ struct SessionTimelineView: View {
                 }
                 .padding(10)
                 .monitorSurface()
-                if detailsUnder {
-                    VStack(spacing: 12) {
-                        pane
-                        TimelineInspector(model: model, animation: $animation, belowTimeline: true)
-                            .frame(minHeight: 140, idealHeight: 220, maxHeight: 240)
-                    }
-                    .frame(maxHeight: .infinity)
-                } else {
-                    HStack(alignment: .top, spacing: 12) {
-                        pane
-                        TimelineInspector(model: model, animation: $animation)
-                            .frame(width: 320)
-                    }
-                    .frame(maxHeight: .infinity)
+                .help("Scroll or pinch to zoom; drag to pan; drag on the time ruler or ⇧-drag to zoom into a range; click a cluster to drill in; double-click to fit; ←/→ step through events; F fits, L follows live, Esc clears.")
+                TimelineResizablePanes(vertical: detailsUnder) {
+                    pane
+                } detail: {
+                    TimelineInspector(model: model, animation: $animation, belowTimeline: detailsUnder)
                 }
+                TimelineLaneChips(model: model)
                 TimelineStats(model: model)
             }
         }
@@ -123,6 +114,60 @@ struct SessionTimelineView: View {
             ContentUnavailableView("Nothing recorded yet", systemImage: "clock",
                 description: Text("Events appear here as the agent writes its transcript."))
         }
+    }
+}
+
+struct TimelineResizablePanes<Main: View, Detail: View>: View {
+    let vertical: Bool
+    @ViewBuilder let main: Main
+    @ViewBuilder let detail: Detail
+    @State private var horizontalDetail: CGFloat = 320
+    @State private var verticalDetail: CGFloat = 220
+    @State private var dragStart: CGFloat?
+    @State private var hovering = false
+    private let handleSize: CGFloat = 16
+
+    var body: some View {
+        GeometryReader { geometry in
+            let total = vertical ? geometry.size.height : geometry.size.width
+            let minimumMain: CGFloat = vertical ? 120 : 300
+            let minimumDetail: CGFloat = vertical ? 120 : 240
+            let maximumDetail = max(0, total - handleSize - minimumMain)
+            let detailSize = min(maximumDetail, max(min(minimumDetail, maximumDetail), vertical ? verticalDetail : horizontalDetail))
+            let layout = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+            layout {
+                main.frame(width: vertical ? nil : max(0, total - handleSize - detailSize),
+                           height: vertical ? max(0, total - handleSize - detailSize) : nil)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                handle(total: total, minimumMain: minimumMain, minimumDetail: minimumDetail, current: detailSize)
+                detail.frame(width: vertical ? nil : detailSize, height: vertical ? detailSize : nil)
+                    .clipped()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func handle(total: CGFloat, minimumMain: CGFloat, minimumDetail: CGFloat, current: CGFloat) -> some View {
+        let active = hovering || dragStart != nil
+        return ZStack {
+            RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(active ? 0.18 : 0.001))
+            Capsule().fill(active ? Color.accentColor : Color.secondary.opacity(0.35))
+                .frame(width: vertical ? 36 : 3, height: vertical ? 3 : 36)
+        }
+        .frame(width: vertical ? nil : handleSize, height: vertical ? handleSize : nil)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if dragStart == nil { dragStart = current }
+                let delta = vertical ? value.translation.height : value.translation.width
+                let maximum = max(0, total - handleSize - minimumMain)
+                let size = min(maximum, max(min(minimumDetail, maximum), (dragStart ?? current) - delta))
+                if vertical { verticalDetail = size } else { horizontalDetail = size }
+            }
+            .onEnded { _ in dragStart = nil })
+        .help("Drag to resize the timeline and event details")
     }
 }
 
@@ -204,26 +249,16 @@ extension TranscriptLane {
 
 private struct TimelineSessionSummary: View {
     @ObservedObject var model: SessionTimelineModel
+    let session: AgentSession?
+    @State private var summary = SessionMetricSummary(index: TranscriptIndex())
 
     var body: some View {
-        HStack(spacing: 20) {
-            value("Total tokens", model.index.tokens.isEmpty ? nil : (model.index.inputTokens + model.index.outputTokens).formatted())
-            value("Tokens in", model.index.tokens.isEmpty ? nil : model.index.inputTokens.formatted())
-            value("Tokens out", model.index.tokens.isEmpty ? nil : model.index.outputTokens.formatted())
-            if let name = model.index.model { value("Model", name) }
-            if let first = model.index.first, let last = model.index.last {
-                value("Duration", Formatting.duration(last.timeIntervalSince(first)))
-            }
-            Spacer(minLength: 0)
-        }
+        SessionMetricsBar(summary: summary)
         .padding(10)
         .monitorSurface()
-    }
-
-    private func value(_ title: String, _ text: String?) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(text ?? "Unavailable").font(.callout.weight(.semibold)).monospacedDigit()
+        .onChange(of: model.version, initial: true) { summary = SessionMetricSummary(index: model.index, session: session, now: model.clock) }
+        .onChange(of: model.clock) {
+            if let session { summary.duration = max(0, (session.endedAt ?? model.clock).timeIntervalSince(session.startedAt)) }
         }
     }
 }
@@ -268,9 +303,6 @@ private struct TimelineToolbar: View {
                 .onSubmit { model.nextMatch() }
             ToolbarIconButton(title: detailsUnder ? "Event details beside the timeline" : "Event details under the timeline",
                               systemImage: detailsUnder ? "rectangle.split.2x1" : "rectangle.split.1x2") { toggleDetails() }
-            Image(systemName: "keyboard")
-                .foregroundStyle(.secondary)
-                .help("Scroll or pinch to zoom; drag to pan; drag on the time ruler or ⇧-drag to zoom into a range; click a cluster to drill in; double-click to fit; ←/→ step through events; F fits, L follows live, Esc clears.")
         }
     }
 
@@ -313,6 +345,9 @@ private struct TimelineLaneChips: View {
                 }
                 if !model.hiddenLanes.isEmpty {
                     Button("Show all") { model.hiddenLanes = [] }.buttonStyle(.link).font(.caption)
+                }
+                if model.availableLanes.contains(where: { !model.hiddenLanes.contains($0) }) {
+                    Button("Hide all") { model.hiddenLanes = Set(model.availableLanes) }.buttonStyle(.link).font(.caption)
                 }
             }
         }
@@ -890,10 +925,18 @@ struct TimelineInspector: View {
     private var column: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Text("Event details").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if let event = model.selectedEvent {
+                    Label(event.sidechain ? "Subagent · " + event.kind.title : event.kind.title, systemImage: event.kind.systemImage)
+                        .font(.caption.weight(.bold)).foregroundStyle(event.status == .failed ? Color.red : event.lane.color)
+                        .lineLimit(1).fixedSize()
+                    Text(event.title).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+                        .help(event.title).layoutPriority(-1)
+                }
                 Spacer(minLength: 4)
+                ToolbarIconButton(title: "First event", systemImage: "backward.end") { model.jumpToBoundary(first: true) }
                 ToolbarIconButton(title: "Previous event (←)", systemImage: "chevron.left") { model.step(-1) }
                 ToolbarIconButton(title: "Next event (→)", systemImage: "chevron.right") { model.step(1) }
+                ToolbarIconButton(title: "Last event", systemImage: "forward.end") { model.jumpToBoundary(first: false) }
             }
             if let event = model.selectedEvent {
                 content(event)
@@ -904,18 +947,11 @@ struct TimelineInspector: View {
     }
 
     @ViewBuilder private func content(_ event: TranscriptEvent) -> some View {
-        let color = event.status == .failed ? Color.red : event.lane.color
-        HStack(spacing: 6) {
-            Label(event.sidechain ? "Subagent · " + event.kind.title : event.kind.title, systemImage: event.kind.systemImage)
-                .font(.caption.weight(.bold)).foregroundStyle(color)
-            Spacer(minLength: 4)
-            switch event.status {
-            case .failed: chip("Failed", .red)
-            case .running: chip("Running", .orange)
-            case .ok: EmptyView()
-            }
+        switch event.status {
+        case .failed: chip("Failed", .red)
+        case .running: chip("Running", .orange)
+        case .ok: EmptyView()
         }
-        Text(event.title).font(.callout.weight(.semibold)).textSelection(.enabled).lineLimit(6)
         if let subtitle = event.subtitle {
             Text(subtitle).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(3).truncationMode(.middle)
         }
@@ -930,20 +966,12 @@ struct TimelineInspector: View {
                     Text("+" + TimelineFormat.duration(event.start.timeIntervalSince(first)))
                 }
             }
-            if let duration = event.duration {
-                GridRow {
-                    Text("Duration").foregroundStyle(.secondary)
-                    Text(TimelineFormat.duration(duration))
-                }
-            } else if event.status == .running {
-                GridRow {
-                    Text("Duration").foregroundStyle(.secondary)
-                    Text("Running for " + TimelineFormat.duration(model.clock.timeIntervalSince(event.start)))
-                }
-            }
         }
         .font(.caption)
         .monospacedDigit()
+        if let duration = event.duration ?? (event.status == .running ? max(0, model.clock.timeIntervalSince(event.start)) : nil) {
+            durationRow(duration, event: event)
+        }
         HStack(spacing: 6) {
             Spacer(minLength: 4)
             Button {
@@ -955,6 +983,27 @@ struct TimelineInspector: View {
         }
         Divider()
         sections
+    }
+
+    private func durationRow(_ duration: TimeInterval, event: TranscriptEvent) -> some View {
+        let start = model.events.first?.start
+        let end = start.map { first in model.events.reduce(first) { max($0, TimelineLayout.displayEnd($1, now: model.clock)) } }
+        let total = start.flatMap { first in end.map { $0.timeIntervalSince(first) } }
+        let fraction = total.flatMap { SessionMetricVisuals.fraction(duration, total: $0) }
+        return HStack(spacing: 10) {
+            Text("Duration").foregroundStyle(.secondary)
+            Text(TimelineFormat.duration(duration)).monospacedDigit()
+            Spacer(minLength: 0)
+            if let fraction { Text(fraction.formatted(.percent.precision(.fractionLength(1)))).foregroundStyle(.secondary) }
+        }
+        .font(.caption).padding(6)
+        .background(alignment: .leading) {
+            GeometryReader { geometry in
+                RoundedRectangle(cornerRadius: 4).fill(event.lane.color.opacity(0.18))
+                    .frame(width: geometry.size.width * (fraction ?? 0))
+            }
+        }
+        .help("Event duration as a share of the full session timeline")
     }
 
     @ViewBuilder private var sections: some View {
