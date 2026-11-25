@@ -592,3 +592,16 @@ final class SpyUserDefaults: UserDefaults {
     activity.validate()
     #expect(activity.timelineReadLimit == CollectionSettings.timelineReadLimitRange.upperBound)
 }
+
+@Test func unifiedLogRangeDefaultsToTheHelperCeilingAndSnapsToAChoice() throws {
+    let legacy = try JSONDecoder().decode(ActivitySettings.self, from: Data(#"{"timelineReadLimit":3000}"#.utf8))
+    #expect(legacy.unifiedLogRangeHours == 720)
+    #expect(CollectionSettings.unifiedLogRangeChoices.max() == 720)
+    var activity = ActivitySettings()
+    activity.unifiedLogRangeHours = 5
+    activity.validate()
+    #expect(activity.unifiedLogRangeHours == 720)
+    activity.unifiedLogRangeHours = 6
+    activity.validate()
+    #expect(activity.unifiedLogRangeHours == 6)
+}

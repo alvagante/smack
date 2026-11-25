@@ -7,7 +7,7 @@ enum ApplicationLogFiles {
     static func discover(_ paths: [AggregatedPath], now: Date = Date(),
                          metadata: (String) -> (Int64, Date)? = fileMetadata) -> [AggregatedPath] {
         paths.lazy.filter { $0.path.localizedCaseInsensitiveContains("log") }.prefix(fileLimit).filter { row in
-            guard let (size, modified) = metadata(row.path) else { return false }
+            guard !Task.isCancelled, let (size, modified) = metadata(row.path) else { return false }
             return size > 0 && modified >= now.addingTimeInterval(-7 * 86_400)
         }
     }

@@ -84,83 +84,36 @@ struct DevInspection: Sendable {
     var reports: [DevReport] = []
 }
 
-struct DevEnvironmentCollector: Sendable {
-    typealias Runner = @Sendable (String, [String]) async -> CommandRunner.Result
-    var run: Runner = { executable, arguments in
-        await CommandRunner.run(executable, arguments, timeout: 10, outputLimit: 1_000_000)
+/// Directories that may hold a language runtime. One discover pass fills it, then reads those directories once.
+private final class DevLocationIndex {
+    var snapshot = DevDiscovery()
+    private var bins: [(String, String)] = []
+    private var binPaths: Set<String> = []
+    private let fm = FileManager.default
+
+    func bin(_ path: String, _ source: String) {
+        guard !Task.isCancelled else { return }
+        let directory = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard binPaths.insert(directory).inserted else { return }
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+        bins.append((directory, source))
     }
 
-    static func discover(home: String = FileManager.default.homeDirectoryForCurrentUser.path,
-                         environment: [String: String] = ProcessInfo.processInfo.environment,
-                         folders: [String] = [], includeSystem: Bool = true, depth: Int = 4) -> DevDiscovery {
-        let fm = FileManager.default
-        var snapshot = DevDiscovery()
-        let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
-            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        var bins: [(String, String)] = []
-        var binPaths: Set<String> = []
-        func bin(_ path: String, _ source: String) {
-            guard !Task.isCancelled else { return }
-            let directory = URL(fileURLWithPath: path).standardizedFileURL.path
-            guard binPaths.insert(directory).inserted else { return }
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else { return }
-            bins.append((directory, source))
-        }
-        func children(_ root: String) -> [String] {
-            guard !Task.isCancelled, fm.fileExists(atPath: root) else { return [] }
-            do { return try fm.contentsOfDirectory(atPath: root).sorted().filter { !$0.hasPrefix(".") }.map { root + "/" + $0 } }
-            catch { snapshot.warnings.append("Cannot read \(root): \(error.localizedDescription)"); return [] }
-        }
-        func versions(_ root: String, _ source: String, suffix: String = "/bin") {
-            guard !Task.isCancelled, fm.fileExists(atPath: root) else { return }
-            snapshot.roots.append(root)
-            for version in children(root) { bin(version + suffix, source) }
-        }
-        for directory in path { bin(directory, "Inherited PATH") }
-        if includeSystem {
-            for directory in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", home + "/.local/bin", home + "/.cargo/bin", home + "/.bun/bin", home + "/.deno/bin", "/Library/Developer/CommandLineTools/usr/bin", "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"] {
-                bin(directory, "Standard location")
-            }
-            for prefix in ["/opt/homebrew", "/usr/local"] {
-                for formula in children(prefix + "/opt") { bin(formula + "/bin", "Homebrew"); bin(formula + "/libexec/bin", "Homebrew") }
-            }
-        }
-        for (key, fallback, name) in [("PYENV_ROOT", "/.pyenv", "pyenv"), ("RBENV_ROOT", "/.rbenv", "rbenv"), ("NODENV_ROOT", "/.nodenv", "nodenv")] {
-            versions((environment[key] ?? home + fallback) + "/versions", name)
-        }
-        versions((environment["NVM_DIR"] ?? home + "/.nvm") + "/versions/node", "nvm")
-        for root in [home + "/Library/Application Support/fnm/node-versions", home + "/.local/share/fnm/node-versions"] {
-            versions(root, "fnm", suffix: "/installation/bin")
-        }
-        for root in [(environment["ASDF_DATA_DIR"] ?? home + "/.asdf") + "/installs", (environment["MISE_DATA_DIR"] ?? home + "/.local/share/mise") + "/installs"] {
-            for tool in children(root) { versions(tool, root.contains("mise") ? "mise" : "asdf") }
-        }
-        versions((environment["RUSTUP_HOME"] ?? home + "/.rustup") + "/toolchains", "rustup")
-        versions(home + "/.gvm/gos", "gvm")
-        versions(home + "/sdk", "Go SDK")
-        versions(home + "/.rvm/rubies", "RVM")
-        versions(home + "/.rubies", "chruby")
-        for tool in children((environment["SDKMAN_DIR"] ?? home + "/.sdkman") + "/candidates") { versions(tool, "SDKMAN") }
-        for root in (includeSystem ? ["/Library/Java/JavaVirtualMachines"] : []) + [home + "/Library/Java/JavaVirtualMachines"] { versions(root, "JDK", suffix: "/Contents/Home/bin") }
-        if includeSystem {
-            versions("/Library/Frameworks/Python.framework/Versions", "Python framework")
-            versions("/Library/Frameworks/R.framework/Versions", "R framework", suffix: "/Resources/bin")
-        }
-        versions(home + "/.julia/juliaup", "juliaup")
-        versions(home + "/.opam", "opam")
-        versions(home + "/.local/share/uv/python", "uv")
-        for root in [home + "/.virtualenvs", home + "/.local/share/pipx/venvs", home + "/Library/Caches/pypoetry/virtualenvs", home + "/.cache/pypoetry/virtualenvs", home + "/.conda/envs"] { versions(root, "Python environment") }
-        for root in [home + "/miniconda3", home + "/anaconda3", home + "/miniforge3", environment["CONDA_PREFIX"]].compactMap({ $0 }) {
-            bin(root + "/bin", "Conda"); versions(root + "/envs", "Conda")
-        }
-        if includeSystem {
-            for root in ["/opt/anaconda3", "/opt/miniconda3"] { bin(root + "/bin", "Conda"); versions(root + "/envs", "Conda") }
-        }
-        bin(home + "/.dotnet", ".NET user installation")
-        if let venv = environment["VIRTUAL_ENV"] { bin(venv + "/bin", "Active virtualenv") }
+    func children(_ root: String) -> [String] {
+        guard !Task.isCancelled, fm.fileExists(atPath: root) else { return [] }
+        do { return try fm.contentsOfDirectory(atPath: root).sorted().filter { !$0.hasPrefix(".") }.map { root + "/" + $0 } }
+        catch { snapshot.warnings.append("Cannot read \(root): \(error.localizedDescription)"); return [] }
+    }
+
+    func versions(_ root: String, _ source: String, suffix: String = "/bin") {
+        guard !Task.isCancelled, fm.fileExists(atPath: root) else { return }
+        snapshot.roots.append(root)
+        for version in children(root) { bin(version + suffix, source) }
+    }
+
+    func scanProjects(folders: [String], depth maximumDepth: Int) {
         // Explicit project roots only: never crawl the entire home directory or dependency caches.
-        let maximumDepth = depth
         let ignored: Set<String> = [".git", "node_modules", "vendor", "target", ".build", "Library", "__pycache__", "site-packages"]
         for folder in folders {
             guard !Task.isCancelled else { break }
@@ -183,6 +136,9 @@ struct DevEnvironmentCollector: Sendable {
             scan(folder, depth: 0)
             if remaining == 0 { snapshot.warnings.append("Project scan limited to 10,000 directories: \(folder)") }
         }
+    }
+
+    func enumerated(onPath path: [String]) -> DevDiscovery {
         var seen = Set<String>()
         for (directory, source) in bins {
             guard !Task.isCancelled else { break }
@@ -212,6 +168,65 @@ struct DevEnvironmentCollector: Sendable {
         snapshot.environments.sort { ($0.language.rawValue, $0.executable) < ($1.language.rawValue, $1.executable) }
         snapshot.roots = Array(Set(snapshot.roots + bins.map(\.0).filter { fm.fileExists(atPath: $0) })).sorted()
         return snapshot
+    }
+}
+
+struct DevEnvironmentCollector: Sendable {
+    typealias Runner = @Sendable (String, [String]) async -> CommandRunner.Result
+    var run: Runner = { executable, arguments in
+        await CommandRunner.run(executable, arguments, timeout: 10, outputLimit: 1_000_000)
+    }
+
+    static func discover(home: String = FileManager.default.homeDirectoryForCurrentUser.path,
+                         environment: [String: String] = ProcessInfo.processInfo.environment,
+                         folders: [String] = [], includeSystem: Bool = true, depth: Int = 4) -> DevDiscovery {
+        let index = DevLocationIndex()
+        let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        for directory in path { index.bin(directory, "Inherited PATH") }
+        if includeSystem {
+            for directory in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", home + "/.local/bin", home + "/.cargo/bin", home + "/.bun/bin", home + "/.deno/bin", "/Library/Developer/CommandLineTools/usr/bin", "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"] {
+                index.bin(directory, "Standard location")
+            }
+            for prefix in ["/opt/homebrew", "/usr/local"] {
+                for formula in index.children(prefix + "/opt") { index.bin(formula + "/bin", "Homebrew"); index.bin(formula + "/libexec/bin", "Homebrew") }
+            }
+        }
+        for (key, fallback, name) in [("PYENV_ROOT", "/.pyenv", "pyenv"), ("RBENV_ROOT", "/.rbenv", "rbenv"), ("NODENV_ROOT", "/.nodenv", "nodenv")] {
+            index.versions((environment[key] ?? home + fallback) + "/versions", name)
+        }
+        index.versions((environment["NVM_DIR"] ?? home + "/.nvm") + "/versions/node", "nvm")
+        for root in [home + "/Library/Application Support/fnm/node-versions", home + "/.local/share/fnm/node-versions"] {
+            index.versions(root, "fnm", suffix: "/installation/bin")
+        }
+        for root in [(environment["ASDF_DATA_DIR"] ?? home + "/.asdf") + "/installs", (environment["MISE_DATA_DIR"] ?? home + "/.local/share/mise") + "/installs"] {
+            for tool in index.children(root) { index.versions(tool, root.contains("mise") ? "mise" : "asdf") }
+        }
+        index.versions((environment["RUSTUP_HOME"] ?? home + "/.rustup") + "/toolchains", "rustup")
+        index.versions(home + "/.gvm/gos", "gvm")
+        index.versions(home + "/sdk", "Go SDK")
+        index.versions(home + "/.rvm/rubies", "RVM")
+        index.versions(home + "/.rubies", "chruby")
+        for tool in index.children((environment["SDKMAN_DIR"] ?? home + "/.sdkman") + "/candidates") { index.versions(tool, "SDKMAN") }
+        for root in (includeSystem ? ["/Library/Java/JavaVirtualMachines"] : []) + [home + "/Library/Java/JavaVirtualMachines"] { index.versions(root, "JDK", suffix: "/Contents/Home/bin") }
+        if includeSystem {
+            index.versions("/Library/Frameworks/Python.framework/Versions", "Python framework")
+            index.versions("/Library/Frameworks/R.framework/Versions", "R framework", suffix: "/Resources/bin")
+        }
+        index.versions(home + "/.julia/juliaup", "juliaup")
+        index.versions(home + "/.opam", "opam")
+        index.versions(home + "/.local/share/uv/python", "uv")
+        for root in [home + "/.virtualenvs", home + "/.local/share/pipx/venvs", home + "/Library/Caches/pypoetry/virtualenvs", home + "/.cache/pypoetry/virtualenvs", home + "/.conda/envs"] { index.versions(root, "Python environment") }
+        for root in [home + "/miniconda3", home + "/anaconda3", home + "/miniforge3", environment["CONDA_PREFIX"]].compactMap({ $0 }) {
+            index.bin(root + "/bin", "Conda"); index.versions(root + "/envs", "Conda")
+        }
+        if includeSystem {
+            for root in ["/opt/anaconda3", "/opt/miniconda3"] { index.bin(root + "/bin", "Conda"); index.versions(root + "/envs", "Conda") }
+        }
+        index.bin(home + "/.dotnet", ".NET user installation")
+        if let venv = environment["VIRTUAL_ENV"] { index.bin(venv + "/bin", "Active virtualenv") }
+        index.scanProjects(folders: folders, depth: depth)
+        return index.enumerated(onPath: path)
     }
 
     func inspect(_ item: DevEnvironment) async -> DevInspection {

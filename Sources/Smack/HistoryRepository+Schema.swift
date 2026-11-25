@@ -194,33 +194,23 @@ enum HistorySchema {
         executeSQL: @escaping (String) throws -> Void,
         runTransaction: @escaping (() throws -> Void) throws -> Void
     ) throws {
-        try executeSQL("DROP TABLE IF EXISTS process_samples_v5")
-        try executeSQL("CREATE TABLE process_samples_v5 (\(processSamplesColumns))")
-        let bounds = try timeBounds(of: "process_samples", database: database)
-        if let bounds {
-            var bucket = (bounds.oldest / 3_600).rounded(.down) * 3_600
-            while bucket <= bounds.newest {
-                let start = bucket
-                let end = bucket + 3_600
-                try runTransaction {
-                    try keepOrphanedProcesses(of: "process_samples", start: start, end: end, executeSQL: executeSQL)
-                    try executeSQL("""
-                        INSERT INTO process_samples_v5 (
-                            process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
-                        )
-                        SELECT p.key, s.timestamp, s.cpu, s.memory, s.disk_read, s.disk_write, s.wakeups, s.weight
-                        FROM process_samples s JOIN processes p ON p.id = s.process_id
-                        WHERE s.timestamp >= \(start) AND s.timestamp < \(end) ORDER BY s.timestamp
-                        """)
-                }
-                bucket = end
-            }
-        }
-        try runTransaction {
-            try executeSQL("DROP TABLE process_samples")
-            try executeSQL("ALTER TABLE process_samples_v5 RENAME TO process_samples")
-            try executeSQL("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
-        }
+        try copyKeyedHistoryTable(
+            source: "process_samples", staging: "process_samples_v5",
+            createSQL: "CREATE TABLE process_samples_v5 (\(processSamplesColumns))",
+            database: database, executeSQL: executeSQL, runTransaction: runTransaction,
+            insert: { start, end in """
+                INSERT INTO process_samples_v5 (
+                    process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
+                )
+                SELECT p.key, s.timestamp, s.cpu, s.memory, s.disk_read, s.disk_write, s.wakeups, s.weight
+                FROM process_samples s JOIN processes p ON p.id = s.process_id
+                WHERE s.timestamp >= \(start) AND s.timestamp < \(end) ORDER BY s.timestamp
+                """ },
+            finishSQL: [
+                "DROP TABLE process_samples",
+                "ALTER TABLE process_samples_v5 RENAME TO process_samples",
+                "CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)",
+            ])
     }
 
     /// The same key substitution for the one-minute rollup, batched by hour so the copy never holds a large WAL.
@@ -229,36 +219,54 @@ enum HistorySchema {
         executeSQL: @escaping (String) throws -> Void,
         runTransaction: @escaping (() throws -> Void) throws -> Void
     ) throws {
-        try executeSQL("DROP TABLE IF EXISTS process_minutes_v5")
-        try executeSQL("CREATE TABLE process_minutes_v5 (\(processMinutesColumns)) WITHOUT ROWID")
-        let bounds = try timeBounds(of: "process_minutes", database: database)
+        try copyKeyedHistoryTable(
+            source: "process_minutes", staging: "process_minutes_v5",
+            createSQL: "CREATE TABLE process_minutes_v5 (\(processMinutesColumns)) WITHOUT ROWID",
+            database: database, executeSQL: executeSQL, runTransaction: runTransaction,
+            insert: { start, end in """
+                INSERT INTO process_minutes_v5 (
+                    process_key, timestamp, sample_count, cpu_total, cpu_peak, memory_total, memory_peak,
+                    disk_read_total, disk_read_peak, disk_write_total, disk_write_peak,
+                    wakeups_total, wakeups_peak
+                )
+                SELECT p.key, m.timestamp, m.sample_count, m.cpu_total, m.cpu_peak, m.memory_total, m.memory_peak,
+                    m.disk_read_total, m.disk_read_peak, m.disk_write_total, m.disk_write_peak,
+                    m.wakeups_total, m.wakeups_peak
+                FROM process_minutes m JOIN processes p ON p.id = m.process_id
+                WHERE m.timestamp >= \(start) AND m.timestamp < \(end) ORDER BY m.timestamp
+                """ },
+            finishSQL: [
+                "DROP TABLE process_minutes",
+                "ALTER TABLE process_minutes_v5 RENAME TO process_minutes",
+                "CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)",
+            ])
+    }
+
+    /// Hour-sized transactions, shared by the sample and minute copies. Each hour keeps orphan identities, then
+    /// appends that hour, so a migration never holds the whole table in one WAL.
+    private static func copyKeyedHistoryTable(
+        source: String, staging: String, createSQL: String, database: OpaquePointer,
+        executeSQL: @escaping (String) throws -> Void,
+        runTransaction: @escaping (() throws -> Void) throws -> Void,
+        insert: @escaping (Double, Double) -> String, finishSQL: [String]
+    ) throws {
+        try executeSQL("DROP TABLE IF EXISTS \(staging)")
+        try executeSQL(createSQL)
+        let bounds = try timeBounds(of: source, database: database)
         if let bounds {
             var bucket = (bounds.oldest / 3_600).rounded(.down) * 3_600
             while bucket <= bounds.newest {
                 let start = bucket
                 let end = bucket + 3_600
                 try runTransaction {
-                    try keepOrphanedProcesses(of: "process_minutes", start: start, end: end, executeSQL: executeSQL)
-                    try executeSQL("""
-                        INSERT INTO process_minutes_v5 (
-                            process_key, timestamp, sample_count, cpu_total, cpu_peak, memory_total, memory_peak,
-                            disk_read_total, disk_read_peak, disk_write_total, disk_write_peak,
-                            wakeups_total, wakeups_peak
-                        )
-                        SELECT p.key, m.timestamp, m.sample_count, m.cpu_total, m.cpu_peak, m.memory_total, m.memory_peak,
-                            m.disk_read_total, m.disk_read_peak, m.disk_write_total, m.disk_write_peak,
-                            m.wakeups_total, m.wakeups_peak
-                        FROM process_minutes m JOIN processes p ON p.id = m.process_id
-                        WHERE m.timestamp >= \(start) AND m.timestamp < \(end) ORDER BY m.timestamp
-                        """)
+                    try keepOrphanedProcesses(of: source, start: start, end: end, executeSQL: executeSQL)
+                    try executeSQL(insert(start, end))
                 }
                 bucket = end
             }
         }
         try runTransaction {
-            try executeSQL("DROP TABLE process_minutes")
-            try executeSQL("ALTER TABLE process_minutes_v5 RENAME TO process_minutes")
-            try executeSQL("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
+            for sql in finishSQL { try executeSQL(sql) }
         }
     }
 

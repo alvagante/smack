@@ -7,6 +7,11 @@ All notable changes to Smack are documented in this file.
 ### Changed
 
 - **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
+- **Internal:** split the largest collectors and parsers into smaller functions (baseline sections, runtime discovery, manifest parsing, agent session update, persistence scan, history v5 copy, CLI parsing). Same work and the same results; no collection or persistence changes.
+- **Internal:** deep-link filters now belong to each Page's view model, and environment monitoring reads the Panel state from `MonitorStore` instead of keeping its own copy. The app and the Privileged Helper share one unified log query.
+- **Timeline:** new **Unified log range** Setting (Activity Timeline pane: 1 hour, 6 hours, 1 day, 7 days or 30 days; default 30 days) sets the widest stretch of unified log one Timeline load reads. Longer windows keep their most recent part and say so. The Privileged Helper now refuses ranges wider than 30 days instead of letting `log show` scan the whole log store until its 10 s timeout. Narrower ranges reduce `log show` CPU time and its output (still capped at 1 MB); nothing is stored.
+- **Release:** the release workflow removes the Homebrew tap clone, which holds the tap token in its remote URL, from self-hosted runners.
+- **Timeline:** closing the Timeline or an Open Log File view now cancels the diagnostic report scan, log file discovery and log reads in progress. Log file parsing builds its date parsers once instead of once per file (up to 200 files per scan).
 - **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
 - **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
 - **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.

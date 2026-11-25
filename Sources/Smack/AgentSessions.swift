@@ -130,24 +130,7 @@ actor AgentSessionTracker {
         matches = matches.filter { live.contains($0.key) }
         dockerStdio.formIntersection(live)
         scripts = scripts.filter { live.contains($0.key) }
-        var reads = 0
-        for process in all where !classified.contains(process.identity) {
-            let executable = ((process.executablePath ?? process.name) as NSString).lastPathComponent
-            var matchingScript: String?
-            if AgentProcessMatcher.interpreters.contains(executable) || executable == "docker" {
-                guard reads < 200 else { continue }
-                reads += 1
-                if let args = arguments(process.identity), args.count > 1 {
-                    if executable == "docker", args.contains("run"), args.contains("-i") || args.contains("--interactive") { dockerStdio.insert(process.identity) }
-                    matchingScript = args[1]
-                    scripts[process.identity] = (args[1] as NSString).lastPathComponent
-                }
-            }
-            classified.insert(process.identity)
-            if let agent = definitions.first(where: { $0.matcher.matches(process, script: matchingScript) }) {
-                matches[process.identity] = agent.id
-            }
-        }
+        classify(all)
         // Enrichment can suspend. Commit session state only once, after every dependency has returned.
         var projects: [ProcessIdentity: ProjectContext] = [:]
         var servers = configuredServers
@@ -174,9 +157,44 @@ actor AgentSessionTracker {
         mcpChecked = checked
         let byPID = Dictionary(all.map { ($0.identity.pid, $0) }, uniquingKeysWith: { a, _ in a })
         let children = Dictionary(grouping: all, by: { $0.parentPID ?? -1 })
+        var events = openSessions(all: all, byPID: byPID, children: children, at: snapshot.timestamp)
+        events += refreshSessions(all: all, live: live, projects: projects, at: snapshot.timestamp)
+        rollUpParentTotals()
+        if let network, latestNetwork.map({ network.timestamp >= $0.timestamp }) ?? true { latestNetwork = network }
+        if let latestNetwork { annotate(latestNetwork) }
+        events = events.map { value in
+            var value = value
+            if let id = value.details["agentSession"], let project = sessions[id]?.project { value.details["project"] = project.name }
+            return value
+        }
+        return (ordered(), events)
+    }
+
+    private func classify(_ all: [ProcessMetrics]) {
+        var reads = 0
+        for process in all where !classified.contains(process.identity) {
+            let executable = ((process.executablePath ?? process.name) as NSString).lastPathComponent
+            var matchingScript: String?
+            if AgentProcessMatcher.interpreters.contains(executable) || executable == "docker" {
+                guard reads < 200 else { continue }
+                reads += 1
+                if let args = arguments(process.identity), args.count > 1 {
+                    if executable == "docker", args.contains("run"), args.contains("-i") || args.contains("--interactive") { dockerStdio.insert(process.identity) }
+                    matchingScript = args[1]
+                    scripts[process.identity] = (args[1] as NSString).lastPathComponent
+                }
+            }
+            classified.insert(process.identity)
+            if let agent = definitions.first(where: { $0.matcher.matches(process, script: matchingScript) }) {
+                matches[process.identity] = agent.id
+            }
+        }
+    }
+
+    /// Traverse each tree once. Same-agent wrappers share a root; a different agent starts a nested session.
+    private func openSessions(all: [ProcessMetrics], byPID: [Int32: ProcessMetrics], children: [Int32: [ProcessMetrics]], at timestamp: Date) -> [ActivityEvent] {
         var events: [ActivityEvent] = []
         owners.removeAll(keepingCapacity: true)
-        // Traverse each tree once. Same-agent wrappers share a root; a different agent starts a nested session.
         var visited: Set<Int32> = []
         func walk(_ process: ProcessMetrics, owner: String?) {
             guard visited.insert(process.identity.pid).inserted else { return }
@@ -187,7 +205,7 @@ actor AgentSessionTracker {
                     sessions[id] = AgentSession(agentID: agent, root: process.identity, parentSession: owner,
                         startedAt: process.identity.startTime)
                     if seeded && !seedPending.contains(process.identity) {
-                        events.append(event(.agentSessionStarted, sessions[id]!, at: snapshot.timestamp))
+                        events.append(event(.agentSessionStarted, sessions[id]!, at: timestamp))
                     }
                 }
                 owner = id
@@ -199,6 +217,11 @@ actor AgentSessionTracker {
         for process in all where !visited.contains(process.identity.pid) { walk(process, owner: nil) }
         seedPending.subtract(classified)
         seeded = true
+        return events
+    }
+
+    private func refreshSessions(all: [ProcessMetrics], live: Set<ProcessIdentity>, projects: [ProcessIdentity: ProjectContext], at timestamp: Date) -> [ActivityEvent] {
+        var events: [ActivityEvent] = []
         var current: [String: [ProcessIdentity: AgentChild]] = [:]
         for process in all {
             guard let owner = owners[process.identity.pid]?.session else { continue }
@@ -210,18 +233,18 @@ actor AgentSessionTracker {
             guard var session = sessions[id] else { continue }
             if !live.contains(session.root) {
                 if session.endedAt == nil {
-                    session.endedAt = snapshot.timestamp
-                    events.append(event(.agentSessionEnded, session, at: snapshot.timestamp))
+                    session.endedAt = timestamp
+                    events.append(event(.agentSessionEnded, session, at: timestamp))
                 }
-                if snapshot.timestamp.timeIntervalSince(session.endedAt!) >= 600 {
+                if timestamp.timeIntervalSince(session.endedAt!) >= 600 {
                     sessions[id] = nil; members[id] = nil; logChecked[id] = nil; logs[id] = nil
                     continue
                 }
             }
             for (identity, child) in (members[id] ?? [:]).filter({ !live.contains($0.key) && $0.key != session.root }).sorted(by: { $0.key.startTime == $1.key.startTime ? $0.key.pid < $1.key.pid : $0.key.startTime < $1.key.startTime }) {
                 session.recentCommands.append(AgentCommandRecord(identity: identity, name: child.name,
-                    executablePath: child.executablePath, duration: max(0, snapshot.timestamp.timeIntervalSince(identity.startTime)),
-                    exitedAt: snapshot.timestamp))
+                    executablePath: child.executablePath, duration: max(0, timestamp.timeIntervalSince(identity.startTime)),
+                    exitedAt: timestamp))
             }
             session.recentCommands = Array(session.recentCommands.suffix(200))
             if session.endedAt == nil { session.project = projects[session.root] }
@@ -245,24 +268,28 @@ actor AgentSessionTracker {
                     session.mcpServers.append(child)
                 } else if process.parentPID == session.root.pid,
                           (["npx", "uvx", "bunx", "node"].contains(executable) || dockerStdio.contains(process.identity)),
-                          snapshot.timestamp.timeIntervalSince(process.identity.startTime) >= 10 {
+                          timestamp.timeIntervalSince(process.identity.startTime) >= 10 {
                     child.classification = "inferred"
                     session.mcpServers.append(child)
                 } else { session.helpers.append(child) }
             }
-            if session.endedAt == nil, logChecked[id].map({ snapshot.timestamp.timeIntervalSince($0) >= 30 }) ?? true {
+            if session.endedAt == nil, logChecked[id].map({ timestamp.timeIntervalSince($0) >= 30 }) ?? true {
                 let captured = session
                 Task.detached(priority: .utility) { [weak self] in
                     let log = CatalogSessionLogAdapter(agentID: captured.agentID).latestLog(for: captured,
                         home: FileManager.default.homeDirectoryForCurrentUser)
                     await self?.acceptLog(log, for: id)
                 }
-                logChecked[id] = snapshot.timestamp
+                logChecked[id] = timestamp
             }
             session.log = logs[id]
             sessions[id] = session
             members[id] = current[id] ?? [:]
         }
+        return events
+    }
+
+    private func rollUpParentTotals() {
         let ownTotals = sessions.mapValues(\.totals)
         for (id, totals) in ownTotals {
             var parent = sessions[id]?.parentSession
@@ -277,14 +304,6 @@ actor AgentSessionTracker {
                 parent = sessions[key]?.parentSession
             }
         }
-        if let network, latestNetwork.map({ network.timestamp >= $0.timestamp }) ?? true { latestNetwork = network }
-        if let latestNetwork { annotate(latestNetwork) }
-        events = events.map { value in
-            var value = value
-            if let id = value.details["agentSession"], let project = sessions[id]?.project { value.details["project"] = project.name }
-            return value
-        }
-        return (ordered(), events)
     }
 
     func annotate(_ network: NetworkPortSnapshot) {

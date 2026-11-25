@@ -16,15 +16,26 @@ enum TimelineFileSources {
     static let sampleBytes = 65_536
     static let eventLimit = 100
 
+    // Built once, not per file: a scan parses up to `fileLimit` files. ISO8601DateFormatter is thread-safe
+    // but not marked Sendable; none of these is mutated after initialization.
+    nonisolated(unsafe) private static let iso = ISO8601DateFormatter()
+    nonisolated(unsafe) private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let pattern = try! NSRegularExpression(
+        pattern: #"^\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)"#)
+    private static let syslog = try! NSRegularExpression(pattern: #"^[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d"#)
+    private static let syslogDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d HH:mm:ss yyyy"
+        return formatter
+    }()
+
     static func parse(path: String, head: String, tail: String, sampled: Bool, reference: Date = Date()) -> TimelineFileSource {
-        let iso = ISO8601DateFormatter()
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let pattern = try! NSRegularExpression(pattern: #"^\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)"#)
-        let syslog = try! NSRegularExpression(pattern: #"^[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d"#)
-        let syslogDate = DateFormatter()
-        syslogDate.locale = Locale(identifier: "en_US_POSIX")
-        syslogDate.dateFormat = "MMM d HH:mm:ss yyyy"
+        let (iso, fractional, pattern, syslog, syslogDate) = (Self.iso, Self.fractional, Self.pattern, Self.syslog, Self.syslogDate)
         let calendar = Calendar.current
         let year = calendar.component(.year, from: reference)
         var inferred = false

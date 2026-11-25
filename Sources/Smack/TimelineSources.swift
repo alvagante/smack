@@ -1,4 +1,5 @@
 import Foundation
+import SmackIPC
 
 enum TimelineSources {
     struct Result: Sendable {
@@ -7,14 +8,22 @@ enum TimelineSources {
     }
 
     static func logArguments(_ window: DateInterval) -> [String] {
-        ["show", "--style", "ndjson", "--start", "@\(Int64(window.start.timeIntervalSince1970))",
-         "--end", "@\(Int64(window.end.timeIntervalSince1970))"]
+        UnifiedLogQuery.arguments(start: window.start.timeIntervalSince1970, end: window.end.timeIntervalSince1970)
+    }
+
+    /// Narrows `window` to its most recent `hours`, with a message saying so when it had to.
+    static func limitLogWindow(_ window: DateInterval, hours: Int) -> (window: DateInterval, message: String?) {
+        let limit = min(TimeInterval(hours) * 3_600, UnifiedLogQuery.maximumRange)
+        guard window.duration > limit else { return (window, nil) }
+        let span = hours % 24 == 0 ? "\(hours / 24) day\(hours == 24 ? "" : "s")" : "\(hours) hour\(hours == 1 ? "" : "s")"
+        return (DateInterval(start: window.end.addingTimeInterval(-limit), end: window.end),
+                "Unified logs cover only the last \(span) of this range. Change it in Settings > Activity Timeline.")
     }
 
     typealias Run = @Sendable (_ executable: String, _ arguments: [String]) async -> CommandRunner.Result
 
     static func logs(in window: DateInterval,
-                     run: Run = { await CommandRunner.run($0, $1, timeout: 10, outputLimit: 1_048_576) }) async -> Result {
+                     run: Run = { await CommandRunner.run($0, $1, timeout: UnifiedLogQuery.timeout, outputLimit: UnifiedLogQuery.outputLimit) }) async -> Result {
         let result = await run("/usr/bin/log", logArguments(window))
         let message: String?
         if result.timedOut { message = "Unified log query timed out; narrow the range." }
@@ -57,6 +66,7 @@ enum TimelineSources {
             var scanned = 0
             let readable = files.walk(folder, levels: 1) { url, _ in
                 scanned += 1
+                if Task.isCancelled { return false }
                 if scanned > 5_000 { unavailable = true; return false }
                 guard ["ips", "crash", "hang", "spin", "diag"].contains(url.pathExtension.lowercased()),
                       let date = files.modified(url.path), window.contains(date) else { return true }

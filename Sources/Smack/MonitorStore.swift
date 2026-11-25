@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 @MainActor
-final class MonitorStore: ObservableObject {
+final class MonitorStore: ObservableObject, EnvironmentContext {
     @Published private(set) var posture: PostureSnapshot?
     func receive(_ snapshot: PostureSnapshot) { posture = snapshot }
     func receive(_ inventory: StartupInventory) { startupItemsModel.receiveCached(inventory) }
@@ -28,7 +28,7 @@ final class MonitorStore: ObservableObject {
     private func updateNavigation(_ change: (inout NavigationState) -> Void) {
         let previous = route
         change(&navigation)
-        if route != previous { environment.update(route: route) }
+        if route != previous { environment.routeChanged() }
     }
     @Published private(set) var networkPorts: NetworkPortSnapshot?
     @Published private(set) var networkPortsLoading = false
@@ -53,15 +53,17 @@ final class MonitorStore: ObservableObject {
         guard panelVisible, let target else { return false }
         let link = resolveDeepLink(target.url)
         guard link.route == route else { return false }
+        return filterable(for: route)?.shows(link.filters) ?? true
+    }
+
+    /// The view model that owns a route's deep-link filters; nil for routes without any.
+    private func filterable(for route: AppRoute) -> (any DeepLinkFilterable)? {
         switch route {
-        case .networkPorts:
-            return link.filters.port == networkPortsViewModel.port && networkPortsViewModel.query.isEmpty
-        case .applications: return link.filters.search == applicationListViewModel.query
-        case .timeline:
-            return link.filters.search == timelineViewModel.query && link.filters.timelineKinds == timelineViewModel.selectedKinds
-                && (link.filters.timelineInterval == nil || link.filters.timelineInterval == timelineViewModel.window().duration)
-        case .settings: return link.filters.settingsPane == nil || link.filters.settingsPane == settingsViewModel.pane
-        default: return true
+        case .networkPorts: networkPortsViewModel
+        case .applications: applicationListViewModel
+        case .timeline: timelineViewModel
+        case .settings: settingsViewModel
+        default: nil
         }
     }
 
@@ -77,21 +79,7 @@ final class MonitorStore: ObservableObject {
 
     func navigate(to url: URL, now: Date = Date()) {
         let link = resolveDeepLink(url)
-        if link.route == .applications { applicationListViewModel.query = link.filters.search }
-        if link.route == .networkPorts {
-            networkPortsViewModel.query = ""
-            networkPortsViewModel.port = link.filters.port
-            networkPortsViewModel.mode = .listening
-        }
-        if link.route == .timeline {
-            timelineViewModel.select(range: .hour1)
-            if let interval = link.filters.timelineInterval {
-                timelineViewModel.open(window: DateInterval(start: now.addingTimeInterval(-interval), end: now))
-            }
-            timelineViewModel.query = link.filters.search
-            timelineViewModel.selectedKinds = link.filters.timelineKinds
-        }
-        if let pane = link.filters.settingsPane { settingsViewModel.pane = pane }
+        filterable(for: link.route)?.apply(link.filters, now: now)
         updateNavigation { $0.navigate(to: link.route, filters: link.filters) }
     }
 
@@ -120,6 +108,7 @@ final class MonitorStore: ObservableObject {
     private let scheduler: CollectionScheduler
     private var networkPortsTask: Task<Void, Never>?
     private var panelVisible = false
+    var isPanelVisible: Bool { panelVisible }
     /// Observable copy of `panelVisible`, so on-screen work such as the Session Timeline stops with the Panel.
     let panelVisibility = PanelVisibility(visible: false)
     private var settingsObservation: AnyCancellable?
@@ -148,6 +137,7 @@ final class MonitorStore: ObservableObject {
             Task { await self.recordStartup(inventory) }
         }
         historicalData.onError = { [weak self] message in self?.errorMessage = message }
+        environment.context = self
         applyEnvironmentSettings(settingsStore.settings)
         // Every writer goes through SettingsStore, including ones that skip settingsChanged(), so observe it here.
         settingsObservation = settingsStore.$settings.dropFirst().sink { [weak self] settings in
@@ -190,7 +180,7 @@ final class MonitorStore: ObservableObject {
         guard visible != panelVisible else { return }
         panelVisible = visible
         panelVisibility.visible = visible
-        environment.setVisible(visible)
+        environment.visibilityChanged()
         activityFeed.panelVisibilityChanged(visible) { [weak self] in self?.processes }
     }
 
@@ -260,7 +250,7 @@ final class MonitorStore: ObservableObject {
     func receive(_ snapshot: NetworkPortSnapshot) {
         networkPorts = snapshot
         networkPortsLoading = false
-        environment.receive(snapshot)
+        environment.networkPortsChanged()
     }
 
     func receive(_ inventory: ProcessInventory, for id: String) {

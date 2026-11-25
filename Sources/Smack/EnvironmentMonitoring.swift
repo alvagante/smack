@@ -1,6 +1,15 @@
 import Combine
 import Foundation
 
+/// The Panel state environment monitoring reads. MonitorStore owns it; nothing here keeps a copy.
+@MainActor
+protocol EnvironmentContext: AnyObject {
+    var route: AppRoute { get }
+    var isPanelVisible: Bool { get }
+    var processes: ProcessSnapshot? { get }
+    var networkPorts: NetworkPortSnapshot? { get }
+}
+
 @MainActor
 final class EnvironmentMonitoring {
     private let settingsStore: SettingsStore
@@ -12,11 +21,11 @@ final class EnvironmentMonitoring {
     let installedAppsModel = InstalledAppsMonitor()
     let devServersModel = DevServersModel()
 
+    /// Nil reads as the launch state: Summary, Panel hidden, nothing sampled yet.
+    weak var context: (any EnvironmentContext)?
     private var dockerObservation: AnyCancellable?
-    private var networkPorts: NetworkPortSnapshot?
-    private var processes: ProcessSnapshot?
-    private var route: AppRoute = .summary
-    private var panelVisible = false
+    private var route: AppRoute { context?.route ?? .summary }
+    private var panelVisible: Bool { context?.isPanelVisible ?? false }
     private var appliedPages: Set<SummaryPage> = []
 
     init(settingsStore: SettingsStore) {
@@ -47,26 +56,22 @@ final class EnvironmentMonitoring {
         updateDevServerVisibility()
     }
 
-    func update(route: AppRoute) {
-        self.route = route
+    func routeChanged() {
         updateDevServerVisibility()
     }
 
-    func setVisible(_ visible: Bool) {
-        guard visible != panelVisible else { return }
-        panelVisible = visible
-        setPageMonitorsVisible(visible)
+    /// Called on each real Panel show or hide, after the context reflects it.
+    func visibilityChanged() {
+        setPageMonitorsVisible(panelVisible)
         updateDevServerVisibility()
     }
 
     func receive(_ snapshot: ProcessSnapshot) {
-        processes = snapshot
         agentsModel.receive(snapshot.agentSessions, at: snapshot.timestamp)
         if devServersModel.devServers == nil { refreshDevServers() }
     }
 
-    func receive(_ snapshot: NetworkPortSnapshot) {
-        networkPorts = snapshot
+    func networkPortsChanged() {
         refreshDevServers()
     }
 
@@ -104,7 +109,7 @@ final class EnvironmentMonitoring {
 
     func refreshDevServers() {
         guard devServersWanted,
-              let networkPorts, let processes else { return }
+              let networkPorts = context?.networkPorts, let processes = context?.processes else { return }
         devServersModel.refresh(ports: networkPorts, processes: processes, containers: dockerModel.snapshot?.containers ?? [],
             showSystem: settingsStore.settings.devTools.devServersShowSystem) { [agentsModel] in agentsModel.sessions }
     }

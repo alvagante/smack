@@ -29,6 +29,26 @@ public enum SmackIPC {
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void)
 }
 
+/// The unified log query shared by the app and the Privileged Helper, so both read the same records.
+public enum UnifiedLogQuery {
+    public static let timeout: TimeInterval = 10
+    public static let outputLimit = 1_048_576
+    /// The widest range the Privileged Helper reads: 30 days. The user's setting can only narrow it.
+    public static let maximumRange: TimeInterval = 30 * 86_400
+
+    /// Why the helper refuses a requested range, or nil when it is acceptable. Checked in the helper,
+    /// because the app's own limit cannot be trusted by a root process.
+    public static func rejection(start: Double, end: Double, now: Double) -> String? {
+        guard start.isFinite, end.isFinite, start >= 0, end > start, end <= now + 60 else { return "Invalid log time range" }
+        guard end - start <= maximumRange else { return "Log time range is wider than 30 days" }
+        return nil
+    }
+
+    public static func arguments(start: Double, end: Double) -> [String] {
+        ["show", "--style", "ndjson", "--start", "@\(Int64(start))", "--end", "@\(Int64(end))"]
+    }
+}
+
 public struct UnifiedLogPayload: Codable, Sendable {
     public var output: String
     public var message: String?

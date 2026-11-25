@@ -147,8 +147,7 @@ final class TimelineViewModel: ObservableObject {
     func scanFiles(bookmarks: [Data], using scan: @escaping @Sendable ([Data]) -> [TimelineFileSource] = TimelineFileSources.scan) async {
         scanningFiles = true
         defer { scanningFiles = false }
-        let task = Task.detached(priority: .utility) { scan(bookmarks) }
-        let sources = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        let sources = await BackgroundWork.run { scan(bookmarks) }
         guard !Task.isCancelled else { return }
         fileSources = sources
     }
@@ -221,6 +220,7 @@ final class TimelineViewModel: ObservableObject {
     }
 
     func load(limit: Int = ActivitySettings().timelineReadLimit,
+              logRangeHours: Int = ActivitySettings().unifiedLogRangeHours,
               privilegedLogs: ((_ window: DateInterval) async -> TimelineSources.Result)? = nil,
               using loader: (_ start: Date, _ end: Date, _ limit: Int) async throws -> [ActivityEvent]) async {
         loading = true
@@ -234,16 +234,19 @@ final class TimelineViewModel: ObservableObject {
             let recordedCount = events.count
             var messages: [String] = []
             if includeReports {
-                let result = await Task.detached(priority: .utility) { TimelineSources.reports(in: window) }.value
+                let result = await BackgroundWork.run { TimelineSources.reports(in: window) }
                 events += result.events
                 if let message = result.message { messages.append(message) }
             }
+            guard !Task.isCancelled else { return }
             if includeLogs {
+                let limited = TimelineSources.limitLogWindow(window, hours: logRangeHours)
+                if let message = limited.message { messages.append(message) }
                 let result: TimelineSources.Result
                 if useHelper {
-                    result = await privilegedLogs?(window) ?? TimelineSources.Result(message: "Privileged Helper unavailable. Install or update it in Settings.")
+                    result = await privilegedLogs?(limited.window) ?? TimelineSources.Result(message: "Privileged Helper unavailable. Install or update it in Settings.")
                 } else {
-                    result = await TimelineSources.logs(in: window)
+                    result = await TimelineSources.logs(in: limited.window)
                 }
                 events += result.events
                 if let message = result.message { messages.append(message) }
@@ -259,6 +262,30 @@ final class TimelineViewModel: ObservableObject {
             loaded = []
             loadFailed = true
         }
+    }
+}
+
+/// What reloads the Timeline. New Smack events count only while no external source is included, so an
+/// active session does not re-run `log show` or the report scan on every recorded event.
+struct TimelineLoadKey: Equatable {
+    var request: String
+    var readLimit: Int
+    var logRangeHours: Int
+    var includeLogs: Bool
+    var includeReports: Bool
+    var useHelper: Bool
+    var sourceRevision: Int
+    var latestEventID: String?
+
+    @MainActor init(model: TimelineViewModel, readLimit: Int, logRangeHours: Int, latestEventID: String?) {
+        request = model.requestID
+        self.readLimit = readLimit
+        self.logRangeHours = logRangeHours
+        includeLogs = model.includeLogs
+        includeReports = model.includeReports
+        useHelper = model.useHelper
+        sourceRevision = model.sourceRevision
+        self.latestEventID = includeLogs || includeReports ? nil : latestEventID
     }
 }
 
@@ -290,32 +317,25 @@ struct TimelineView: View {
         .onChange(of: graphLayout) { _, _ in model.selectedEvent = nil }
         .onDisappear { model.fileSources = [] }
         .task(id: scanRevision) {
-            let bookmarks = ((try? JSONDecoder().decode([String].self, from: Data(fileBookmarks.utf8))) ?? []).compactMap { Data(base64Encoded: $0) }
-            await model.scanFiles(bookmarks: bookmarks)
+            await model.scanFiles(bookmarks: TimelineFileBookmarks(stored: fileBookmarks).data)
         }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { fileSelectionError = "Could not select the log files."; return }
-            fileSelectionError = nil
-            var bookmarks = (try? JSONDecoder().decode([String].self, from: Data(fileBookmarks.utf8))) ?? []
-            for url in urls where bookmarks.count < TimelineFileSources.fileLimit {
-                let active = url.startAccessingSecurityScopedResource()
-                defer { if active { url.stopAccessingSecurityScopedResource() } }
-                if let bookmark = try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
-                                                        includingResourceValuesForKeys: nil, relativeTo: nil) {
-                    let value = bookmark.base64EncodedString()
-                    if !bookmarks.contains(value) { bookmarks.append(value) }
-                    model.checkedFiles.insert(url.path)
-                } else { fileSelectionError = "Could not retain access to one or more selected files." }
-            }
-            if bookmarks.count >= TimelineFileSources.fileLimit { fileSelectionError = "The 200-file limit has been reached." }
-            if let data = try? JSONEncoder().encode(bookmarks), let text = String(data: data, encoding: .utf8) { fileBookmarks = text }
+            var bookmarks = TimelineFileBookmarks(stored: fileBookmarks)
+            let added = bookmarks.add(urls)
+            model.checkedFiles.formUnion(added.added)
+            fileSelectionError = added.error
+            fileBookmarks = bookmarks.stored
             scanRevision += 1
         }
         // New events from this session refresh the list; the short sleep coalesces bursts into one query.
-        .task(id: "\(model.requestID)|\(settingsStore.settings.activity.timelineReadLimit)|\(model.includeLogs)|\(model.includeReports)|\(model.useHelper)|\(model.sourceRevision)|\(model.includeLogs || model.includeReports ? "" : activity.recentEvents.first?.id ?? "")") {
+        .task(id: TimelineLoadKey(model: model, readLimit: settingsStore.settings.activity.timelineReadLimit,
+                                  logRangeHours: settingsStore.settings.activity.unifiedLogRangeHours,
+                                  latestEventID: activity.recentEvents.first?.id)) {
             if !model.loaded.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
-            await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit, privilegedLogs: { window in
+            await model.load(limit: store.settingsStore.settings.activity.timelineReadLimit,
+                             logRangeHours: store.settingsStore.settings.activity.unifiedLogRangeHours, privilegedLogs: { window in
                 guard let payload = await store.privilegedSampling?.queryUnifiedLog(window: window) else {
                     return TimelineSources.Result(message: "Privileged Helper unavailable or outdated. Install or update it in Settings.")
                 }

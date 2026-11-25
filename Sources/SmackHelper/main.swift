@@ -25,16 +25,16 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendab
     }
 
     func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void) {
-        guard start.isFinite, end.isFinite, start >= 0, end > start, end <= Date().timeIntervalSince1970 + 60 else {
-            reply(nil, "Invalid log time range")
+        if let rejection = UnifiedLogQuery.rejection(start: start, end: end, now: Date().timeIntervalSince1970) {
+            reply(nil, rejection)
             return
         }
         let completion = Reply(reply)
         probe.withLock { task in
             guard task == nil else { completion.send(nil, "A helper probe is already running"); return }
             task = Task {
-                let arguments = ["show", "--style", "ndjson", "--start", "@\(Int64(start))", "--end", "@\(Int64(end))"]
-                let result = await Subprocess.run("/usr/bin/log", arguments, timeout: 10, outputLimit: 1_048_576)
+                let result = await Subprocess.run("/usr/bin/log", UnifiedLogQuery.arguments(start: start, end: end),
+                                                  timeout: UnifiedLogQuery.timeout, outputLimit: UnifiedLogQuery.outputLimit)
                 let message = result.timedOut ? "Unified log query timed out; narrow the range."
                     : result.truncated ? "Unified log output reached 1 MB; narrow the range."
                     : result.status != 0 ? "Unified log query failed: \(String(result.error.prefix(500)))" : nil
