@@ -937,18 +937,18 @@ struct ResourceInsightView: View {
         defer { model.loading = false }
         var result: [SystemMetric: [HistoricalPoint]] = [:]
         for metric in series.map(\.metric) + extraHistoryMetrics {
-            result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, hours: hours), limit: ResourceInsightViewModel.pointLimit)
+            result[metric] = HistoricalPoint.downsampled(await store.historicalData.systemHistory(metric, hours: hours), limit: ResourceInsightViewModel.pointLimit)
         }
         guard !Task.isCancelled else { return }
         model.points = result
-        if hasProcessList, !usesLiveProcessRows { model.programs = await store.historicalPrograms(hours: hours) }
+        if hasProcessList, !usesLiveProcessRows { model.programs = await store.historicalData.historicalPrograms(hours: hours) }
     }
 
     private func loadRowHistory(_ row: InsightRow) async {
         guard !usesLiveProcessRows, let hours = model.range.hours, let program = row.program else { return }
         let key = historyKey(row)
         guard model.rowHistory[key] == nil else { return }
-        let result = await store.processHistory(program: program, processID: nil, hours: hours, limit: ResourceInsightViewModel.sparklinePoints)
+        let result = await store.historicalData.processHistory(program: program, processID: nil, hours: hours, limit: ResourceInsightViewModel.sparklinePoints)
         guard !Task.isCancelled else { return }
         model.rowHistory[key] = result
     }

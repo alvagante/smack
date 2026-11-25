@@ -180,7 +180,7 @@ private final class FreshBaselineNetwork: NetworkPortCollecting {
     let store = MonitorStore(settingsStore: settings, history: history, scheduler: scheduler)
     store.receive(NetworkPortSnapshot(timestamp: Date(timeIntervalSince1970: 1000),
         ports: [obsPort(pid: getpid(), port: 8080, host: "*")], connections: []))
-    let baseline = try await store.captureBaseline(name: "now", sections: ["listeners"])
+    let baseline = try await store.baselineCoordinator.capture(name: "now", sections: ["listeners"])
     #expect(network.reads.withLock { $0 } == 1)
     #expect(baseline.sections["listeners"]?.status == .complete)
     #expect(baseline.sections["listeners"]?.items.isEmpty == true)

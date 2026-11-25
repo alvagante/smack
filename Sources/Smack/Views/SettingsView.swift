@@ -153,7 +153,7 @@ struct SettingsView: View {
         }
         .background(MonitorStyle.page)
         .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
-            Button("Delete History", role: .destructive) { Task { try? await store.history.deleteAll() } }
+            Button("Delete History", role: .destructive) { Task { try? await store.historicalData.deleteAll() } }
         }
         .confirmationDialog("Compact the history database now?", isPresented: $model.confirmCompact) {
             Button("Compact") { compact() }
@@ -813,7 +813,7 @@ struct SettingsView: View {
                 SettingsFooter("Measures what each collection occupies in the local history database. Rates are averages over the stored span, so they reflect real usage including compaction.")
             }
         }
-        .task { model.lastCompacted = try? await store.history.lastCompacted() }
+        .task { model.lastCompacted = try? await store.historicalData.lastCompacted() }
         Section {
             Toggle(isOn: $model.includeEvents) {
                 SettingsLabel("Include activity events", help: "Adds events to the JSON export, or an extra -events.csv file. Default exports contain metrics only.")
@@ -934,7 +934,7 @@ struct SettingsView: View {
         model.isMeasuring = true
         model.usageError = nil
         Task {
-            do { model.usage = try await store.history.storageUsage() }
+            do { model.usage = try await store.historicalData.storageUsage() }
             catch { model.usageError = error.localizedDescription }
             model.isMeasuring = false
         }
@@ -945,7 +945,7 @@ struct SettingsView: View {
         model.compactError = nil
         Task {
             do {
-                model.lastCompacted = try await store.history.compactNow()
+                model.lastCompacted = try await store.historicalData.compactNow()
                 if model.usage != nil { measureUsage() }
             } catch { model.compactError = error.localizedDescription }
             model.isCompacting = false
@@ -982,7 +982,7 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let includeEvents = model.includeEvents
         Task {
-            do { try await store.history.export(to: url, format: format, includeEvents: includeEvents) }
+            do { try await store.historicalData.export(to: url, format: format, includeEvents: includeEvents) }
             catch { model.exportError = error.localizedDescription }
         }
     }

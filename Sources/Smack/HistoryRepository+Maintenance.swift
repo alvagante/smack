@@ -3,6 +3,33 @@ import SQLite3
 
 // Downsampling, retention, the storage limit and storage usage.
 extension HistoryRepository {
+    func deleteAll() throws {
+        try flush()
+        try transaction {
+            try execute("DELETE FROM system_samples")
+            try execute("DELETE FROM system_minutes")
+            try execute("DELETE FROM process_samples")
+            try execute("DELETE FROM process_minutes")
+            try execute("DELETE FROM processes")
+            try execute("DELETE FROM events")
+        }
+        resetWriterState()
+        try compactFile()
+    }
+
+    /// Rewrites the database file to release space left by deleted rows. Blocks other history writes while it runs
+    /// and temporarily needs free disk space about the size of the database.
+    @discardableResult
+    func compactNow(at date: Date = Date()) throws -> Date {
+        try compactFile()
+        try setMetadata(Self.lastCompactedKey, value: String(date.timeIntervalSince1970))
+        return date
+    }
+
+    func lastCompacted() throws -> Date? {
+        try metadata(Self.lastCompactedKey).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+    }
+
     func maintain(settings: CollectionSettings) throws {
         var settings = settings
         settings.validate()

@@ -194,9 +194,9 @@ extension MonitorStore {
         switch route {
         case .application(let id): application(id: id)?.name
         case .process(let id): process(id: id)?.name
-        case .project(let root): project(root: root)?.name
+        case .project(let root): environment.project(root: root)?.name
         case .document(let path): URL(fileURLWithPath: path).lastPathComponent
-        case .agentSession(let id): agentsModel.live.sessions.first { $0.id == id }.map { session in
+        case .agentSession(let id): environment.agentsModel.live.sessions.first { $0.id == id }.map { session in
             [session.agentName, session.project?.name].compactMap { $0 }.joined(separator: " · ")
         }
         default: nil

@@ -131,7 +131,7 @@ struct DocumentDetailView: View {
                     if let attributes = model.inspection?.attributes, !attributes.isEmpty {
                         section("More from Spotlight", fields: attributes.map { ($0.title, $0.value) })
                     }
-                    if let project = store.projectsModel.snapshot?.projects
+                    if let project = store.environment.projectsModel.snapshot?.projects
                         .filter({ path.hasPrefix($0.root + "/") }).max(by: { $0.root.count < $1.root.count }) {
                         GroupBox {
                             HStack {

@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// Listening development servers, joined from ports, processes, Docker containers and agent sessions.
-/// `MonitorStore` decides when they are wanted and feeds the inputs.
+/// `EnvironmentMonitoring` decides when they are wanted and feeds the inputs.
 @MainActor
 final class DevServersModel: ObservableObject {
     @Published private(set) var devServers: [DevServer]?

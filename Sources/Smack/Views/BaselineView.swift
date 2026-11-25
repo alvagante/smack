@@ -271,7 +271,7 @@ struct BaselineView: View {
             model.progress = [:]
             defer { model.capturing = false }
             do {
-                var doc = try await store.captureBaseline(name: model.name, sections: model.selectedSections.sorted())
+                var doc = try await store.baselineCoordinator.capture(name: model.name, sections: model.selectedSections.sorted())
                 doc.note = model.note
                 doc.pinned = pinned
                 model.current = doc
@@ -288,7 +288,7 @@ struct BaselineView: View {
                 let base = try await model.repository.load(model.baseID)
                 let against: BaselineDocument
                 if model.againstID == "now" {
-                    against = try await store.captureBaseline(name: "Now", sections: base.sections.keys.sorted())
+                    against = try await store.baselineCoordinator.capture(name: "Now", sections: base.sections.keys.sorted())
                     model.current = against
                 } else { against = try await model.repository.load(model.againstID) }
                 model.diff = BaselineDiff.compare(base, against)
