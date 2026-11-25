@@ -11,8 +11,11 @@ enum TimelineSources {
          "--end", "@\(Int64(window.end.timeIntervalSince1970))"]
     }
 
-    static func logs(in window: DateInterval) async -> Result {
-        let result = await CommandRunner.run("/usr/bin/log", logArguments(window), timeout: 10, outputLimit: 1_048_576)
+    typealias Run = @Sendable (_ executable: String, _ arguments: [String]) async -> CommandRunner.Result
+
+    static func logs(in window: DateInterval,
+                     run: Run = { await CommandRunner.run($0, $1, timeout: 10, outputLimit: 1_048_576) }) async -> Result {
+        let result = await run("/usr/bin/log", logArguments(window))
         let message: String?
         if result.timedOut { message = "Unified log query timed out; narrow the range." }
         else if result.status != 0 { message = result.error.isEmpty ? "Unified logs unavailable." : String(result.error.prefix(500)) }
@@ -44,32 +47,25 @@ enum TimelineSources {
         }
     }
 
-    static func reports(in window: DateInterval) -> Result {
-        let folders = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports"),
-                       URL(fileURLWithPath: "/Library/Logs/DiagnosticReports")]
+    static func reports(in window: DateInterval,
+                        folders: [URL] = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports"),
+                                          URL(fileURLWithPath: "/Library/Logs/DiagnosticReports")],
+                        files: any LogFileAccess = LocalLogFileAccess()) -> Result {
         var events: [ActivityEvent] = []
         var unavailable = false
         for folder in folders {
-            guard FileManager.default.isReadableFile(atPath: folder.path) else {
-                unavailable = true
-                continue
-            }
-            guard let urls = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey],
-                                                            options: [.skipsSubdirectoryDescendants]) else {
-                unavailable = true
-                continue
-            }
             var scanned = 0
-            for case let url as URL in urls {
+            let readable = files.walk(folder, levels: 1) { url, _ in
                 scanned += 1
-                if scanned > 5_000 { unavailable = true; break }
-                guard ["ips", "crash", "hang", "spin", "diag"].contains(url.pathExtension.lowercased()) else { continue }
-                guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                      window.contains(date) else { continue }
+                if scanned > 5_000 { unavailable = true; return false }
+                guard ["ips", "crash", "hang", "spin", "diag"].contains(url.pathExtension.lowercased()),
+                      let date = files.modified(url.path), window.contains(date) else { return true }
                 events.append(.make(kind: .diagnosticReport, timestamp: date, subject: url.lastPathComponent,
                                     severity: .notice, details: ["path": url.path, "timestamp": "File modification time"],
                                     dedupe: url.path))
+                return true
             }
+            if !readable { unavailable = true }
         }
         return Result(events: events, message: unavailable ? "Some diagnostic reports were inaccessible or the scan limit was reached." : nil)
     }

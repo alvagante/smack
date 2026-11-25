@@ -248,6 +248,13 @@ final class SessionTimelineModel: ObservableObject {
         reveal(list[next])
     }
 
+    func jumpToBoundary(first: Bool) {
+        let visible = events.filter { !hiddenLanes.contains($0.lane) }
+        guard let event = first ? visible.first : visible.last else { return }
+        select(event.id)
+        reveal(event)
+    }
+
     func nextMatch() {
         let list = events.filter { matches.contains($0.id) && !hiddenLanes.contains($0.lane) }
         guard !list.isEmpty else { return }

@@ -6,14 +6,22 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
+- **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
+- **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.
+- **AI Agents:** resize the Session Timeline and event details with their divider, move lane controls below the timeline, and add hide-all and first/last event navigation.
+- **Connections:** show the browser link in listener headers and use the full row width for expansion.
+
 - **Version:** prepare 1.3.0 (build 13); Summary, About and baseline exports report the new version.
 - **Timeline:** add 15-day, 30-day and Full ranges; Full starts at the oldest event loaded from enabled sources.
 - **Timeline:** show selected event details beneath the graph, with chronological first, previous, next and last navigation.
+- **Timeline:** log file discovery no longer enumerates folders below the two levels it reads, so a deep `~/Library/Logs` costs no more than its top. Log file, diagnostic report and Application log reads go through one injected file seam, so their tests no longer touch the disk.
 - **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
 - **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
 
 ### Added
 
+- **Application logs:** list recent nonempty open log files by process and view or tail their last 128 KiB. Discovery reuses the existing inventory, checks up to 500 matching paths and writes no data; release performance measurements are pending.
 - **Timeline:** discover local log files and add selected files, with sampled source coverage bars and events. Scans are on demand and bounded to 200 files and 64 KiB at each end; release performance measurements are pending.
 - **Timeline:** inspect Smack events alongside opt-in unified logs and diagnostic reports over custom time ranges. Queries run only on the Timeline, with a 10-second, 1 MiB limit per log request; no log data is stored. Performance measurements are pending.
 - **Onboarding:** reopen the welcome window from General Settings, prefilled with current choices.

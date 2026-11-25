@@ -76,6 +76,7 @@ struct DocumentsCollector: Sendable {
     typealias Run = @Sendable (String, [String], TimeInterval, Int) async -> CommandRunner.Result
     var run: Run = { await CommandRunner.run($0, $1, timeout: $2, outputLimit: $3) }
     var metadata: @Sendable (String) -> DocumentRecord? = Self.metadata
+    var uptime: @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let candidateLimit = 2_000
     static let entryLimit = 500
 
@@ -97,10 +98,10 @@ struct DocumentsCollector: Sendable {
         var entries: [DocumentRecord] = []
         var inspected = 0
         var limited = result.truncated
-        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        let deadline = uptime() + 2
         for raw in paths {
             guard !Task.isCancelled else { return DocumentsListing() }
-            guard inspected < Self.candidateLimit, ProcessInfo.processInfo.systemUptime < deadline else { limited = true; break }
+            guard inspected < Self.candidateLimit, uptime() < deadline else { limited = true; break }
             let path = String(raw)
             guard seen.insert(path).inserted else { continue }
             inspected += 1
