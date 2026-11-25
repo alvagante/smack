@@ -102,6 +102,13 @@ The helper is a separate executable, `SmackHelper`, embedded at
   a fixed root (`/`), return directory sizes and file counts, and accept no paths. Protocol v2 also exposes
   bounded fixed BTM/profile probes; old helpers skip these operations without prompting. Each
   connection owns one cancellable scan; disconnecting cancels it.
+- Protocol v3 adds the Timeline's unified log query, used only when the user includes unified logs and
+  turns on **Use Privileged Helper** there. The helper runs the fixed command
+  `/usr/bin/log show --style ndjson --start @<start> --end @<end>`; the client supplies only the two
+  times. The helper itself rejects non-finite, reversed or future ranges and ranges wider than 30 days,
+  stops after 10 s or 1 MiB of output, and refuses the query while another probe is running. It returns
+  log text read as root, which can include other users' and system records, and stores nothing.
+  With a helper older than v3, the Timeline says it is unavailable or outdated.
 - It accepts no arbitrary command or path and cannot read process memory. The
   PID is client-supplied: an accepted client can inspect the open files, sockets, threads,
   and loaded images of any process, root processes included. The start-time check only
@@ -122,9 +129,10 @@ The helper returns cumulative counters; the app computes rates with its existing
 logic. The snapshot has no paths beyond the executable path. The inventory contains paths
 of open files and loaded libraries, socket addresses, thread names, and warnings, which
 is the same information the unprivileged app already shows for permitted processes. It
-returns no file contents, environment, or process memory. Superuser sampling therefore
-covers process metrics, process inventory, Network Ports, and optional startup-disk
-directory scans. Root access does not bypass TCC: storage scans may require Full Disk
+returns no file contents, environment, or process memory; the unified log query above is the one operation
+that returns recorded text. Superuser sampling therefore
+covers process metrics, process inventory, Network Ports, optional startup-disk
+directory scans, and the opt-in Timeline unified log query described above. Root access does not bypass TCC: storage scans may require Full Disk
 Access for Smack and its helper. Unreadable items are reported and skipped. External
 volumes, device nodes, and duplicate APFS mounts under /System/Volumes are excluded.
 Only directory metadata is retained in memory, until the next completed scan or exit.
@@ -207,6 +215,7 @@ Store build the feature is hidden because the sandbox denies the operation.
 
 - `com.apple.security.app-sandbox`
 - `com.apple.security.files.user-selected.read-write` for the history export save panel
+- `com.apple.security.files.bookmarks.app-scope` to reopen the log files added to the Timeline
 
 No network entitlement is needed: lookup links open in the browser with `NSWorkspace`.
 

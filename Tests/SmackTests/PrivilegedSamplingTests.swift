@@ -162,3 +162,17 @@ private final class StubPrivilegedSampler: PrivilegedSamplingProviding, @uncheck
         socketCollection
     }
 }
+
+@MainActor @Test func anAdHocBuildNeverReachesTheHelper() async {
+    let controller = PrivilegedSamplingController(client: PrivilegedSamplingClient(), mode: .unsupported)
+    await controller.refresh()
+    #expect(controller.state == .unsupported)
+    #expect(controller.statusDescription.contains("ad-hoc signed"))
+    await controller.install()
+    #expect(controller.state == .unsupported)
+#if !SMACK_APP_STORE
+    #expect(controller.errorMessage == "Superuser sampling needs a signed build. Ad-hoc builds cannot run the helper.")
+#endif
+    #expect(await controller.captureFileActivity(identity: ProcessIdentity(pid: 1, startTime: .distantPast)) == nil)
+    #expect(await controller.queryUnifiedLog(window: DateInterval(start: .distantPast, duration: 60)) == nil)
+}

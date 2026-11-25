@@ -482,29 +482,34 @@ enum StartupToggleResult: Equatable, Sendable {
 
 /// Changes only what starts at the next login or boot; running processes are left alone.
 enum StartupItemController {
-    static func setEnabled(_ enabled: Bool, control: StartupControl) async -> StartupToggleResult {
+    typealias Runner = @Sendable (_ executable: String, _ arguments: [String], _ input: String?) async -> StartupCommand.Output
+
+    static func setEnabled(
+        _ enabled: Bool, control: StartupControl,
+        run: Runner = { await StartupCommand.run($0, $1, input: $2) }
+    ) async -> StartupToggleResult {
         let action = enabled ? "enable" : "disable"
         switch control {
         case .launchd(.user, let label):
-            return result(await StartupCommand.run("/bin/launchctl", [action, "gui/\(getuid())/\(label)"]))
+            return result(await run("/bin/launchctl", [action, "gui/\(getuid())/\(label)"], nil))
         case .launchd(.system, let label):
             let prompt = "Smack wants to \(action) the launch daemon \(label) at startup."
-            return result(await StartupCommand.run("/usr/bin/osascript", script([
+            return result(await run("/usr/bin/osascript", script([
                 "on run argv",
                 "do shell script \"/bin/launchctl \" & (quoted form of item 1 of argv) & \" \" & (quoted form of item 2 of argv) with prompt \(appleScriptString(prompt)) with administrator privileges",
                 "end run"
-            ], arguments: [action, "system/\(label)"])))
+            ], arguments: [action, "system/\(label)"]), nil))
         case .loginItem(let path):
             let command = enabled
                 ? "tell application \"System Events\" to make login item at end with properties {path:(item 1 of argv), hidden:false}"
                 : "tell application \"System Events\" to delete (every login item whose path is (item 1 of argv))"
-            return result(await StartupCommand.run("/usr/bin/osascript", script(["on run argv", command, "end run"], arguments: [path])))
+            return result(await run("/usr/bin/osascript", script(["on run argv", command, "end run"], arguments: [path]), nil))
         case .cron(let line):
-            let current = await StartupCommand.run("/usr/bin/crontab", ["-l"])
+            let current = await run("/usr/bin/crontab", ["-l"], nil)
             guard current.status == 0, let updated = StartupParsers.crontab(current.output, setting: line, enabled: enabled) else {
                 return .failed("The crontab changed since it was read. Refresh and try again.")
             }
-            return result(await StartupCommand.run("/usr/bin/crontab", ["-"], input: updated))
+            return result(await run("/usr/bin/crontab", ["-"], updated))
         case .readOnly:
             return .failed("This item cannot be changed from Smack.")
         }
@@ -555,11 +560,16 @@ final class StartupItemsModel: ObservableObject {
     /// Called after every successful scan, including partial ones.
     var onInventory: ((StartupInventory) -> Void)?
     private let defaults: UserDefaults
+    private let toggle: @Sendable (Bool, StartupControl) async -> StartupToggleResult
     private var loadTask: Task<Void, Never>?
     static let removedLoginItemsKey = "startupItems.removedLoginItems"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         toggle: @escaping @Sendable (Bool, StartupControl) async -> StartupToggleResult = {
+             await StartupItemController.setEnabled($0, control: $1)
+         }) {
         self.defaults = defaults
+        self.toggle = toggle
     }
 
     var removedLoginItems: [String] { defaults.stringArray(forKey: Self.removedLoginItemsKey) ?? [] }
@@ -594,7 +604,7 @@ final class StartupItemsModel: ObservableObject {
         guard !pending.contains(item.id) else { return }
         pending.insert(item.id)
         Task {
-            let result = await StartupItemController.setEnabled(enabled, control: item.control)
+            let result = await toggle(enabled, item.control)
             pending.remove(item.id)
             switch result {
             case .completed:
