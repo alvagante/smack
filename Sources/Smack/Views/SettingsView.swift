@@ -733,6 +733,18 @@ struct SettingsView: View {
                            text: settings.settings.activity.timelineReadLimit.formatted(), value: binding(\.activity.timelineReadLimit), range: CollectionSettings.timelineReadLimitRange, step: 500)
             }
         }
+        Section {
+            Picker(selection: binding(\.activity.unifiedLogRangeHours)) {
+                ForEach(CollectionSettings.unifiedLogRangeChoices, id: \.self) { hours in
+                    Text(hours < 24 ? "\(hours) hour\(hours == 1 ? "" : "s")" : "\(hours / 24) day\(hours == 24 ? "" : "s")").tag(hours)
+                }
+            } label: {
+                SettingsLabel("Unified log range", help: "The widest stretch of unified log the Timeline reads when Unified logs is on. Longer Timeline ranges keep their most recent part. Each read runs log show for up to 10 seconds and 1 MB of output; wider ranges cost more CPU and memory while it runs. Nothing is stored.",
+                    subtitle: "Read only on request, never in the background")
+            }
+        } footer: {
+            SettingsFooter("The Privileged Helper never reads more than 30 days, whatever this is set to.")
+        }
     }
 
     @ViewBuilder private var automationPane: some View {

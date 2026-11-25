@@ -204,6 +204,8 @@ struct CollectionSettings: Codable, Equatable, Sendable {
     static let processNetworkRateRange: ClosedRange<TimeInterval> = 2...60
     static let maximumEventRowsRange: ClosedRange<Int> = 10_000...1_000_000
     static let timelineReadLimitRange: ClosedRange<Int> = 500...20_000
+    /// Hours of unified log one Timeline load may read; the largest is the Privileged Helper's ceiling.
+    static let unifiedLogRangeChoices = [1, 6, 24, 168, 720]
     static let dockerRefreshChoices = [0, 15, 30, 60]
     static let devScanDepthRange: ClosedRange<Int> = 1...8
     static let fileActivityChoices = [5, 10, 30]
@@ -465,6 +467,9 @@ struct ActivitySettings: Codable, Equatable, Sendable {
     var maximumEventRows = 100_000
     /// Newest events the Timeline reads for one window; filters and search run on these in memory.
     var timelineReadLimit = 2_000
+    /// Widest stretch of unified log, in hours, one Timeline load reads; longer windows keep their most recent part.
+    /// The default is the helper's 30-day ceiling, so ranges up to a month read as before.
+    var unifiedLogRangeHours = 720
     /// Outbound connection churn is noisy, so connection events are opt-in.
     var recordConnectionEvents = false
     var showEventsOnCharts = true
@@ -495,6 +500,7 @@ struct ActivitySettings: Codable, Equatable, Sendable {
         eventRetentionDays = min(max(eventRetentionDays, S.eventRetentionRange.lowerBound), S.eventRetentionRange.upperBound)
         maximumEventRows = min(max(maximumEventRows, S.maximumEventRowsRange.lowerBound), S.maximumEventRowsRange.upperBound)
         timelineReadLimit = min(max(timelineReadLimit, S.timelineReadLimitRange.lowerBound), S.timelineReadLimitRange.upperBound)
+        if !S.unifiedLogRangeChoices.contains(unifiedLogRangeHours) { unifiedLogRangeHours = 720 }
     }
 
     init() {}
@@ -506,6 +512,7 @@ struct ActivitySettings: Codable, Equatable, Sendable {
         eventRetentionDays = c.value(.eventRetentionDays, or: d.eventRetentionDays)
         maximumEventRows = c.value(.maximumEventRows, or: d.maximumEventRows)
         timelineReadLimit = c.value(.timelineReadLimit, or: d.timelineReadLimit)
+        unifiedLogRangeHours = c.value(.unifiedLogRangeHours, or: d.unifiedLogRangeHours)
         recordConnectionEvents = c.value(.recordConnectionEvents, or: d.recordConnectionEvents)
         showEventsOnCharts = c.value(.showEventsOnCharts, or: d.showEventsOnCharts)
         recordProcessEvents = c.value(.recordProcessEvents, or: d.recordProcessEvents)

@@ -61,99 +61,142 @@ struct ProjectManifestReader: Sendable {
 
     static func parse(_ name: String, language: String, text: String) -> ProjectManifest? {
         var manifest = ProjectManifest(file: name, language: language)
-        var facts: [(String, String?)] = []
+        let facts: [(String, String?)]
         switch name {
         case "package.json":
-            guard let json = jsonObject(text) else { return unreadable(manifest) }
-            let scripts = (json["scripts"] as? [String: Any])?.keys.sorted() ?? []
-            facts = [("Name", json["name"] as? String), ("Version", json["version"] as? String),
-                     ("Module type", json["type"] as? String), ("Package manager", json["packageManager"] as? String),
-                     ("Scripts", scripts.isEmpty ? nil : "\(scripts.count): " + scripts.prefix(6).joined(separator: ", ")
-                        + (scripts.count > 6 ? ", …" : "")),
-                     ("Dependencies", counts((json["dependencies"] as? [String: Any])?.count, (json["devDependencies"] as? [String: Any])?.count)),
-                     ("Workspaces", (json["workspaces"] as? [Any]).map { String($0.count) })]
-            manifest.requirement = (json["engines"] as? [String: Any])?["node"] as? String
-        case "pyproject.toml":
-            let toml = TOMLLite(text)
-            let project = toml.string("project", "name") != nil ? "project" : "tool.poetry"
-            let poetry = toml.keys("tool.poetry.dependencies")
-            facts = [("Name", toml.string(project, "name")), ("Version", toml.string(project, "version")),
-                     ("Dependencies", toml.arrayCount("project", "dependencies").map(String.init)
-                        ?? (poetry.isEmpty ? nil : String(poetry.filter { $0 != "python" }.count))),
-                     ("Build backend", toml.string("build-system", "build-backend"))]
-            manifest.requirement = toml.string("project", "requires-python") ?? toml.string("tool.poetry.dependencies", "python")
-        case "requirements.txt":
-            let packages = lines(text).filter { !$0.hasPrefix("#") && !$0.hasPrefix("-") }
-            facts = [("Packages", String(packages.count))]
-        case "go.mod":
-            var requires = 0, indirect = 0, block = false
-            for line in lines(text) {
-                if line.hasPrefix("module ") { facts.append(("Module", String(line.dropFirst(7)))) }
-                else if line.hasPrefix("go ") { manifest.requirement = String(line.dropFirst(3)) }
-                else if line.hasPrefix("toolchain ") { facts.append(("Toolchain", String(line.dropFirst(10)))) }
-                else if line == "require (" { block = true }
-                else if block && line == ")" { block = false }
-                else if block || line.hasPrefix("require ") {
-                    requires += 1
-                    if line.contains("// indirect") { indirect += 1 }
-                }
-            }
-            if requires > 0 { facts.append(("Requirements", indirect > 0 ? "\(requires) (\(indirect) indirect)" : String(requires))) }
-        case "Cargo.toml":
-            let toml = TOMLLite(text)
-            facts = [("Name", toml.string("package", "name")), ("Version", toml.string("package", "version")),
-                     ("Edition", toml.string("package", "edition")),
-                     ("Dependencies", counts(toml.keys("dependencies").count, toml.keys("dev-dependencies").count)),
-                     ("Workspace members", toml.arrayCount("workspace", "members").map(String.init))]
-            manifest.requirement = toml.string("package", "rust-version")
-        case "Package.swift":
-            if let first = text.split(whereSeparator: \.isNewline).first, first.contains("swift-tools-version") {
-                manifest.requirement = first.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) }
-            }
-            let dependencies = text.components(separatedBy: ".package(").count - 1
-            facts = [("Package dependencies", String(dependencies))]
-        case "Gemfile":
-            let entries = lines(text).filter { !$0.hasPrefix("#") }
-            manifest.requirement = entries.first { $0.hasPrefix("ruby ") }.flatMap(quoted)
-            facts = [("Gems", String(entries.filter { $0.hasPrefix("gem ") }.count))]
+            guard let parsed = packageJSON(&manifest, text) else { return unreadable(manifest) }
+            facts = parsed
+        case "pyproject.toml": facts = pyproject(&manifest, text)
+        case "requirements.txt": facts = requirements(text)
+        case "go.mod": facts = goMod(&manifest, text)
+        case "Cargo.toml": facts = cargo(&manifest, text)
+        case "Package.swift": facts = packageSwift(&manifest, text)
+        case "Gemfile": facts = gemfile(&manifest, text)
         case "composer.json":
-            guard let json = jsonObject(text) else { return unreadable(manifest) }
-            let require = json["require"] as? [String: Any] ?? [:]
-            let packages = require.keys.filter { $0 != "php" && !$0.hasPrefix("ext-") }
-            facts = [("Name", json["name"] as? String),
-                     ("Dependencies", counts(packages.count, (json["require-dev"] as? [String: Any])?.count))]
-            manifest.requirement = require["php"] as? String
-        case "pom.xml":
-            facts = [("Artifact", xml(text, "artifactId")),
-                     ("Dependencies", String(text.components(separatedBy: "<dependency>").count - 1))]
-            manifest.requirement = xml(text, "maven.compiler.release") ?? xml(text, "java.version") ?? xml(text, "maven.compiler.source")
-        case "build.gradle", "build.gradle.kts":
-            let entries = lines(text)
-            let dependencies = entries.filter { line in
-                ["implementation", "api", "testImplementation", "compileOnly", "runtimeOnly"].contains { line.hasPrefix($0 + "(") || line.hasPrefix($0 + " ") }
-            }
-            facts = [("Dependencies", String(dependencies.count))]
-            manifest.requirement = firstMatch(text, #"JavaLanguageVersion\.of\((\d+)\)"#)
-                ?? firstMatch(text, #"(?:source|target)Compatibility\s*=\s*['"]?(?:JavaVersion\.VERSION_)?([0-9_.]+)"#)?.replacingOccurrences(of: "_", with: ".")
+            guard let parsed = composer(&manifest, text) else { return unreadable(manifest) }
+            facts = parsed
+        case "pom.xml": facts = pom(&manifest, text)
+        case "build.gradle", "build.gradle.kts": facts = gradle(&manifest, text)
         case "metadata.json":
-            guard let json = jsonObject(text) else { return nil }
-            guard json["operatingsystem_support"] != nil || (json["requirements"] as? [[String: Any]])?.isEmpty == false else { return nil }
-            let puppet = (json["requirements"] as? [[String: Any]])?.first { $0["name"] as? String == "puppet" }
-            let systems = (json["operatingsystem_support"] as? [[String: Any]])?.compactMap { $0["operatingsystem"] as? String } ?? []
-            facts = [("Module", json["name"] as? String), ("Version", json["version"] as? String),
-                     ("Author", json["author"] as? String), ("License", json["license"] as? String),
-                     ("Puppet", puppet?["version_requirement"] as? String),
-                     ("Dependencies", (json["dependencies"] as? [Any]).map { String($0.count) }),
-                     ("Supported OS", systems.isEmpty ? nil : systems.joined(separator: ", "))]
-        case "Puppetfile":
-            let entries = lines(text)
-            facts = [("Modules", String(entries.filter { $0.hasPrefix("mod ") }.count)),
-                     ("Forge", entries.first { $0.hasPrefix("forge ") }.flatMap(quoted))]
-        default:
-            return nil
+            guard let parsed = puppetMetadata(text) else { return nil }
+            facts = parsed
+        case "Puppetfile": facts = puppetfile(text)
+        default: return nil
         }
         manifest.facts += facts.compactMap { label, value in value.map { ProjectManifest.Fact(label: label, value: $0) } }
         return manifest
+    }
+
+    private static func packageJSON(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)]? {
+        guard let json = jsonObject(text) else { return nil }
+        let scripts = (json["scripts"] as? [String: Any])?.keys.sorted() ?? []
+        manifest.requirement = (json["engines"] as? [String: Any])?["node"] as? String
+        return [("Name", json["name"] as? String), ("Version", json["version"] as? String),
+                ("Module type", json["type"] as? String), ("Package manager", json["packageManager"] as? String),
+                ("Scripts", scripts.isEmpty ? nil : "\(scripts.count): " + scripts.prefix(6).joined(separator: ", ")
+                    + (scripts.count > 6 ? ", …" : "")),
+                ("Dependencies", counts((json["dependencies"] as? [String: Any])?.count, (json["devDependencies"] as? [String: Any])?.count)),
+                ("Workspaces", (json["workspaces"] as? [Any]).map { String($0.count) })]
+    }
+
+    private static func pyproject(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        let toml = TOMLLite(text)
+        let project = toml.string("project", "name") != nil ? "project" : "tool.poetry"
+        let poetry = toml.keys("tool.poetry.dependencies")
+        manifest.requirement = toml.string("project", "requires-python") ?? toml.string("tool.poetry.dependencies", "python")
+        return [("Name", toml.string(project, "name")), ("Version", toml.string(project, "version")),
+                ("Dependencies", toml.arrayCount("project", "dependencies").map(String.init)
+                    ?? (poetry.isEmpty ? nil : String(poetry.filter { $0 != "python" }.count))),
+                ("Build backend", toml.string("build-system", "build-backend"))]
+    }
+
+    private static func requirements(_ text: String) -> [(String, String?)] {
+        let packages = lines(text).filter { !$0.hasPrefix("#") && !$0.hasPrefix("-") }
+        return [("Packages", String(packages.count))]
+    }
+
+    private static func goMod(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        var facts: [(String, String?)] = []
+        var requires = 0, indirect = 0, block = false
+        for line in lines(text) {
+            if line.hasPrefix("module ") { facts.append(("Module", String(line.dropFirst(7)))) }
+            else if line.hasPrefix("go ") { manifest.requirement = String(line.dropFirst(3)) }
+            else if line.hasPrefix("toolchain ") { facts.append(("Toolchain", String(line.dropFirst(10)))) }
+            else if line == "require (" { block = true }
+            else if block && line == ")" { block = false }
+            else if block || line.hasPrefix("require ") {
+                requires += 1
+                if line.contains("// indirect") { indirect += 1 }
+            }
+        }
+        if requires > 0 { facts.append(("Requirements", indirect > 0 ? "\(requires) (\(indirect) indirect)" : String(requires))) }
+        return facts
+    }
+
+    private static func cargo(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        let toml = TOMLLite(text)
+        manifest.requirement = toml.string("package", "rust-version")
+        return [("Name", toml.string("package", "name")), ("Version", toml.string("package", "version")),
+                ("Edition", toml.string("package", "edition")),
+                ("Dependencies", counts(toml.keys("dependencies").count, toml.keys("dev-dependencies").count)),
+                ("Workspace members", toml.arrayCount("workspace", "members").map(String.init))]
+    }
+
+    private static func packageSwift(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        if let first = text.split(whereSeparator: \.isNewline).first, first.contains("swift-tools-version") {
+            manifest.requirement = first.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        let dependencies = text.components(separatedBy: ".package(").count - 1
+        return [("Package dependencies", String(dependencies))]
+    }
+
+    private static func gemfile(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        let entries = lines(text).filter { !$0.hasPrefix("#") }
+        manifest.requirement = entries.first { $0.hasPrefix("ruby ") }.flatMap(quoted)
+        return [("Gems", String(entries.filter { $0.hasPrefix("gem ") }.count))]
+    }
+
+    private static func composer(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)]? {
+        guard let json = jsonObject(text) else { return nil }
+        let require = json["require"] as? [String: Any] ?? [:]
+        let packages = require.keys.filter { $0 != "php" && !$0.hasPrefix("ext-") }
+        manifest.requirement = require["php"] as? String
+        return [("Name", json["name"] as? String),
+                ("Dependencies", counts(packages.count, (json["require-dev"] as? [String: Any])?.count))]
+    }
+
+    private static func pom(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        manifest.requirement = xml(text, "maven.compiler.release") ?? xml(text, "java.version") ?? xml(text, "maven.compiler.source")
+        return [("Artifact", xml(text, "artifactId")),
+                ("Dependencies", String(text.components(separatedBy: "<dependency>").count - 1))]
+    }
+
+    private static func gradle(_ manifest: inout ProjectManifest, _ text: String) -> [(String, String?)] {
+        let entries = lines(text)
+        let dependencies = entries.filter { line in
+            ["implementation", "api", "testImplementation", "compileOnly", "runtimeOnly"].contains { line.hasPrefix($0 + "(") || line.hasPrefix($0 + " ") }
+        }
+        manifest.requirement = firstMatch(text, #"JavaLanguageVersion\.of\((\d+)\)"#)
+            ?? firstMatch(text, #"(?:source|target)Compatibility\s*=\s*['"]?(?:JavaVersion\.VERSION_)?([0-9_.]+)"#)?.replacingOccurrences(of: "_", with: ".")
+        return [("Dependencies", String(dependencies.count))]
+    }
+
+    private static func puppetMetadata(_ text: String) -> [(String, String?)]? {
+        guard let json = jsonObject(text) else { return nil }
+        guard json["operatingsystem_support"] != nil || (json["requirements"] as? [[String: Any]])?.isEmpty == false else { return nil }
+        let puppet = (json["requirements"] as? [[String: Any]])?.first { $0["name"] as? String == "puppet" }
+        let systems = (json["operatingsystem_support"] as? [[String: Any]])?.compactMap { $0["operatingsystem"] as? String } ?? []
+        return [("Module", json["name"] as? String), ("Version", json["version"] as? String),
+                ("Author", json["author"] as? String), ("License", json["license"] as? String),
+                ("Puppet", puppet?["version_requirement"] as? String),
+                ("Dependencies", (json["dependencies"] as? [Any]).map { String($0.count) }),
+                ("Supported OS", systems.isEmpty ? nil : systems.joined(separator: ", "))]
+    }
+
+    private static func puppetfile(_ text: String) -> [(String, String?)] {
+        let entries = lines(text)
+        return [("Modules", String(entries.filter { $0.hasPrefix("mod ") }.count)),
+                ("Forge", entries.first { $0.hasPrefix("forge ") }.flatMap(quoted))]
     }
 
     private static func unreadable(_ manifest: ProjectManifest) -> ProjectManifest {

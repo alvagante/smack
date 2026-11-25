@@ -199,44 +199,15 @@ actor PersistenceScanner {
         }
         let previous = hashes
         let fileBaseline = previous?.contains(where: { $0.key != "__profiles" && $0.key != "__profilesCanonicalV1" }) == true ? previous : nil
-        var fresh = previous ?? [:], events = [ActivityEvent](), items = [StartupItem]()
-        var categories = Set<StartupCategory>()
+        var fresh = previous ?? [:], events = [ActivityEvent]()
         var listed = [String](), listedRoots = [String]()
         let now = Date()
         let deadline = ProcessInfo.processInfo.systemUptime + 20
         var enriched = 0
         // Both agent directories form one recorder category. Never publish just one as complete.
-        for locations: [LaunchdLocation] in [[.userAgents, .globalAgents], [.globalDaemons]] {
-            var plists = [LaunchdPlist](), complete = true
-            for location in locations {
-                var directory = stat()
-                let root = self.directory(location)
-                if lstat(root, &directory) != 0 && errno == ENOENT { listedRoots.append(root); continue }
-                guard let names = try? FileManager.default.contentsOfDirectory(atPath: root), names.count <= 2000 else { complete = false; continue }
-                listedRoots.append(root)
-                for name in names.sorted() where name.hasSuffix(".plist") {
-                    guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return (nil, []) }
-                    let path = root + "/" + name
-                    // Every listed plist is hashed, so one unparseable file cannot hide later
-                    // additions. launchd and the Startup page both follow symlinked plists.
-                    listed.append(path)
-                    guard let data = BoundedFile.read(path, followLinks: true) else { complete = false; continue }
-                    guard let plist = LaunchdPlist.parse(data, path: path, location: location) else {
-                        if !LaunchdPlist.isIgnoredByLaunchd(data) { complete = false }
-                        continue
-                    }
-                    plists.append(plist)
-                }
-            }
-            guard complete else { continue }
-            let result = await overrides(locations[0].domain == .system ? "system" : "gui/\(getuid())")
-            guard result.status == 0, !result.truncated, !result.cancelled, !result.timedOut else { continue }
-            categories.insert(locations[0].category)
-            var sources = StartupSources(); sources.plists = plists
-            if locations[0].domain == .system { sources.systemOverrides = StartupParsers.disabledOverrides(result.output) }
-            else { sources.userOverrides = StartupParsers.disabledOverrides(result.output) }
-            items += StartupItemCollector.items(from: sources)
-        }
+        guard let launchd = await launchdInventory(deadline: deadline, listed: &listed, listedRoots: &listedRoots) else { return (nil, []) }
+        let items = launchd.items
+        let categories = launchd.categories
         let inventoryPaths = Set(items.compactMap(\.path))
         // Revisit removed files only when their directory was listed. Keep hashes across
         // denied scans so recovery cannot fabricate additions or removals.
@@ -244,31 +215,15 @@ actor PersistenceScanner {
         var paths = filePaths + Array(inventoryPaths) + listed + trackedPaths
         // Names only: sudoers contents require explicit privilege support.
         if let names = try? FileManager.default.contentsOfDirectory(atPath: "/etc/sudoers.d"), names.count <= 2000 {
-            let digest = SHA256.hash(data: Data(names.sorted().joined(separator: "\n").utf8)).map { String(format: "%02x", $0) }.joined()
+            let digest = Self.sha256Hex(Data(names.sorted().joined(separator: "\n").utf8))
             fresh["/etc/sudoers.d"] = digest
         }
         paths = Array(Set(paths)).sorted()
         for path in paths {
             guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return (nil, []) }
-            let digest: String
-            var hookPresent = false
-            if var data = BoundedFile.read(path) {
-                if path == "/Library/Preferences/com.apple.loginwindow.plist" {
-                    guard let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { continue }
-                    let hooks = ["LoginHook", "LogoutHook"].map { plist[$0] as? String ?? "" }
-                    hookPresent = hooks.contains { !$0.isEmpty }
-                    data = Data(hooks.joined(separator: "\n").utf8)
-                }
-                digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            }
-            else if let link = BoundedFile.linkIdentity(path) {
-                digest = SHA256.hash(data: link).map { String(format: "%02x", $0) }.joined()
-            }
-            else {
-                var info = stat()
-                guard lstat(path, &info) != 0, errno == ENOENT else { continue }
-                digest = "absent"
-            }
+            guard let tracked = trackedFile(path) else { continue }
+            let digest = tracked.digest
+            let hookPresent = tracked.hookPresent
             if digest == "absent", !filePaths.contains(path) { fresh.removeValue(forKey: path) }
             else { fresh[path] = digest }
             guard let previous = fileBaseline, previous[path] != digest, !(previous[path] == nil && digest == "absent") else { continue }
@@ -296,6 +251,73 @@ actor PersistenceScanner {
         let inventory = categories.isEmpty ? nil
             : StartupInventory(timestamp: now, items: items, warnings: [], includesBackgroundTasks: false, includedCategories: categories)
         return (inventory, events)
+    }
+
+    /// Nil means the scan ran out of time or was cancelled, so the caller publishes nothing.
+    private func launchdInventory(deadline: TimeInterval, listed: inout [String], listedRoots: inout [String]) async -> (items: [StartupItem], categories: Set<StartupCategory>)? {
+        var items = [StartupItem]()
+        var categories = Set<StartupCategory>()
+        for locations: [LaunchdLocation] in [[.userAgents, .globalAgents], [.globalDaemons]] {
+            var plists = [LaunchdPlist](), complete = true
+            for location in locations {
+                var directory = stat()
+                let root = self.directory(location)
+                if lstat(root, &directory) != 0 && errno == ENOENT { listedRoots.append(root); continue }
+                guard let names = try? FileManager.default.contentsOfDirectory(atPath: root), names.count <= 2000 else { complete = false; continue }
+                listedRoots.append(root)
+                for name in names.sorted() where name.hasSuffix(".plist") {
+                    guard !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+                    let path = root + "/" + name
+                    // Every listed plist is hashed, so one unparseable file cannot hide later
+                    // additions. launchd and the Startup page both follow symlinked plists.
+                    listed.append(path)
+                    guard let data = BoundedFile.read(path, followLinks: true) else { complete = false; continue }
+                    guard let plist = LaunchdPlist.parse(data, path: path, location: location) else {
+                        if !LaunchdPlist.isIgnoredByLaunchd(data) { complete = false }
+                        continue
+                    }
+                    plists.append(plist)
+                }
+            }
+            guard complete else { continue }
+            let result = await overrides(locations[0].domain == .system ? "system" : "gui/\(getuid())")
+            guard result.status == 0, !result.truncated, !result.cancelled, !result.timedOut else { continue }
+            categories.insert(locations[0].category)
+            var sources = StartupSources(); sources.plists = plists
+            if locations[0].domain == .system { sources.systemOverrides = StartupParsers.disabledOverrides(result.output) }
+            else { sources.userOverrides = StartupParsers.disabledOverrides(result.output) }
+            items += StartupItemCollector.items(from: sources)
+        }
+        return (items, categories)
+    }
+
+    private struct TrackedFile {
+        var digest: String
+        var hookPresent: Bool
+    }
+
+    /// Nil when the path cannot be read and is not a confirmed absence. The caller leaves that hash untouched.
+    private func trackedFile(_ path: String) -> TrackedFile? {
+        if var data = BoundedFile.read(path) {
+            var hookPresent = false
+            if path == "/Library/Preferences/com.apple.loginwindow.plist" {
+                guard let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return nil }
+                let hooks = ["LoginHook", "LogoutHook"].map { plist[$0] as? String ?? "" }
+                hookPresent = hooks.contains { !$0.isEmpty }
+                data = Data(hooks.joined(separator: "\n").utf8)
+            }
+            return TrackedFile(digest: Self.sha256Hex(data), hookPresent: hookPresent)
+        }
+        if let link = BoundedFile.linkIdentity(path) {
+            return TrackedFile(digest: Self.sha256Hex(link), hookPresent: false)
+        }
+        var info = stat()
+        guard lstat(path, &info) != 0, errno == ENOENT else { return nil }
+        return TrackedFile(digest: "absent", hookPresent: false)
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

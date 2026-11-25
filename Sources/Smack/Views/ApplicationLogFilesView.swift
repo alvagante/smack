@@ -56,14 +56,14 @@ struct ApplicationLogFilesView: View {
         }
         .task(id: inventory?.files.map { $0.id + $0.processes.map(\.id).joined(separator: "#") } ?? []) {
             let paths = inventory?.files ?? []
-            let discovered = await Task.detached(priority: .utility) { ApplicationLogFiles.discover(paths) }.value
+            let discovered = await BackgroundWork.run { ApplicationLogFiles.discover(paths) }
             guard !Task.isCancelled else { return }
             files = discovered
         }
         .task(id: "\(selectedPath ?? "")#\(live)") {
             guard let selectedPath else { return }
             repeat {
-                let result = await Task.detached(priority: .utility) { Result { try ApplicationLogFiles.read(selectedPath) } }.value
+                let result = await BackgroundWork.run { Result { try ApplicationLogFiles.read(selectedPath) } }
                 guard !Task.isCancelled else { return }
                 switch result {
                 case .success(let text): output = text; error = nil

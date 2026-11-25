@@ -165,3 +165,5 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
           rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/AuthKey.p8"
+          # The tap clone keeps HOMEBREW_TAP_TOKEN in its remote URL; a self-hosted runner keeps RUNNER_TEMP.
+          rm -rf "$RUNNER_TEMP/tap"
