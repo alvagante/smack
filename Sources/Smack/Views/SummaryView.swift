@@ -10,7 +10,7 @@ struct SummaryView: View {
 
     init(store: MonitorStore) {
         self.store = store
-        devServers = store.devServersModel
+        devServers = store.environment.devServersModel
         settingsStore = store.settingsStore
     }
 
@@ -82,9 +82,9 @@ struct SummaryView: View {
             let candidates = Set((servers ?? []).flatMap(\.ports).filter(\.mayServeHTTP).map(\.probeKey))
             return candidates.isEmpty ? 1 : 2
         case .projects:
-            return (store.projectsModel.snapshot?.projects.isEmpty == false) ? 2 : 1
+            return (store.environment.projectsModel.snapshot?.projects.isEmpty == false) ? 2 : 1
         case .agents:
-            return store.agentsModel.live.sessions.contains(where: { $0.endedAt == nil }) ? 2 : 1
+            return store.environment.agentsModel.live.sessions.contains(where: { $0.endedAt == nil }) ? 2 : 1
         default:
             return SummaryTileID.factorySpans[id] ?? 1
         }
@@ -168,8 +168,8 @@ struct SummaryView: View {
             InsightsDigestCard(model: store.insights, sources: InsightsSources(settings: settings)) { open(.insights) }
         case .devServers: devServersTile
         case .projects:
-            ProjectsSummaryTile(model: store.projectsModel, devServers: store.devServersModel,
-                                sessions: store.agentsModel.live, docker: store.dockerModel,
+            ProjectsSummaryTile(model: store.environment.projectsModel, devServers: store.environment.devServersModel,
+                                sessions: store.environment.agentsModel.live, docker: store.environment.dockerModel,
                                 open: { open(.projects) },
                                 openProject: { if !arranging { store.openProject($0, section: $1) } },
                                 openSession: { open(.agentSession($0)) })
@@ -180,12 +180,12 @@ struct SummaryView: View {
                 open(.documents)
             }, openDocument: { open(.document($0)) })
         case .agents:
-            AgentsSummaryTile(model: store.agentsModel, open: { open(.agents) },
+            AgentsSummaryTile(model: store.environment.agentsModel, open: { open(.agents) },
                               openSession: { open(.agentSession($0)) })
-        case .docker: DockerSummaryTile(model: store.dockerModel) { open(.docker) }
-        case .homebrew: HomebrewSummaryTile(model: store.homebrewModel) { open(.homebrew) }
-        case .devEnvironments: DevEnvironmentSummaryTile(model: store.devEnvironmentModel) { open(.devEnvironments) }
-        case .installedApps: InstalledAppsSummaryTile(model: store.installedAppsModel) { open(.installedApps) }
+        case .docker: DockerSummaryTile(model: store.environment.dockerModel) { open(.docker) }
+        case .homebrew: HomebrewSummaryTile(model: store.environment.homebrewModel) { open(.homebrew) }
+        case .devEnvironments: DevEnvironmentSummaryTile(model: store.environment.devEnvironmentModel) { open(.devEnvironments) }
+        case .installedApps: InstalledAppsSummaryTile(model: store.environment.installedAppsModel) { open(.installedApps) }
         case .userHome: UserHomeSummaryTile { open(.userHome) }
         case .history:
             SummaryTile(route: .history, headline: "Explore trends", caption: "System and per-program history") { open(.history) }

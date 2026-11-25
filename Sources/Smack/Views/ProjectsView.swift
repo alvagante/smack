@@ -207,9 +207,9 @@ struct ProjectsView: View {
 
     init(store: MonitorStore) {
         self.store = store
-        model = store.projectsModel
-        sessions = store.agentsModel.live
-        devServers = store.devServersModel
+        model = store.environment.projectsModel
+        sessions = store.environment.agentsModel.live
+        devServers = store.environment.devServersModel
     }
 
     private var starts: [String: Date] {
@@ -648,18 +648,18 @@ struct ProjectDetailView: View {
     init(store: MonitorStore, root: String) {
         self.store = store
         self.root = root
-        projects = store.projectsModel
-        devServers = store.devServersModel
-        docker = store.dockerModel
-        live = store.agentsModel.live
-        environments = store.devEnvironmentModel
+        projects = store.environment.projectsModel
+        devServers = store.environment.devServersModel
+        docker = store.environment.dockerModel
+        live = store.environment.agentsModel.live
+        environments = store.environment.devEnvironmentModel
         settings = store.settingsStore
-        savedTranscripts = store.agentsModel.projectTranscripts
+        savedTranscripts = store.environment.agentsModel.projectTranscripts
     }
 
     private var project: ProjectRecord? { projects.project(root: root) }
     private var report: ProjectGitReport? { projects.reports[root] }
-    private var links: ProjectLinks { store.links(forProject: root) }
+    private var links: ProjectLinks { store.environment.links(forProject: root) }
     private var servers: [DevServer] { links.servers }
     private var containers: [DockerContainer] { links.containers }
     private var sessions: [AgentSession] { links.sessions }
@@ -701,7 +701,7 @@ struct ProjectDetailView: View {
         .onAppear {
             if let requested = store.takeProjectSection() { section = requested }
             if store.networkPorts == nil { store.loadNetworkPorts() }
-            store.refreshDevServers()
+            store.environment.refreshDevServers()
         }
     }
 
@@ -778,8 +778,8 @@ struct ProjectDetailView: View {
                                caption: "AI Agent sessions running in this repository, and the saved sessions recorded in it. Select one for its detail or Session Timeline.") {
                 Button("Open AI agents") { store.route = .agents }.buttonStyle(.bordered).controlSize(.small)
             }
-            ProjectAgentSessionsView(live: live, saved: store.agentsModel.projectTranscripts, store: store, root: root,
-                                     sessions: sessions, maxAge: store.agentsModel.cache.slowInventory)
+            ProjectAgentSessionsView(live: live, saved: store.environment.agentsModel.projectTranscripts, store: store, root: root,
+                                     sessions: sessions, maxAge: store.environment.agentsModel.cache.slowInventory)
                     .id(root)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))

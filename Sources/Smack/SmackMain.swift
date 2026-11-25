@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dispatcher.isRuleEnabled = { [weak store] id in store?.alertRules.rules.contains { $0.id == id && $0.enabled } ?? false }
             _ = store.alertRules
             self.store = store
-            store.startSecurityMonitoring()
+            store.securityMonitoring.start(settings: store.settingsStore.settings)
             self.scheduler = scheduler
             AutomationSnapshot.startedAt = Date()
             AutomationSnapshot.store = store
@@ -403,7 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// - Parameter notification: The termination notification posted by `NSApplication`.
     func applicationWillTerminate(_ notification: Notification) {
         panelController?.rememberWindowFrame()
-        store?.stopSecurityMonitoring()
+        store?.securityMonitoring.stop()
 #if !SMACK_APP_STORE
         controlSettingsObservation = nil
         controlServer?.stop()

@@ -593,10 +593,10 @@ private actor RecordedCommands {
     }
     let other = AgentSession(agentID: "claude", root: ProcessIdentity(pid: 20, startTime: .distantPast),
                              project: ProjectContext(directory: "/work/other", name: "other"), startedAt: .distantPast)
-    store.agentsModel.receive(sessions + [other], at: Date())
-    let scoped = store.links(forProject: root).sessions
+    store.environment.agentsModel.receive(sessions + [other], at: Date())
+    let scoped = store.environment.links(forProject: root).sessions
     #expect(scoped.map(\.agentID) == ["claude", "codex"])
     for width in [900.0, 1400.0] {
-        _ = try render(AgentSessionsView(live: store.agentsModel.live, store: store, scope: scoped), width: width)
+        _ = try render(AgentSessionsView(live: store.environment.agentsModel.live, store: store, scope: scoped), width: width)
     }
 }

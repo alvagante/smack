@@ -6,6 +6,7 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
 - **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
 - **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
 - **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.

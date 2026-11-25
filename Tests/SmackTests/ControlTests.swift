@@ -142,7 +142,7 @@ private func controlTemporaryPath() throws -> String {
     #expect(AutomationSnapshot.response(ControlRequest(op: "status")).records.first?.fields["cpuPercent"] == "12.5")
     store.receive(obsSnapshot([obsProcess(42)]))
     let liveSession = AgentSession(agentID: "claude", root: obsProcess(42).identity, startedAt: Date())
-    store.agentsModel.sessions = [liveSession]
+    store.environment.agentsModel.sessions = [liveSession]
     let agents = AutomationSnapshot.response(ControlRequest(op: "agents"))
     #expect(agents.records.first?.fields["agentID"] == "claude")
     let sessionJSON = try #require(agents.records.first?.fields["session"])

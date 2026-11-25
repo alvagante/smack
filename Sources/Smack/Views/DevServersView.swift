@@ -35,7 +35,7 @@ struct DevServersView: View {
     @State private var stopping: DevServer?
     @State private var containerOperation: DockerContainerOperation?
 
-    init(store: MonitorStore) { self.store = store; settings = store.settingsStore; model = store.devServersModel }
+    init(store: MonitorStore) { self.store = store; settings = store.settingsStore; model = store.environment.devServersModel }
 
     private var servers: [DevServer] {
         (model.devServers ?? []).filter { row in
@@ -50,7 +50,7 @@ struct DevServersView: View {
             } actions: {
                 Toggle("Show system listeners", isOn: Binding(
                     get: { settings.settings.devTools.devServersShowSystem },
-                    set: { value in settings.update { $0.devTools.devServersShowSystem = value }; store.refreshDevServers() }))
+                    set: { value in settings.update { $0.devTools.devServersShowSystem = value }; store.environment.refreshDevServers() }))
                 RefreshButton(isLoading: store.networkPortsLoading) { store.loadNetworkPorts() }
             } overview: {
                 ResourceStatsRow(headline: model.devServers == nil ? "–" : String(servers.count), unit: "servers", stats: [
@@ -104,7 +104,7 @@ struct DevServersView: View {
                                     }
                                 }
                                 if let binding = row.container,
-                                   let container = store.dockerModel.snapshot?.containers?.first(where: { $0.id == binding.containerID }) {
+                                   let container = store.environment.dockerModel.snapshot?.containers?.first(where: { $0.id == binding.containerID }) {
                                     ForEach(DockerContainerAction.allCases.filter { $0.isAvailable(for: container) }, id: \.self) { action in
                                         Button(action.title) { containerOperation = DockerContainerOperation(action: action, container: container) }
                                     }
@@ -129,7 +129,7 @@ struct DevServersView: View {
             }
         }
         .background(MonitorStyle.page)
-        .onAppear { store.refreshDevServers(); if store.networkPorts == nil { store.loadNetworkPorts() } }
+        .onAppear { store.environment.refreshDevServers(); if store.networkPorts == nil { store.loadNetworkPorts() } }
         .confirmationDialog("Stop listening processes?", isPresented: Binding(
             get: { stopping != nil }, set: { if !$0 { stopping = nil } }), titleVisibility: .visible) {
                 if let row = stopping {
@@ -150,9 +150,9 @@ struct DevServersView: View {
                     Button(operation.action.title, role: .destructive) {
                         containerOperation = nil
                         Task {
-                            await store.dockerModel.perform(operation)
-                            store.errorMessage = store.dockerModel.operationOutput
-                            store.refreshDevServers()
+                            await store.environment.dockerModel.perform(operation)
+                            store.errorMessage = store.environment.dockerModel.operationOutput
+                            store.environment.refreshDevServers()
                         }
                     }
                 }
@@ -162,7 +162,7 @@ struct DevServersView: View {
     /// Icon, name and badges of one server: the process's application icon, a container tile or a terminal tile.
     private func cardHeader(_ row: DevServer) -> some View {
         let path = store.process(id: row.process.id)?.executablePath
-        let session = row.agentSession.flatMap { id in store.agentsModel.live.sessions.first { $0.id == id } }
+        let session = row.agentSession.flatMap { id in store.environment.agentsModel.live.sessions.first { $0.id == id } }
         return HStack(spacing: 10) {
             if row.container != nil {
                 SymbolIconTile(systemImage: "shippingbox.fill", color: .blue, size: 32)

@@ -149,11 +149,11 @@ import Testing
     await saved.load(root: root, maxAge: 600)
     let session = AgentSession(agentID: "claude", root: ProcessIdentity(pid: 10, startTime: .distantPast),
                                project: ProjectContext(directory: root, name: "app"), startedAt: .distantPast)
-    store.agentsModel.receive([session], at: Date())
-    let view = ProjectAgentSessionsView(live: store.agentsModel.live, saved: saved, store: store, root: root,
-                                        sessions: store.links(forProject: root).sessions, maxAge: 600).frame(height: 600)
+    store.environment.agentsModel.receive([session], at: Date())
+    let view = ProjectAgentSessionsView(live: store.environment.agentsModel.live, saved: saved, store: store, root: root,
+                                        sessions: store.environment.links(forProject: root).sessions, maxAge: 600).frame(height: 600)
     _ = try snapshot(view, width: 1100, name: "project-agents")
-    let empty = ProjectAgentSessionsView(live: store.agentsModel.live, saved: saved, store: store, root: "/work/other",
+    let empty = ProjectAgentSessionsView(live: store.environment.agentsModel.live, saved: saved, store: store, root: "/work/other",
                                          sessions: [], maxAge: 600).frame(height: 300)
     _ = try snapshot(empty, width: 900, name: "project-agents-empty")
 }

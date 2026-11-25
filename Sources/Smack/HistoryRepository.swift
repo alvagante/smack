@@ -2,9 +2,8 @@ import Foundation
 import SQLite3
 
 /// SQLite store for metric history and activity events. Writing and the SQL helpers live here; reads, events,
-/// maintenance, schema and export are extensions in the `HistoryRepository+*.swift` files.
+/// maintenance and export are extensions in the `HistoryRepository+*.swift` files. Schema migration is `HistorySchema`.
 actor HistoryRepository {
-    static let schemaVersion = 5
     static let lastCompactedKey = "history.lastCompactedAt"
     static let eventPruneBatch = 10_000
     /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
@@ -98,7 +97,7 @@ actor HistoryRepository {
         database = connection
         do {
             sqlite3_busy_timeout(database, 5_000)
-            try Self.migrate(database: database, databaseURL: databaseURL)
+            try HistorySchema.migrate(database: database, databaseURL: databaseURL)
         } catch {
             sqlite3_close_v2(database)
             throw error
@@ -271,20 +270,9 @@ actor HistoryRepository {
         }
     }
 
-    func deleteAll() throws {
-        try flush()
-        try transaction {
-            try execute("DELETE FROM system_samples")
-            try execute("DELETE FROM system_minutes")
-            try execute("DELETE FROM process_samples")
-            try execute("DELETE FROM process_minutes")
-            try execute("DELETE FROM processes")
-            try execute("DELETE FROM events")
-        }
+    func resetWriterState() {
         state = WriterState()
-        try compactFile()
     }
-
 
     func databaseSize() throws -> Int {
         try integerQuery("PRAGMA page_count") * integerQuery("PRAGMA page_size")

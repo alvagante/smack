@@ -397,7 +397,7 @@ struct ApplicationDetailView: View {
         let names = memoryByName.sorted { $0.value > $1.value }.prefix(Self.programLimit).map(\.key)
         var perMetric: [ProcessMetric: [[HistoricalPoint]]] = [:]
         for name in names {
-            let result = await store.processHistory(program: name, processID: nil, hours: hours, limit: 100_000)
+            let result = await store.historicalData.processHistory(program: name, processID: nil, hours: hours, limit: 100_000)
             guard !Task.isCancelled else { return }
             for (metric, points) in result { perMetric[metric, default: []].append(points) }
         }

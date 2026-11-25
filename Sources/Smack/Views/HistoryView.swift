@@ -815,12 +815,12 @@ struct HistoryView: View {
                 model.processPoints = points
             }
         } else if let program = model.selectedProgram {
-            model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance,
+            model.processPoints = await store.historicalData.processHistory(program: program, processID: model.selectedInstance,
                                                              from: window.lowerBound, to: window.upperBound, limit: limit)
         } else {
             var result: [SystemMetric: [HistoricalPoint]] = [:]
             for metric in SystemMetric.allCases {
-                result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, from: window.lowerBound, to: window.upperBound), limit: limit)
+                result[metric] = HistoricalPoint.downsampled(await store.historicalData.systemHistory(metric, from: window.lowerBound, to: window.upperBound), limit: limit)
             }
             model.systemPoints = result
         }
@@ -840,7 +840,7 @@ struct HistoryView: View {
         var perMetric: [ProcessMetric: [[HistoricalPoint]]] = [:]
         for name in names {
             if Task.isCancelled { return nil }
-            let result = await store.processHistory(program: name, processID: nil, from: start, to: end, limit: .max)
+            let result = await store.historicalData.processHistory(program: name, processID: nil, from: start, to: end, limit: .max)
             if Task.isCancelled { return nil }
             for (metric, points) in result { perMetric[metric, default: []].append(points) }
         }
@@ -852,13 +852,13 @@ struct HistoryView: View {
     private func loadPrograms() async {
         // `.task(id:)` cancels on a new request, but an actor read already under way still returns; drop it.
         if let zoom = model.zoom {
-            let programs = await store.historicalPrograms(from: zoom.lowerBound, to: zoom.upperBound)
-            let counts = await store.eventCounts(from: zoom.lowerBound, to: zoom.upperBound)
+            let programs = await store.historicalData.historicalPrograms(from: zoom.lowerBound, to: zoom.upperBound)
+            let counts = await store.historicalData.eventCounts(from: zoom.lowerBound, to: zoom.upperBound)
             guard !Task.isCancelled else { return }
             model.programs = programs
             model.windowEventCounts = counts
         } else {
-            let programs = await store.historicalPrograms(hours: model.hours)
+            let programs = await store.historicalData.historicalPrograms(hours: model.hours)
             guard !Task.isCancelled else { return }
             model.programs = programs
         }
@@ -866,7 +866,7 @@ struct HistoryView: View {
 
     private func loadInstances() async {
         guard let program = model.selectedProgram else { return }
-        model.instances = await store.historicalInstances(of: program, hours: model.hours)
+        model.instances = await store.historicalData.historicalInstances(of: program, hours: model.hours)
     }
 }
 

@@ -2,21 +2,23 @@ import Foundation
 import SQLite3
 
 // Schema creation and in-place migration.
-extension HistoryRepository {
+enum HistorySchema {
+    static let schemaVersion = 5
+
     static func migrate(database: OpaquePointer, databaseURL: URL) throws {
-        func execute(_ sql: String) throws {
+        func executeSQL(_ sql: String) throws {
             let result = sqlite3_exec(database, sql, nil, nil, nil)
             guard result == SQLITE_OK else {
                 throw HistoryRepositoryError.sqlite(code: result, message: String(cString: sqlite3_errmsg(database)))
             }
         }
-        func transaction(_ body: () throws -> Void) throws {
-            try execute("BEGIN IMMEDIATE")
+        func runTransaction(_ body: () throws -> Void) throws {
+            try executeSQL("BEGIN IMMEDIATE")
             do {
                 try body()
-                try execute("COMMIT")
+                try executeSQL("COMMIT")
             } catch {
-                try? execute("ROLLBACK")
+                try? executeSQL("ROLLBACK")
                 throw error
             }
         }
@@ -34,10 +36,10 @@ extension HistoryRepository {
             return names
         }
 
-        try execute("PRAGMA journal_mode = WAL")
-        try execute("PRAGMA synchronous = NORMAL")
+        try executeSQL("PRAGMA journal_mode = WAL")
+        try executeSQL("PRAGMA synchronous = NORMAL")
         // Sorts for downsampling and the set-based process queries stay in RAM instead of temporary files.
-        try execute("PRAGMA temp_store = MEMORY")
+        try executeSQL("PRAGMA temp_store = MEMORY")
         // Finalized before migrating: an open statement makes DROP TABLE fail with "database table is locked".
         let version = try {
             var statement: OpaquePointer?
@@ -60,35 +62,35 @@ extension HistoryRepository {
             removeBackups(of: databaseURL, olderThan: schemaVersion)
             return
         }
-        try backupBeforeMigrating(databaseURL: databaseURL, version: version, execute: execute)
+        try backupBeforeMigrating(databaseURL: databaseURL, version: version, executeSQL: executeSQL)
 
         // Up to version 4, in one transaction: DDL is transactional in SQLite, so a failure leaves the original
         // database untouched.
-        try transaction {
-            try execute("CREATE TABLE IF NOT EXISTS system_samples (\(systemSamplesColumns))")
-            try execute("CREATE TABLE IF NOT EXISTS system_minutes (\(systemMinutesColumns))")
-            try execute("CREATE TABLE IF NOT EXISTS processes (\(processesColumns))")
-            try execute("CREATE TABLE IF NOT EXISTS process_samples (\(processSamplesColumns))")
+        try runTransaction {
+            try executeSQL("CREATE TABLE IF NOT EXISTS system_samples (\(systemSamplesColumns))")
+            try executeSQL("CREATE TABLE IF NOT EXISTS system_minutes (\(systemMinutesColumns))")
+            try executeSQL("CREATE TABLE IF NOT EXISTS processes (\(processesColumns))")
+            try executeSQL("CREATE TABLE IF NOT EXISTS process_samples (\(processSamplesColumns))")
             if version == 1 {
                 // Version 2 skips identical idle samples; `weight` counts how many samples a row stands for.
-                try execute("ALTER TABLE process_samples ADD COLUMN weight INTEGER NOT NULL DEFAULT 1")
+                try executeSQL("ALTER TABLE process_samples ADD COLUMN weight INTEGER NOT NULL DEFAULT 1")
             }
-            try execute("CREATE TABLE IF NOT EXISTS process_minutes (\(processMinutesColumns)) WITHOUT ROWID")
+            try executeSQL("CREATE TABLE IF NOT EXISTS process_minutes (\(processMinutesColumns)) WITHOUT ROWID")
             if version == 1 || version == 2 {
                 // Version 3 drops the per-row name (the processes table keeps it) and the rowid, roughly halving
                 // process history. Dropping a table also drops its indexes, which are recreated below.
-                try execute("CREATE TABLE process_samples_v3 (\(processSamplesColumnsV3)) WITHOUT ROWID")
-                try execute("""
+                try executeSQL("CREATE TABLE process_samples_v3 (\(processSamplesColumnsV3)) WITHOUT ROWID")
+                try executeSQL("""
                     INSERT INTO process_samples_v3 (process_id, timestamp, cpu, memory, disk_read, disk_write, weight)
                     SELECT process_id, timestamp, cpu, memory, disk_read, disk_write, weight FROM process_samples
                     """)
-                try execute("DROP TABLE process_samples")
-                try execute("ALTER TABLE process_samples_v3 RENAME TO process_samples")
-                try execute("CREATE TABLE process_minutes_v3 (\(processMinutesColumnsV3)) WITHOUT ROWID")
+                try executeSQL("DROP TABLE process_samples")
+                try executeSQL("ALTER TABLE process_samples_v3 RENAME TO process_samples")
+                try executeSQL("CREATE TABLE process_minutes_v3 (\(processMinutesColumnsV3)) WITHOUT ROWID")
                 let minuteColumns = "process_id, timestamp, sample_count, cpu_total, cpu_peak, memory_total, memory_peak, disk_read_total, disk_read_peak, disk_write_total, disk_write_peak"
-                try execute("INSERT INTO process_minutes_v3 (\(minuteColumns)) SELECT \(minuteColumns) FROM process_minutes")
-                try execute("DROP TABLE process_minutes")
-                try execute("ALTER TABLE process_minutes_v3 RENAME TO process_minutes")
+                try executeSQL("INSERT INTO process_minutes_v3 (\(minuteColumns)) SELECT \(minuteColumns) FROM process_minutes")
+                try executeSQL("DROP TABLE process_minutes")
+                try executeSQL("ALTER TABLE process_minutes_v3 RENAME TO process_minutes")
             }
             // Version 4 columns. CREATE TABLE IF NOT EXISTS does not touch existing tables, and checking first
             // makes a partially applied migration safe to retry.
@@ -96,10 +98,10 @@ extension HistoryRepository {
             for column in version4Columns {
                 if existing[column.table] == nil { existing[column.table] = try columns(of: column.table) }
                 if existing[column.table]?.contains(column.name) == false {
-                    try execute("ALTER TABLE \(column.table) ADD COLUMN \(column.name) \(column.definition)")
+                    try executeSQL("ALTER TABLE \(column.table) ADD COLUMN \(column.name) \(column.definition)")
                 }
             }
-            try execute("""
+            try executeSQL("""
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY,
                     timestamp REAL NOT NULL,
@@ -111,13 +113,13 @@ extension HistoryRepository {
                     details TEXT NOT NULL
                 )
                 """)
-            try execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            try execute("CREATE INDEX IF NOT EXISTS events_timestamp ON events(timestamp)")
-            try execute("CREATE INDEX IF NOT EXISTS events_kind_timestamp ON events(kind, timestamp)")
-            try execute("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
-            try execute("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
+            try executeSQL("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS events_timestamp ON events(timestamp)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS events_kind_timestamp ON events(kind, timestamp)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
             // Version 5 rebuilds the process tables in later phases, so the version stays at 4 until they are done.
-            try execute("PRAGMA user_version = 4")
+            try executeSQL("PRAGMA user_version = 4")
         }
 
         // Version 5 turns process_samples into an append-ordered rowid table and replaces the 22-character process
@@ -125,20 +127,20 @@ extension HistoryRepository {
         // transaction would hold a whole table in the WAL. Each step checks the table shape first, so an
         // interrupted run resumes where it stopped, and a fresh database skips all of them.
         if try !columns(of: "processes").contains("key") {
-            try rebuildProcessesV5(execute: execute, transaction: transaction)
+            try rebuildProcessesV5(executeSQL: executeSQL, runTransaction: runTransaction)
         }
         if try !columns(of: "process_samples").contains("process_key") {
-            try rebuildProcessSamplesV5(database: database, execute: execute, transaction: transaction)
+            try rebuildProcessSamplesV5(database: database, executeSQL: executeSQL, runTransaction: runTransaction)
         }
         if try !columns(of: "process_minutes").contains("process_key") {
-            try rebuildProcessMinutesV5(database: database, execute: execute, transaction: transaction)
+            try rebuildProcessMinutesV5(database: database, executeSQL: executeSQL, runTransaction: runTransaction)
         }
 
-        try transaction {
+        try runTransaction {
             // The rebuild drops the old table and its indexes; both are needed by the history queries.
-            try execute("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
-            try execute("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
-            try execute("PRAGMA user_version = \(Self.schemaVersion)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
+            try executeSQL("PRAGMA user_version = \(Self.schemaVersion)")
         }
     }
 
@@ -156,12 +158,12 @@ extension HistoryRepository {
     /// WAL mode keeps recent pages in a side file, so only a checkpointed file is a consistent copy. Version 1 and
     /// 2 databases have been superseded twice over and are not copied.
     private static func backupBeforeMigrating(
-        databaseURL: URL, version: Int, execute: (String) throws -> Void
+        databaseURL: URL, version: Int, executeSQL: (String) throws -> Void
     ) throws {
         guard version >= 3 else { return }
         let backup = backupURL(for: databaseURL, version: version)
         guard !FileManager.default.fileExists(atPath: backup.path) else { return }
-        try execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        try executeSQL("PRAGMA wal_checkpoint(TRUNCATE)")
         do {
             try FileManager.default.copyItem(at: databaseURL, to: backup)
         } catch {
@@ -172,15 +174,15 @@ extension HistoryRepository {
 
     /// Gives every process an integer key. Identities stay in `processes`, so events and the UI keep their strings.
     private static func rebuildProcessesV5(
-        execute: @escaping (String) throws -> Void,
-        transaction: @escaping (() throws -> Void) throws -> Void
+        executeSQL: @escaping (String) throws -> Void,
+        runTransaction: @escaping (() throws -> Void) throws -> Void
     ) throws {
-        try execute("DROP TABLE IF EXISTS processes_v5")
-        try execute("CREATE TABLE processes_v5 (\(processesColumns))")
-        try execute("INSERT INTO processes_v5 (id, name, last_seen) SELECT id, name, last_seen FROM processes")
-        try transaction {
-            try execute("DROP TABLE processes")
-            try execute("ALTER TABLE processes_v5 RENAME TO processes")
+        try executeSQL("DROP TABLE IF EXISTS processes_v5")
+        try executeSQL("CREATE TABLE processes_v5 (\(processesColumns))")
+        try executeSQL("INSERT INTO processes_v5 (id, name, last_seen) SELECT id, name, last_seen FROM processes")
+        try runTransaction {
+            try executeSQL("DROP TABLE processes")
+            try executeSQL("ALTER TABLE processes_v5 RENAME TO processes")
         }
     }
 
@@ -189,20 +191,20 @@ extension HistoryRepository {
     /// row, because a sample without a key cannot be read.
     private static func rebuildProcessSamplesV5(
         database: OpaquePointer,
-        execute: @escaping (String) throws -> Void,
-        transaction: @escaping (() throws -> Void) throws -> Void
+        executeSQL: @escaping (String) throws -> Void,
+        runTransaction: @escaping (() throws -> Void) throws -> Void
     ) throws {
-        try execute("DROP TABLE IF EXISTS process_samples_v5")
-        try execute("CREATE TABLE process_samples_v5 (\(processSamplesColumns))")
+        try executeSQL("DROP TABLE IF EXISTS process_samples_v5")
+        try executeSQL("CREATE TABLE process_samples_v5 (\(processSamplesColumns))")
         let bounds = try timeBounds(of: "process_samples", database: database)
         if let bounds {
             var bucket = (bounds.oldest / 3_600).rounded(.down) * 3_600
             while bucket <= bounds.newest {
                 let start = bucket
                 let end = bucket + 3_600
-                try transaction {
-                    try keepOrphanedProcesses(of: "process_samples", start: start, end: end, execute: execute)
-                    try execute("""
+                try runTransaction {
+                    try keepOrphanedProcesses(of: "process_samples", start: start, end: end, executeSQL: executeSQL)
+                    try executeSQL("""
                         INSERT INTO process_samples_v5 (
                             process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
                         )
@@ -214,30 +216,30 @@ extension HistoryRepository {
                 bucket = end
             }
         }
-        try transaction {
-            try execute("DROP TABLE process_samples")
-            try execute("ALTER TABLE process_samples_v5 RENAME TO process_samples")
-            try execute("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
+        try runTransaction {
+            try executeSQL("DROP TABLE process_samples")
+            try executeSQL("ALTER TABLE process_samples_v5 RENAME TO process_samples")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_samples_timestamp ON process_samples(timestamp)")
         }
     }
 
     /// The same key substitution for the one-minute rollup, batched by hour so the copy never holds a large WAL.
     private static func rebuildProcessMinutesV5(
         database: OpaquePointer,
-        execute: @escaping (String) throws -> Void,
-        transaction: @escaping (() throws -> Void) throws -> Void
+        executeSQL: @escaping (String) throws -> Void,
+        runTransaction: @escaping (() throws -> Void) throws -> Void
     ) throws {
-        try execute("DROP TABLE IF EXISTS process_minutes_v5")
-        try execute("CREATE TABLE process_minutes_v5 (\(processMinutesColumns)) WITHOUT ROWID")
+        try executeSQL("DROP TABLE IF EXISTS process_minutes_v5")
+        try executeSQL("CREATE TABLE process_minutes_v5 (\(processMinutesColumns)) WITHOUT ROWID")
         let bounds = try timeBounds(of: "process_minutes", database: database)
         if let bounds {
             var bucket = (bounds.oldest / 3_600).rounded(.down) * 3_600
             while bucket <= bounds.newest {
                 let start = bucket
                 let end = bucket + 3_600
-                try transaction {
-                    try keepOrphanedProcesses(of: "process_minutes", start: start, end: end, execute: execute)
-                    try execute("""
+                try runTransaction {
+                    try keepOrphanedProcesses(of: "process_minutes", start: start, end: end, executeSQL: executeSQL)
+                    try executeSQL("""
                         INSERT INTO process_minutes_v5 (
                             process_key, timestamp, sample_count, cpu_total, cpu_peak, memory_total, memory_peak,
                             disk_read_total, disk_read_peak, disk_write_total, disk_write_peak,
@@ -253,18 +255,18 @@ extension HistoryRepository {
                 bucket = end
             }
         }
-        try transaction {
-            try execute("DROP TABLE process_minutes")
-            try execute("ALTER TABLE process_minutes_v5 RENAME TO process_minutes")
-            try execute("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
+        try runTransaction {
+            try executeSQL("DROP TABLE process_minutes")
+            try executeSQL("ALTER TABLE process_minutes_v5 RENAME TO process_minutes")
+            try executeSQL("CREATE INDEX IF NOT EXISTS process_minutes_timestamp ON process_minutes(timestamp)")
         }
     }
 
     /// Inserts a placeholder row for every identity that still has rows in `table` but no `processes` row.
     private static func keepOrphanedProcesses(
-        of table: String, start: Double, end: Double, execute: @escaping (String) throws -> Void
+        of table: String, start: Double, end: Double, executeSQL: @escaping (String) throws -> Void
     ) throws {
-        try execute("""
+        try executeSQL("""
             INSERT INTO processes (id, name, last_seen)
             SELECT s.process_id, s.process_id, MAX(s.timestamp)
             FROM \(table) s LEFT JOIN processes p ON p.id = s.process_id

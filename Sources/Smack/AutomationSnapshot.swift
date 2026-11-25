@@ -69,7 +69,7 @@ enum AutomationSnapshot {
             }
         case "agents":
             guard !Capabilities.isSandboxed, store.processes != nil else { return ControlResponse(error: .unavailable) }
-            records = store.agentsModel.sessions.filter { $0.endedAt == nil }.prefix(request.limit).map { session in
+            records = store.environment.agentsModel.sessions.filter { $0.endedAt == nil }.prefix(request.limit).map { session in
                 ControlRecord(id: session.id, title: session.agentID, fields: [
                     "agentID": session.agentID, "pid": String(session.root.pid),
                     "startTime": session.startedAt.ISO8601Format(), "project": session.project?.name ?? "",
@@ -82,7 +82,7 @@ enum AutomationSnapshot {
                     "session": (try? JSONEncoder().encode(session)).map { String(decoding: $0, as: UTF8.self) } ?? ""])
             }
         case "devservers", "who":
-            guard Capabilities.supportsNetworkPortInspection, let rows = store.devServersModel.devServers else {
+            guard Capabilities.supportsNetworkPortInspection, let rows = store.environment.devServersModel.devServers else {
                 return ControlResponse(error: .unavailable)
             }
             let matches = rows.filter { row in request.port == nil || row.ports.contains { Int($0.port) == request.port } }
@@ -175,7 +175,7 @@ enum AutomationSnapshot {
                 guard let name = request.metric, let metric = SystemMetric(rawValue: name) else {
                     return ControlResponse(error: .invalidRequest)
                 }
-                let points = try await store.history.controlSeries(metric, from: start, to: end,
+                let points = try await store.historicalData.controlSeries(metric, from: start, to: end,
                     resolution: request.resolution ?? 60, limit: request.limit)
                 return ControlResponse(records: points.map {
                     ControlRecord(id: $0.timestamp.ISO8601Format(), title: name, fields: [
@@ -283,7 +283,7 @@ extension AutomationSnapshot {
                 guard !ids.isEmpty, Set(ids).count == ids.count, ids.allSatisfy({ BaselineDiff.rules[$0] != nil }) else {
                     throw ControlError.invalidRequest
                 }
-                let doc = try await store.captureBaseline(name: request.name ?? "Baseline", sections: ids)
+                let doc = try await store.baselineCoordinator.capture(name: request.name ?? "Baseline", sections: ids)
                 let url = try await store.baselines.save(doc, settings: store.settingsStore.settings)
                 response.metadata = ["path": url.path]
             case "list":
@@ -303,7 +303,7 @@ extension AutomationSnapshot {
                 if let path = request.against, path != "now" {
                     against = try await Task.detached { try BaselineDocument.read(URL(fileURLWithPath: path)) }.value
                 } else {
-                    against = try await store.captureBaseline(name: "Now", sections: base.sections.keys.filter { BaselineDiff.rules[$0] != nil }.sorted())
+                    against = try await store.baselineCoordinator.capture(name: "Now", sections: base.sections.keys.filter { BaselineDiff.rules[$0] != nil }.sorted())
                 }
                 let diff = BaselineDiff.compare(base, against)
                 response.metadata = ["payload": String(decoding: try diff.encoded(), as: UTF8.self),
