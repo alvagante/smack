@@ -222,6 +222,112 @@ private func makeTestTempDir() throws -> URL {
         #expect(!controller.window.collectionBehavior.contains(.fullScreenPrimary))
     }
 
+    /// A second controller on the same defaults stands in for the launch after a force quit or a reboot:
+    /// the first one is never closed.
+    @Test(arguments: [WindowStyle.panel, .standardWindow])
+    func movedAndResizedWindowIsRestoredWithoutBeingClosed(style: WindowStyle) async throws {
+        let directory = try makeTestTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+        let suiteName = "PanelControllerTests-Frame-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let autosaveName = "SmackTest-\(UUID().uuidString)"
+        defer { NSWindow.removeFrame(usingName: autosaveName) }
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        defer { NSStatusBar.system.removeStatusItem(statusItem) }
+        var pendingSaves: [@MainActor () -> Void] = []
+        func launch() -> PanelController {
+            let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
+            settingsStore.update {
+                $0.panel.panelSound = .none
+                $0.panel.windowStyle = style
+            }
+            let client = PrivilegedSamplingClient()
+            let scheduler = CollectionScheduler(
+                systemCollector: SystemCollector(),
+                processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+                inventoryCollector: InventoryCollector(privileged: client),
+                networkPortCollector: NetworkPortCollector(privileged: client),
+                history: history,
+                settings: settingsStore.settings,
+                onSystem: { _ in },
+                onProcesses: { _ in },
+                onInventory: { _, _ in },
+                onNetworkPorts: { _ in }
+            )
+            let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
+            return PanelController(
+                store: store, nativeMenuBarStore: NativeMenuBarStore(), statusItem: statusItem,
+                setActivationPolicy: { _ in }, activate: {}, frameAutosaveName: autosaveName,
+                reduceMotion: { true }, deferFrameSave: { pendingSaves.append($0) }
+            )
+        }
+
+        let first = launch()
+        defer { first.close() }
+        first.open()
+        let visible = try #require(NSScreen.main).visibleFrame
+        let moved = NSRect(x: visible.minX + 40, y: visible.minY + 50, width: 800, height: 500)
+        first.window.setFrame(moved, display: false)
+        first.windowDidMove(Notification(name: NSWindow.didMoveNotification, object: first.window))
+        pendingSaves.forEach { $0() }
+        pendingSaves = []
+
+        // Quit again without ever opening the window, as after a login that goes unused.
+        let unused = launch()
+        unused.rememberWindowFrame()
+
+        // AppKit and SwiftUI may resize a closed window; that frame was never on screen.
+        let closed = launch()
+        closed.open()
+        closed.close()
+        closed.window.setFrame(NSRect(x: visible.minX, y: visible.minY, width: 720, height: 406), display: false)
+        closed.windowDidResize(Notification(name: NSWindow.didResizeNotification, object: closed.window))
+        pendingSaves.forEach { $0() }
+        pendingSaves = []
+        closed.rememberWindowFrame()
+
+        let second = launch()
+        defer { second.close() }
+        second.open()
+        #expect(second.window.frame == moved)
+    }
+
+    @Test func savingTheWindowFrameDoesNotReapplyFeatureSettings() throws {
+        let directory = try makeTestTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
+        let suiteName = "PanelControllerTests-Apply-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settingsStore = SettingsStore(defaults: defaults, legacyDefaults: nil)
+        let client = PrivilegedSamplingClient()
+        let scheduler = CollectionScheduler(
+            systemCollector: SystemCollector(),
+            processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: client),
+            inventoryCollector: InventoryCollector(privileged: client),
+            networkPortCollector: NetworkPortCollector(privileged: client),
+            history: history,
+            settings: settingsStore.settings,
+            onSystem: { _ in },
+            onProcesses: { _ in },
+            onInventory: { _, _ in },
+            onNetworkPorts: { _ in }
+        )
+        let store = MonitorStore(settingsStore: settingsStore, history: history, scheduler: scheduler)
+        // A marker that applying the settings again would overwrite.
+        let applied = store.environment.homebrewModel.cache
+        let marker: InventoryCachePreset = applied == .long ? .short : .long
+        store.environment.homebrewModel.cache = marker
+
+        settingsStore.update { $0.panel.savedWindowFrame = SavedWindowFrame(x: 1, y: 2, width: 800, height: 500) }
+        #expect(store.environment.homebrewModel.cache == marker)
+
+        settingsStore.update { $0.panel.glassMode.toggle() }
+        #expect(store.environment.homebrewModel.cache == applied)
+    }
+
     @Test func liveDataRunsOnlyWhileTheStandardWindowIsOnScreen() {
         #expect(PanelController.isOnScreen(isVisible: true, isMiniaturized: false, occlusion: .visible))
         #expect(!PanelController.isOnScreen(isVisible: true, isMiniaturized: true, occlusion: .visible))

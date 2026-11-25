@@ -140,7 +140,12 @@ final class MonitorStore: ObservableObject, EnvironmentContext {
         environment.context = self
         applyEnvironmentSettings(settingsStore.settings)
         // Every writer goes through SettingsStore, including ones that skip settingsChanged(), so observe it here.
-        settingsObservation = settingsStore.$settings.dropFirst().sink { [weak self] settings in
+        // The window frame is saved while the user drags; it configures no feature, so it re-applies nothing.
+        settingsObservation = settingsStore.$settings.map { settings in
+            var features = settings
+            features.panel.savedWindowFrame = nil
+            return features
+        }.removeDuplicates().dropFirst().sink { [weak self] settings in
             self?.applyEnvironmentSettings(settings)
         }
     }

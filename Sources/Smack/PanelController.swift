@@ -22,6 +22,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let setActivationPolicy: (NSApplication.ActivationPolicy) -> Void
     private let activate: () -> Void
     private let frameAutosaveName: String?
+    private let reduceMotion: () -> Bool
+    private let deferFrameSave: (@escaping @MainActor () -> Void) -> Void
     private let hostingController: NSHostingController<MonitorRootView>
     private let titleBarControls = NSTitlebarAccessoryViewController()
     private var globalMouseMonitor: Any?
@@ -30,6 +32,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var localClickMonitor: Any?
     private var hoverTask: Task<Void, Never>?
     private var pinned = false
+    /// True while Smack places or animates the window itself; those frames are not the user's.
+    private var isPlacing = false
+    private var frameSavePending = false
     /// User-chosen "keep in foreground": ignores outside clicks until unstuck or closed.
     private var stuck = false
     private var stickButton: NSButton?
@@ -52,6 +57,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     ///   - setActivationPolicy: Gives Smack a Dock icon for the Standard Window.
     ///   - activate: Brings Smack to the front when the Standard Window opens.
     ///   - frameAutosaveName: Where the Standard Window remembers its frame; nil keeps none.
+    ///   - reduceMotion: Opens the Panel without its animation.
+    ///   - deferFrameSave: Runs a frame save once a move or resize has had time to settle.
     init(
         store: MonitorStore,
         nativeMenuBarStore: NativeMenuBarStore,
@@ -59,7 +66,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         smackSound: SmackSound = SmackSound(),
         setActivationPolicy: @escaping (NSApplication.ActivationPolicy) -> Void = { _ = NSApplication.shared.setActivationPolicy($0) },
         activate: @escaping () -> Void = { NSApplication.shared.activate() },
-        frameAutosaveName: String? = "SmackWindow"
+        frameAutosaveName: String? = "SmackWindow",
+        reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
+        deferFrameSave: @escaping (@escaping @MainActor () -> Void) -> Void = { save in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { save() } }
+        }
     ) {
         self.store = store
         self.nativeMenuBarStore = nativeMenuBarStore
@@ -68,6 +79,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         self.setActivationPolicy = setActivationPolicy
         self.activate = activate
         self.frameAutosaveName = frameAutosaveName
+        self.reduceMotion = reduceMotion
+        self.deferFrameSave = deferFrameSave
         windowStyle = store.settingsStore.settings.panel.windowStyle
         panel = Self.makeWindow(windowStyle)
         var close: () -> Void = {}
@@ -147,7 +160,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         case .standardWindow:
             panel.collectionBehavior = [.fullScreenPrimary]
             panel.tabbingMode = .disallowed
-            if let frameAutosaveName { panel.setFrameAutosaveName(frameAutosaveName) }
         }
         panel.minSize = NSSize(width: 720, height: 340)
         panel.isReleasedWhenClosed = false
@@ -180,6 +192,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         pinned = false
         stuck = false
         windowStyle = style
+        isPlacing = false
         panel = Self.makeWindow(style)
         configureWindow()
         if wasOpen { open() } else { reportVisible(false) }
@@ -255,8 +268,9 @@ final class PanelController: NSObject, NSWindowDelegate {
             return
         }
         guard !panel.isVisible else { return }
+        isPlacing = true
         let target = targetFrame()
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reduceMotion = reduceMotion()
         if reduceMotion {
             panel.setFrame(target, display: false)
             panel.alphaValue = 1
@@ -274,20 +288,27 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         reportVisible(true)
         smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
-        guard !reduceMotion else { return }
-        NSAnimationContext.runAnimationGroup { context in
+        guard !reduceMotion else {
+            isPlacing = false
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.28
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(target, display: true)
             panel.animator().alphaValue = 1
-        }
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.isPlacing = false }
+        })
     }
 
     private func openStandardWindow() {
         if panel.isMiniaturized {
             panel.deminiaturize(nil)
         } else if !panel.isVisible {
+            isPlacing = true
             panel.setFrame(targetFrame(), display: false)
+            isPlacing = false
             smackSound.play(sound: store.settingsStore.settings.panel.panelSound)
         }
         activate()
@@ -302,6 +323,8 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     /// Writes the current frame so the next open restores size and position.
     func rememberWindowFrame() {
+        // A hidden window's frame is not the user's: never opened, or resized by SwiftUI after closing.
+        guard panel.isVisible, !isPlacing, !panel.styleMask.contains(.fullScreen), !panel.isMiniaturized else { return }
         guard panel.frame.width >= panel.minSize.width * 0.5, panel.frame.height >= panel.minSize.height * 0.5 else { return }
         if windowStyle == .standardWindow, let frameAutosaveName {
             panel.saveFrame(usingName: frameAutosaveName)
@@ -430,6 +453,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// The hosting controller can resize the window inside a SwiftUI update; publishing then is undefined behavior.
     func windowDidResize(_ notification: Notification) {
         DispatchQueue.main.async { [weak self] in self?.updateTitleBarLayout() }
+        scheduleFrameSave()
     }
 
     /// Keeps titlebar items clear of the traffic lights and pin button.
@@ -452,6 +476,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         updateStickButton()
         hoverTask?.cancel()
         reportVisible(false)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        scheduleFrameSave()
+    }
+
+    /// Saved as the user moves or resizes, because a force quit or a reboot may never close the window.
+    /// A drag posts many notifications; they share one pending save.
+    private func scheduleFrameSave() {
+        guard panel.isVisible, !isPlacing, !frameSavePending else { return }
+        frameSavePending = true
+        deferFrameSave { [weak self] in
+            self?.frameSavePending = false
+            self?.rememberWindowFrame()
+        }
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {

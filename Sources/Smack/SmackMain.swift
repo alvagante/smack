@@ -391,6 +391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Commits batched history before the process exits. The reply waits at most a few seconds, so a database busy
     /// with maintenance cannot hold up quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Before the deferred reply: a logout may not wait long enough for applicationWillTerminate.
+        panelController?.rememberWindowFrame()
         guard let history else { return .terminateNow }
         let reply = TerminationReply(sender)
         Task { try? await history.flush(); reply.send() }

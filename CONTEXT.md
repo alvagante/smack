@@ -81,7 +81,7 @@ A Panel kept in front that ignores mouse-away and outside-click dismissal until 
 _Avoid_: Always on top, sticky
 
 **Standard Window**:
-The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen. Closing or quitting saves the frame; the next open restores that size and position.
+The Window style that shows the Panel as an ordinary app window: a Dock icon, minimize, full screen and a remembered frame, with no hover opening or click-away dismissal. Live Data runs only while it is on screen. Moving, resizing, closing or quitting saves the frame, so it also survives a force quit or a reboot; the next open restores that size and position.
 _Avoid_: Main window, app mode
 
 **Onboarding**:
