@@ -4,6 +4,10 @@ All notable changes to Smack are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Window:** the Panel and the Standard Window keep their last position and size after a force quit or a reboot: moves and resizes are saved as they happen, the Standard Window no longer shrinks at relaunch, and quitting without opening the window no longer overwrites the saved frame. Cost: at most two preference writes per second while moving or resizing, none otherwise; a frame-only save re-applies no feature settings (not measured).
+
 ### Changed
 
 - **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
