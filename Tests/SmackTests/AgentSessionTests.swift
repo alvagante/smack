@@ -197,7 +197,7 @@ func agentSteadyStateBenchmark() async {
         if tick >= 10 { values.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000) }
     }
     values.sort()
-    #expect(values[95] < 5)
+    PerformanceBudget.check("Agent session tracker p95, 1000 processes", milliseconds: values[95], limit: 5)
     print("AGENT_BENCHMARK processes=1000 p50_ms=\(values[50]) p95_ms=\(values[95]) max_ms=\(values.last!)")
 }
 
