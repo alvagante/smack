@@ -298,7 +298,7 @@ struct TimelineView: View {
     @AppStorage("timeline.fileBookmarks") private var fileBookmarks = ""
     @State private var scanRevision = 0
     @State private var showFilePicker = false
-    @State private var showCoverage = true
+    @State private var showCoverage = false
     @State private var fileSelectionError: String?
 
     init(store: MonitorStore) {

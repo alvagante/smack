@@ -267,7 +267,7 @@ private struct SummaryListRow: Identifiable { let id: String }
     }.frame(width: 444))
     grid.layoutSubtreeIfNeeded()
     #expect(grid.fittingSize.width <= 444)
-    #expect(grid.fittingSize.height == 216) // Fixed square footprint; links scroll within it.
+    #expect(grid.fittingSize.height == 210) // Fixed footprint, capped row height; links scroll within it.
 }
 
 private func summaryAgentSession(_ id: Int32, parent: Int32? = nil, project: String = "smack") -> AgentSession {
@@ -343,7 +343,7 @@ private struct SpanningTile: View {
         host.frame = CGRect(origin: .zero, size: host.fittingSize)
         host.layoutSubtreeIfNeeded()
         #expect(host.fittingSize.width == 920)
-        #expect(host.fittingSize.height == 695)
+        #expect(host.fittingSize.height == 686)
         if let path = ProcessInfo.processInfo.environment["SMACK_LAYOUT_PREVIEW_DIR"] {
             let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: rep)

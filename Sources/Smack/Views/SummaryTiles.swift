@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Ordered square-cell packing. A large tile reserves two rows without stretching its neighbors.
+/// Ordered cell packing. A large tile reserves two rows without stretching its neighbors.
+/// Rows are `minimumColumnWidth` tall (shorter only on a narrower single column), however wide the columns get.
 enum TileGrid {
     static func columns(width: CGFloat, minimumColumnWidth: CGFloat, spacing: CGFloat) -> Int {
         guard width.isFinite, width > 0 else { return 1 }
@@ -11,6 +12,7 @@ enum TileGrid {
     static func frames(sizes: [SummaryTileSize], width: CGFloat, minimumColumnWidth: CGFloat, spacing: CGFloat) -> [CGRect] {
         let columns = columns(width: width, minimumColumnWidth: minimumColumnWidth, spacing: spacing)
         let unit = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        let rowHeight = min(unit, minimumColumnWidth)
         var occupied = Set<Int>()
         var cursor = 0
         return sizes.map { size in
@@ -23,9 +25,9 @@ enum TileGrid {
                 if column + wide <= columns && cells.allSatisfy({ !occupied.contains($0) }) {
                     occupied.formUnion(cells)
                     cursor += wide
-                    return CGRect(x: CGFloat(column) * (unit + spacing), y: CGFloat(row) * (unit + spacing),
+                    return CGRect(x: CGFloat(column) * (unit + spacing), y: CGFloat(row) * (rowHeight + spacing),
                                   width: CGFloat(wide) * (unit + spacing) - spacing,
-                                  height: CGFloat(tall) * (unit + spacing) - spacing)
+                                  height: CGFloat(tall) * (rowHeight + spacing) - spacing)
                 }
                 cursor += 1
             }
@@ -142,7 +144,7 @@ private struct SummaryTileArrangement: ViewModifier {
     }
 }
 
-/// Lays Summary Tiles out with fixed square-unit footprints.
+/// Lays Summary Tiles out with fixed grid-unit footprints.
 struct TileGridLayout: Layout {
     var minimumColumnWidth: CGFloat = 210
     var spacing: CGFloat = 12

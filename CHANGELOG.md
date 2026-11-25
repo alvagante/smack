@@ -6,6 +6,8 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
+- **Summary:** tile rows no longer grow with column width: they are capped at 210 points, so tiles on wide Panels have much less empty space. Layout only; no collection or persistence changes.
 - **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
 - **Internal:** split the largest collectors and parsers into smaller functions (baseline sections, runtime discovery, manifest parsing, agent session update, persistence scan, history v5 copy, CLI parsing). Same work and the same results; no collection or persistence changes.
 - **Internal:** deep-link filters now belong to each Page's view model, and environment monitoring reads the Panel state from `MonitorStore` instead of keeping its own copy. The app and the Privileged Helper share one unified log query.

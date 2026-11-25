@@ -17,6 +17,15 @@ import Testing
                        CGRect(x: 222, y: 0, width: 432, height: 210)])
 }
 
+@Test func tileGridCapsRowHeightWhenColumnsGrowWide() {
+    let frames = TileGrid.frames(sizes: [.large, .square, .square, .wide], width: 1_272,
+                                 minimumColumnWidth: 210, spacing: 12)
+    #expect(frames == [CGRect(x: 0, y: 0, width: 630, height: 432),
+                       CGRect(x: 642, y: 0, width: 309, height: 210),
+                       CGRect(x: 963, y: 0, width: 309, height: 210),
+                       CGRect(x: 642, y: 222, width: 630, height: 210)])
+}
+
 @Test func tileGridFitsSmallTilesBesideATallTileWithoutOverlap() {
     let frames = TileGrid.frames(sizes: [.large, .square, .square, .wide, .large], width: 876,
                                  minimumColumnWidth: 210, spacing: 12)
