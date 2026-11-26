@@ -98,17 +98,17 @@ enum HistoryMaintenance {
     static func downsampleProcessSamples(db: HistorySQLiteDatabase, olderThan cutoff: Date) throws {
         try db.withStatement("""
             INSERT INTO process_minutes (
-                process_id, timestamp, sample_count,
+                process_key, timestamp, sample_count,
                 cpu_total, cpu_peak, memory_total, memory_peak,
                 disk_read_total, disk_read_peak, disk_write_total, disk_write_peak
             )
             SELECT
-                process_id, CAST(timestamp / 60 AS INTEGER) * 60, SUM(weight),
+                process_key, CAST(timestamp / 60 AS INTEGER) * 60, SUM(weight),
                 SUM(cpu * weight), MAX(cpu), SUM(memory * weight), MAX(memory),
                 SUM(disk_read * weight), MAX(disk_read), SUM(disk_write * weight), MAX(disk_write)
             FROM process_samples WHERE timestamp < ?
-            GROUP BY process_id, CAST(timestamp / 60 AS INTEGER)
-            ON CONFLICT(process_id, timestamp) DO UPDATE SET
+            GROUP BY process_key, CAST(timestamp / 60 AS INTEGER)
+            ON CONFLICT(process_key, timestamp) DO UPDATE SET
                 sample_count = process_minutes.sample_count + excluded.sample_count,
                 cpu_total = process_minutes.cpu_total + excluded.cpu_total,
                 cpu_peak = MAX(process_minutes.cpu_peak, excluded.cpu_peak),
@@ -147,8 +147,8 @@ enum HistoryMaintenance {
     static func removeProcessesWithoutSamples(db: HistorySQLiteDatabase) throws {
         try db.execute("""
             DELETE FROM processes
-            WHERE NOT EXISTS (SELECT 1 FROM process_samples WHERE process_id = processes.id)
-              AND NOT EXISTS (SELECT 1 FROM process_minutes WHERE process_id = processes.id)
+            WHERE NOT EXISTS (SELECT 1 FROM process_samples WHERE process_key = processes.key)
+              AND NOT EXISTS (SELECT 1 FROM process_minutes WHERE process_key = processes.key)
             """)
     }
 }

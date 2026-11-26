@@ -241,7 +241,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     var statement: OpaquePointer?
     #expect(sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
-    #expect(sqlite3_column_int(statement, 0) == 3)
+    #expect(sqlite3_column_int(statement, 0) == Int32(HistorySchemaMigrator.schemaVersion))
     sqlite3_finalize(statement)
     #expect(sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM pragma_table_info('process_samples') WHERE name = 'name'", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
@@ -444,4 +444,65 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     try await repository.save(processes: ProcessSnapshot(timestamp: heartbeat.addingTimeInterval(20), applications: [], backgroundProcesses: []))
     let exitedPrograms = try await repository.programs(from: .distantPast)
     #expect(exitedPrograms.first?.lastSeen == idleAfterHeartbeat)
+}
+
+@Test func opensAndReadsVersionFiveSchemaWithoutModification() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("v5.sqlite")
+
+    var handle: OpaquePointer?
+    #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+    let setup = """
+        CREATE TABLE system_samples (
+            timestamp REAL PRIMARY KEY, cpu REAL NOT NULL, memory_used REAL NOT NULL,
+            network_receive REAL NOT NULL, network_send REAL NOT NULL, disk_read REAL NOT NULL, disk_write REAL NOT NULL,
+            gpu_utilization REAL NOT NULL DEFAULT 0, gpu_available INTEGER NOT NULL DEFAULT 0,
+            memory_pressure REAL NOT NULL DEFAULT -1, swap_used REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE system_minutes (
+            timestamp REAL PRIMARY KEY, sample_count INTEGER NOT NULL,
+            cpu_total REAL NOT NULL, cpu_peak REAL NOT NULL, memory_used_total REAL NOT NULL, memory_used_peak REAL NOT NULL,
+            network_receive_total REAL NOT NULL, network_receive_peak REAL NOT NULL,
+            network_send_total REAL NOT NULL, network_send_peak REAL NOT NULL,
+            disk_read_total REAL NOT NULL, disk_read_peak REAL NOT NULL,
+            disk_write_total REAL NOT NULL, disk_write_peak REAL NOT NULL,
+            gpu_utilization_total REAL NOT NULL DEFAULT 0, gpu_utilization_peak REAL NOT NULL DEFAULT 0,
+            gpu_available INTEGER NOT NULL DEFAULT 0, memory_pressure_total REAL NOT NULL DEFAULT -1,
+            memory_pressure_peak REAL NOT NULL DEFAULT -1, swap_used_total REAL NOT NULL DEFAULT 0, swap_used_peak REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE processes (key INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, last_seen REAL NOT NULL);
+        CREATE TABLE process_samples (
+            id INTEGER PRIMARY KEY, process_key INTEGER NOT NULL, timestamp REAL NOT NULL,
+            cpu REAL NOT NULL, memory REAL NOT NULL, disk_read REAL NOT NULL, disk_write REAL NOT NULL,
+            wakeups REAL NOT NULL DEFAULT 0, weight INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE process_minutes (
+            process_key INTEGER NOT NULL, timestamp REAL NOT NULL, sample_count INTEGER NOT NULL,
+            cpu_total REAL NOT NULL, cpu_peak REAL NOT NULL, memory_total REAL NOT NULL, memory_peak REAL NOT NULL,
+            disk_read_total REAL NOT NULL, disk_read_peak REAL NOT NULL, disk_write_total REAL NOT NULL, disk_write_peak REAL NOT NULL,
+            wakeups_total REAL NOT NULL DEFAULT 0, wakeups_peak REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (process_key, timestamp)
+        ) WITHOUT ROWID;
+        CREATE TABLE events (id TEXT PRIMARY KEY, timestamp REAL NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, process_id TEXT, process_name TEXT, severity TEXT NOT NULL, details TEXT NOT NULL);
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO processes (key, id, name, last_seen) VALUES (7, '42-1234.0', 'LegacyV5', 1760000000);
+        INSERT INTO process_samples (process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight)
+        VALUES (7, 1760000000, 33.5, 4096, 0, 0, 12, 1);
+        INSERT INTO metadata (key, value) VALUES ('origin', 'v1.3.0');
+        PRAGMA user_version = 5;
+        """
+    #expect(sqlite3_exec(handle, setup, nil, nil, nil) == SQLITE_OK)
+    sqlite3_close(handle)
+
+    let repository = try HistoryRepository(databaseURL: url)
+    let existing = try await repository.processSeries(processID: "42-1234.0", metric: .cpuUsage, from: .distantPast)
+    #expect(existing.count == 1)
+    #expect(abs(existing[0].average - 33.5) < 0.000_001)
+
+    let next = Date(timeIntervalSince1970: 1_760_000_060)
+    try await repository.save(processes: makeProcessSnapshot(timestamp: next, cpu: 50, memory: 8_192, name: "LegacyV5"))
+    let updated = try await repository.processSeries(processID: "42-1234.0", metric: .cpuUsage, from: .distantPast)
+    #expect(updated.count == 2)
+    #expect(HistoryRepositoryError.unsupportedSchemaVersion(99).errorDescription?.contains("99") == true)
 }

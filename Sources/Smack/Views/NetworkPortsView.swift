@@ -24,10 +24,16 @@ struct NetworkPortsView: View {
     private var ports: [ListeningPort] {
         let ports = store.networkPortsState.snapshot?.ports ?? []
         guard !query.isEmpty else { return ports }
-        return ports.filter {
-            "\($0.localAddress) \($0.port) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.scope.rawValue)"
-                .localizedCaseInsensitiveContains(query)
-        }
+        return ports.filter { Self.matches($0, query: query) }
+    }
+
+    private static func matches(_ port: ListeningPort, query: String) -> Bool {
+        port.localAddress.localizedCaseInsensitiveContains(query)
+            || port.processName.localizedCaseInsensitiveContains(query)
+            || (port.userName?.localizedCaseInsensitiveContains(query) == true)
+            || port.scope.rawValue.localizedCaseInsensitiveContains(query)
+            || String(port.port).contains(query)
+            || String(port.pid).contains(query)
     }
 
     var body: some View {

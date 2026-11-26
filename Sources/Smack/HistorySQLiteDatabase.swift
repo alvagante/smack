@@ -69,7 +69,7 @@ struct HistorySQLiteDatabase: @unchecked Sendable {
     }
 
     static func bind(_ value: String, at index: Int32, to statement: OpaquePointer) {
-        sqlite3_bind_text(statement, index, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(statement, index, value, Int32(value.utf8.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
     }
 
     func step(_ statement: OpaquePointer) throws {

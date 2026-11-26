@@ -23,17 +23,22 @@ enum SystemInformation {
     static let macOSDescription: String = ProcessInfo.processInfo.operatingSystemVersionString
 
     static let modelIdentifier: String = string("hw.model") ?? "Mac"
+    private static let cachedHardwareSection: SystemInformationSection = buildHardwareSection()
+    private static let cachedOSBuild: String? = string("kern.osversion")
+    private static let cachedDarwinVersion: String? = string("kern.osrelease")
+    private static let cachedKernelVersion: String? = string("kern.version")
+    private static let cachedBootTime: Date? = readBootTime()
 
     static func advancedSections(gpuName: String, volumes: [VolumeSample]) -> [SystemInformationSection] {
         [
-            hardwareSection(),
+            cachedHardwareSection,
             softwareSection(),
             graphicsSection(gpuName: gpuName),
             storageSection(volumes: volumes)
         ].filter { !$0.rows.isEmpty }
     }
 
-    private static func hardwareSection() -> SystemInformationSection {
+    private static func buildHardwareSection() -> SystemInformationSection {
         var rows = [
             SystemInformationRow(key: "Mac Model", value: modelIdentifier),
             SystemInformationRow(key: "Architecture", value: string("hw.machine") ?? "Unavailable"),
@@ -59,10 +64,10 @@ enum SystemInformation {
             SystemInformationRow(key: "Locale", value: Locale.current.identifier),
             SystemInformationRow(key: "Time Zone", value: TimeZone.current.identifier)
         ]
-        if let build = string("kern.osversion") { rows.append(SystemInformationRow(key: "macOS Build", value: build)) }
-        if let darwin = string("kern.osrelease") { rows.append(SystemInformationRow(key: "Darwin Version", value: darwin)) }
-        if let kernel = string("kern.version") { rows.append(SystemInformationRow(key: "Kernel", value: kernel)) }
-        if let bootTime { rows.append(SystemInformationRow(key: "Boot Time", value: bootTime.formatted(date: .abbreviated, time: .standard))) }
+        if let build = cachedOSBuild { rows.append(SystemInformationRow(key: "macOS Build", value: build)) }
+        if let darwin = cachedDarwinVersion { rows.append(SystemInformationRow(key: "Darwin Version", value: darwin)) }
+        if let kernel = cachedKernelVersion { rows.append(SystemInformationRow(key: "Kernel", value: kernel)) }
+        if let cachedBootTime { rows.append(SystemInformationRow(key: "Boot Time", value: cachedBootTime.formatted(date: .abbreviated, time: .standard))) }
         if let hostname = string("kern.hostname") { rows.append(SystemInformationRow(key: "Hostname", value: hostname)) }
         if let language = Locale.preferredLanguages.first { rows.append(SystemInformationRow(key: "Preferred Language", value: language)) }
         return SystemInformationSection(title: "Software", rows: rows)
@@ -75,14 +80,14 @@ enum SystemInformation {
     }
 
     private static func storageSection(volumes: [VolumeSample]) -> SystemInformationSection {
-        let rows = volumes.flatMap { volume in
-            [
-                SystemInformationRow(
-                    key: volume.name,
-                    value: "\(Formatting.bytes(volume.usedBytes)) used of \(Formatting.bytes(volume.totalBytes)) · \(Formatting.bytes(volume.availableBytes)) available"
-                ),
-                SystemInformationRow(key: "\(volume.name) Mount Path", value: volume.mountPath)
-            ]
+        var rows: [SystemInformationRow] = []
+        rows.reserveCapacity(volumes.count * 2)
+        for volume in volumes {
+            rows.append(SystemInformationRow(
+                key: volume.name,
+                value: "\(Formatting.bytes(volume.usedBytes)) used of \(Formatting.bytes(volume.totalBytes)) · \(Formatting.bytes(volume.availableBytes)) available"
+            ))
+            rows.append(SystemInformationRow(key: "\(volume.name) Mount Path", value: volume.mountPath))
         }
         return SystemInformationSection(title: "Storage", rows: rows)
     }
@@ -120,7 +125,7 @@ enum SystemInformation {
         return SystemInformationRow(key: "Display \(display)", value: details.joined(separator: " · "))
     }
 
-    private static var bootTime: Date? {
+    private static func readBootTime() -> Date? {
         var value = timeval()
         var size = MemoryLayout<timeval>.size
         guard sysctlbyname("kern.boottime", &value, &size, nil, 0) == 0 else { return nil }

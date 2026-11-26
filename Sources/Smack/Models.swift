@@ -204,11 +204,31 @@ struct ListeningPort: Identifiable, Sendable, Equatable {
 
 struct NetworkPortSnapshot: Sendable {
     var timestamp: Date
-    var ports: [ListeningPort]
+    var ports: [ListeningPort] {
+        didSet { (externalCount, localhostCount) = Self.scopeCounts(for: ports) }
+    }
     var warning: String?
+    private(set) var externalCount: Int
+    private(set) var localhostCount: Int
 
-    var externalCount: Int { ports.count { $0.scope == .external } }
-    var localhostCount: Int { ports.count { $0.scope == .localhost } }
+    init(timestamp: Date, ports: [ListeningPort], warning: String? = nil) {
+        self.timestamp = timestamp
+        self.ports = ports
+        self.warning = warning
+        (externalCount, localhostCount) = Self.scopeCounts(for: ports)
+    }
+
+    private static func scopeCounts(for ports: [ListeningPort]) -> (external: Int, localhost: Int) {
+        var external = 0
+        var localhost = 0
+        for port in ports {
+            switch port.scope {
+            case .external: external += 1
+            case .localhost: localhost += 1
+            }
+        }
+        return (external, localhost)
+    }
 }
 
 struct ThreadInfo: Identifiable, Sendable {
