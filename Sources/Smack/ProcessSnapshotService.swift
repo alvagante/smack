@@ -3,26 +3,59 @@ import SmackIPC
 
 /// Prefers the privileged snapshot when the user enabled it and the helper answers; otherwise
 /// uses the local collector. Both paths share the same grouping logic.
-final class ProcessSnapshotService: ProcessMetricsCollecting, @unchecked Sendable {
-    private let local: ProcessCollector
+actor ProcessSnapshotService: ProcessMetricsCollecting {
+    private let local: any ProcessMetricsCollecting
     private let privileged: PrivilegedSamplingProviding
+    private var lastTimestamp: Date?
     private let privilegedBuilder = ProcessSnapshotBuilder()
+    private let network: ProcessNetworkSampler
 
-    init(local: ProcessCollector, privileged: PrivilegedSamplingProviding) {
+    init(local: any ProcessMetricsCollecting, privileged: PrivilegedSamplingProviding,
+         network: ProcessNetworkSampler = ProcessNetworkSampler()) {
         self.local = local
         self.privileged = privileged
+        self.network = network
     }
 
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async {
+        await network.setInterval(interval)
+        await network.setVisible(visible && !Capabilities.isSandboxed)
+    }
+
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
+        guard !Task.isCancelled else { return nil }
+        var snapshot: ProcessSnapshot
         if includePrivileged, let payload = await privileged.collectSnapshot() {
+            guard !Task.isCancelled,
+                  lastTimestamp.map({ payload.timestamp > $0 }) ?? true else { return nil }
             let metadata: [Int32: VisibleApplicationMetadata]
             if let cached = privilegedBuilder.resolveVisibleApplicationMetadata() {
                 metadata = cached
             } else {
                 metadata = await MainActor.run { ProcessCollector.readVisibleApplicationMetadata() }
+                guard !Task.isCancelled else { return nil }
             }
-            return privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp, metadata: metadata)
+            snapshot = privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp, metadata: metadata)
+        } else {
+            guard !Task.isCancelled,
+                  let localSnapshot = await local.collectProcessSnapshot(includePrivileged: false),
+                  !Task.isCancelled,
+                  lastTimestamp.map({ localSnapshot.timestamp > $0 }) ?? true else { return nil }
+            snapshot = localSnapshot
         }
-        return await local.collectProcessSnapshot(includePrivileged: false)
+        let networkSample = await network.latest()
+        guard !Task.isCancelled,
+              lastTimestamp.map({ snapshot.timestamp > $0 }) ?? true else { return nil }
+        for index in snapshot.applications.indices {
+            for processIndex in snapshot.applications[index].processes.indices {
+                let identity = snapshot.applications[index].processes[processIndex].identity
+                snapshot.applications[index].processes[processIndex].networkThroughput = networkSample?.throughput(for: identity)
+            }
+        }
+        for index in snapshot.backgroundProcesses.indices {
+            snapshot.backgroundProcesses[index].networkThroughput = networkSample?.throughput(for: snapshot.backgroundProcesses[index].identity)
+        }
+        lastTimestamp = snapshot.timestamp
+        return snapshot
     }
 }

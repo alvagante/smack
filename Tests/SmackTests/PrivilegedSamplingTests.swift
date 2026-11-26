@@ -28,7 +28,7 @@ import Testing
     #expect(try JSONDecoder().decode(ProcessSnapshotPayload.self, from: data) == payload)
 }
 
-@Test func privilegedSnapshotTakesPrecedenceAndFallsBack() async {
+@Test func privilegedSnapshotTakesPrecedenceAndFallsBack() async throws {
     let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
     let provider = StubPrivilegedSampler()
     provider.payload = ProcessSnapshotPayload(
@@ -44,11 +44,11 @@ import Testing
     )
     let service = ProcessSnapshotService(local: ProcessCollector(), privileged: provider)
 
-    let privileged = await service.collectProcessSnapshot(includePrivileged: true)
+    let privileged = try #require(await service.collectProcessSnapshot(includePrivileged: true))
     #expect(privileged.backgroundProcesses.map(\.name) == ["privileged-sample"])
     #expect(privileged.timestamp == timestamp)
 
-    let local = await service.collectProcessSnapshot(includePrivileged: false)
+    let local = try #require(await service.collectProcessSnapshot(includePrivileged: false))
     #expect(!local.backgroundProcesses.isEmpty || !local.applications.isEmpty)
     #expect(local.backgroundProcesses.contains { $0.name == "privileged-sample" } == false)
 }
@@ -140,9 +140,8 @@ import Testing
     #expect(LegacyHelperInstaller.result(status: 1, message: "error: run with sudo") == .failed("error: run with sudo"))
 }
 #endif
-
 @Test func privilegedSamplingClientReturnsNilWhenUnavailableAndInvalidatesCleanly() async {
-    let client = PrivilegedSamplingClient()
+    let client = PrivilegedSamplingClient(timeoutOverride: 0.05)
     #expect(await client.collectSnapshot() == nil)
     #expect(await client.collectInventory(pid: getpid(), startTime: Date()) == nil)
     #expect(await client.collectNetworkPorts() == nil)
@@ -221,7 +220,23 @@ private final class StubPrivilegedSampler: PrivilegedSamplingProviding, @uncheck
         inventoryPayload
     }
 
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload? { nil }
+
     func collectNetworkPorts() async -> SocketCollection? {
         socketCollection
     }
+}
+
+@MainActor @Test func anAdHocBuildNeverReachesTheHelper() async {
+    let controller = PrivilegedSamplingController(client: PrivilegedSamplingClient(), mode: .unsupported)
+    await controller.refresh()
+    #expect(controller.state == .unsupported)
+    #expect(controller.statusDescription.contains("ad-hoc signed"))
+    await controller.install()
+    #expect(controller.state == .unsupported)
+#if !SMACK_APP_STORE
+    #expect(controller.errorMessage == "Superuser sampling needs a signed build. Ad-hoc builds cannot run the helper.")
+#endif
+    #expect(await controller.captureFileActivity(identity: ProcessIdentity(pid: 1, startTime: .distantPast)) == nil)
+    #expect(await controller.queryUnifiedLog(window: DateInterval(start: .distantPast, duration: 60)) == nil)
 }

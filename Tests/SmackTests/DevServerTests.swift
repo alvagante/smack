@@ -1,0 +1,259 @@
+import Foundation
+import Testing
+import SmackIPC
+import Synchronization
+@testable import Smack
+
+private func projectFixture() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("smack-project-" + UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+private func put(_ root: URL, _ path: String, _ content: String) throws {
+    let url = root.appendingPathComponent(path)
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(content.utf8).write(to: url)
+}
+
+@Test func projectResolverGitWorktreePackedDetachedAndInvalidation() async throws {
+    let root = try projectFixture()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try put(root, "repo/.git/HEAD", "ref: refs/heads/main\n")
+    try put(root, "repo/.git/packed-refs", "abcdef1234567890 refs/heads/main\n")
+    try put(root, "repo/package.json", #"{"name":"test-server"}"#)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("repo/src"), withIntermediateDirectories: true)
+    let resolver = ProjectResolver(home: root.path)
+    let context = try #require(await resolver.context(forDirectory: root.appendingPathComponent("repo/src").path))
+    #expect(context.root == root.appendingPathComponent("repo").path)
+    #expect(context.name == "test-server" && context.kind == .node)
+    #expect(context.git == GitHead(branch: "main", commit: "abcdef123456", isWorktree: false))
+    try put(root, "repo/.git/HEAD", "1234567890abcdef\n")
+    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: root.appendingPathComponent("repo/.git/HEAD").path)
+    #expect(await resolver.context(forDirectory: root.appendingPathComponent("repo/src").path)?.git?.commit == "1234567890ab")
+    try put(root, "worktree/.git", "gitdir: ../repo/.git/worktrees/one\n")
+    try put(root, "repo/.git/worktrees/one/HEAD", "ref: refs/heads/main\n")
+    try put(root, "repo/.git/worktrees/one/commondir", "../..\n")
+    let worktree = await resolver.context(forDirectory: root.appendingPathComponent("worktree").path)
+    #expect(worktree?.git == GitHead(branch: "main", commit: "abcdef123456", isWorktree: true))
+}
+
+@Test func projectResolverManifestsBoundsHomeAndLRU() async throws {
+    let root = try projectFixture()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixtures: [(String, ProjectKind, String, String?)] = [
+        ("package.json", .node, #"{"name":"node-project"}"#, "node-project"),
+        ("pyproject.toml", .python, "[tool.other]\nname = 'wrong'\n[project]\nname = 'python-project'\n", "python-project"),
+        ("Cargo.toml", .rust, "[package]\nname = \"rust-project\"\n", "rust-project"),
+        ("go.mod", .go, "module example.org/server\n", "example.org/server"),
+        ("Gemfile", .ruby, "", nil), ("pom.xml", .java, "", nil),
+        ("composer.json", .php, #"{"name":"vendor/php"}"#, "vendor/php"),
+        ("Package.swift", .swift, "", nil), ("mix.exs", .elixir, "", nil),
+        ("app.csproj", .dotnet, "", nil), ("compose.yaml", .compose, "", nil)]
+    let resolver = ProjectResolver(home: root.path)
+    for (index, fixture) in fixtures.enumerated() {
+        let path = "project\(index)"
+        try put(root, path + "/" + fixture.0, fixture.2)
+        let result = await resolver.context(forDirectory: root.appendingPathComponent(path).path)
+        #expect(result?.kind == fixture.1)
+        #expect(result?.name == fixture.3 ?? path)
+    }
+    try put(root, "big/package.json", String(repeating: "x", count: 262_145))
+    #expect(await resolver.context(forDirectory: root.appendingPathComponent("big").path)?.name == "big")
+    try put(root, ".git/HEAD", "abcdef\n")
+    let stopped = ProjectResolver(home: root.appendingPathComponent("big").path)
+    #expect(await stopped.context(forDirectory: root.appendingPathComponent("big").path)?.git == nil)
+    #expect(await resolver.context(forDirectory: "/") == nil)
+    for index in 0..<514 {
+        let dir = root.appendingPathComponent("cache\(index)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        _ = await resolver.context(forDirectory: dir.path)
+    }
+    #expect(await resolver.cachedDirectoryCount == 512)
+}
+
+private func devProcess(_ pid: Int32, parent: Int32? = nil) -> ProcessMetrics {
+    ProcessMetrics(identity: ProcessIdentity(pid: pid, startTime: Date(timeIntervalSince1970: 100)),
+        name: "node", parentPID: parent, cpuUsage: 0, memoryBytes: 0, diskReadRate: 0, diskWriteRate: 0,
+        threadCount: 1, isApplication: false)
+}
+
+@Test func devServerGroupingFilteringUnknownAndContainerMapping() async throws {
+    let root = try projectFixture()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try put(root, "package.json", #"{"name":"dev-test"}"#)
+    let path = root.path
+    let collector = DevServerCollector(workingDirectory: { $0.pid == 4 ? nil : path })
+    var processes = [devProcess(1), devProcess(2, parent: 1), devProcess(3), devProcess(4)]
+    processes[2].name = "com.docker.backend"
+    var sockets = [
+        SocketRecord(owner: .init(pid: 2, name: "node", userName: "test"), descriptor: 1, localAddress: "127.0.0.1:3000", remoteAddress: "", state: "LISTEN"),
+        SocketRecord(owner: .init(pid: 1, name: "node", userName: "test"), descriptor: 2, localAddress: "127.0.0.1:3001", remoteAddress: "", state: "LISTEN"),
+        SocketRecord(owner: .init(pid: 3, name: "com.docker.backend", userName: "root"), descriptor: 3, localAddress: "0.0.0.0:8080", remoteAddress: "", state: "LISTEN"),
+        SocketRecord(owner: .init(pid: 4, name: "unknown", userName: "test"), descriptor: 4, localAddress: "127.0.0.1:9000", remoteAddress: "", state: "LISTEN")]
+    let container = try JSONDecoder().decode(DockerContainer.self, from: Data("""
+        {"id":"abc","name":"/web","image":"web","state":"running","status":"Up","project":"demo",
+        "composeWorkingDirectory":"\(path)","ports":{"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"8080"}]}}
+        """.utf8))
+    let snapshot = ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: processes)
+    var rows = await collector.collect(ports: NetworkPortCollector.snapshot(from: sockets), processes: snapshot, containers: [container], showSystem: false)
+    #expect(rows.count == 3)
+    #expect(rows.first { $0.process.pid == 1 }?.ports.count == 2)
+    #expect(rows.first { $0.process.pid == 4 }?.project == nil)
+    #expect(rows.first { $0.container != nil }?.container?.composeProject == "demo")
+    #expect(rows.first { $0.container != nil }?.project?.name == "dev-test")
+    sockets.append(.init(owner: .init(pid: 50, name: "system", userName: "root"), descriptor: 5,
+        localAddress: "0.0.0.0:22", remoteAddress: "", state: "LISTEN"))
+    rows = await collector.collect(ports: NetworkPortCollector.snapshot(from: sockets), processes: snapshot, containers: [], showSystem: false)
+    #expect(!rows.contains { $0.process.pid == 50 })
+    rows = await collector.collect(ports: NetworkPortCollector.snapshot(from: sockets), processes: snapshot, containers: [], showSystem: true)
+    #expect(rows.contains { $0.process.pid == 50 && $0.project == nil })
+    #expect(DevServerCollector.engineNames == ["com.docker.backend", "vpnkit-bridge", "OrbStack Helper", "limactl", "gvproxy", "qemu-system-aarch64"])
+}
+
+@Test func devServerRoutesProtocolAndSettings() throws {
+    #expect(DeepLinkParser.parse(URL(string: "smack://devservers")!).route == .devServers)
+    #expect(DeepLinkParser.parse(URL(string: "smack://devservers")!, flavor: .appStore).route == .unavailable("Not available in this edition"))
+    #expect(ControlProtocol.supports(1) && ControlProtocol.supports(2) && !ControlProtocol.supports(3))
+    try ControlRequest(op: "devservers").validate()
+    try ControlRequest(op: "who", port: 8080).validate()
+    #expect(throws: (any Error).self) { try ControlRequest(op: "who").validate() }
+    var settings = try JSONDecoder().decode(CollectionSettings.self, from: Data("{}".utf8))
+    #expect(settings.devTools.terminalApp == "com.apple.Terminal" && settings.devTools.editorApp == nil && !settings.devTools.devServersShowSystem)
+    settings.devTools.editorApp = "dev.zed.Zed"; settings.devTools.devServersShowSystem = true; settings.devTools.backgroundDevServersEnabled = true
+    #expect(try JSONDecoder().decode(CollectionSettings.self, from: JSONEncoder().encode(settings)) == settings)
+}
+
+private actor CountingDevProjectResolver: ProjectResolving {
+    var calls: [String: Int] = [:]
+
+    func context(forDirectory path: String, now: Date) -> ProjectContext? {
+        calls[path, default: 0] += 1
+        guard path != "/unavailable" else { return nil }
+        return ProjectContext(directory: path, root: path, name: String(now.timeIntervalSince1970))
+    }
+}
+
+@Test func devServerResolvesEachDirectoryOncePerCollection() async {
+    let resolver = CountingDevProjectResolver()
+    let paths = ["/project-a", "/project-b", "/unavailable"]
+    let collector = DevServerCollector(resolver: resolver, workingDirectory: { paths[Int($0.pid) % paths.count] })
+    let processes = (100..<200).map { devProcess(Int32($0)) }
+    let ports = NetworkPortCollector.snapshot(from: processes.enumerated().map { index, process in
+        SocketRecord(owner: .init(pid: process.identity.pid, name: "node", userName: "test"),
+            descriptor: 1, localAddress: "127.0.0.1:\(3000 + index)", remoteAddress: "", state: "LISTEN")
+    })
+    let snapshot = ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: processes)
+    for pass in 1...2 {
+        let now = Date(timeIntervalSince1970: Double(pass))
+        let rows = await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false, now: now)
+        #expect(rows.count == 100)
+        #expect(await resolver.calls == Dictionary(uniqueKeysWithValues: paths.map { ($0, pass) }))
+        for row in rows {
+            let path = paths[Int(row.process.pid) % paths.count]
+            if path == "/unavailable" {
+                #expect(row.project == nil)
+            } else {
+                #expect(row.project?.directory == path)
+                #expect(row.project?.name == String(now.timeIntervalSince1970))
+            }
+        }
+    }
+}
+
+@Test func devServerWarmCollectionMeasurementAndIdentityCache() async throws {
+    let root = try projectFixture()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try put(root, "package.json", #"{"name":"benchmark"}"#)
+    let path = root.path
+    let collector = DevServerCollector(workingDirectory: { _ in path })
+    let processes = (100..<200).map { devProcess(Int32($0)) }
+    let sockets = processes.enumerated().map { index, process in
+        SocketRecord(owner: .init(pid: process.identity.pid, name: "node", userName: "test"),
+            descriptor: 1, localAddress: "127.0.0.1:\(3000 + index)", remoteAddress: "", state: "LISTEN")
+    }
+    let ports = NetworkPortCollector.snapshot(from: sockets)
+    let snapshot = ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: processes)
+    let now = Date()
+    _ = await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false, now: now)
+    var elapsed: [Double] = []
+    for _ in 0..<50 {
+        let start = ContinuousClock.now
+        let rows = await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false, now: now)
+        elapsed.append(Double(start.duration(to: .now).components.attoseconds) / 1e15)
+        #expect(rows.count == 100)
+    }
+    print("Dev server warm 100 listeners p95 milliseconds: \(elapsed.sorted()[47])")
+    if ProcessInfo.processInfo.environment["SMACK_PERFORMANCE_BUDGETS"] == "1" {
+        PerformanceBudget.check("Dev server warm collection p95, 100 listeners", milliseconds: elapsed.sorted()[47], limit: 10)
+    }
+}
+
+@Test func devServerDirectoryCacheTracksIdentityAndTTL() async throws {
+    let calls = Mutex(0)
+    let collector = DevServerCollector(workingDirectory: { _ in calls.withLock { $0 += 1 }; return nil })
+    let port = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: .init(pid: 100, name: "node", userName: "test"), descriptor: 1,
+            localAddress: "127.0.0.1:3000", remoteAddress: "", state: "LISTEN")])
+    let now = Date()
+    var snapshot = ProcessSnapshot(timestamp: now, applications: [], backgroundProcesses: [devProcess(100)])
+    for _ in 0..<2 { _ = await collector.collect(ports: port, processes: snapshot, containers: [], showSystem: false, now: now) }
+    #expect(calls.withLock { $0 } == 1)
+    snapshot.backgroundProcesses[0].identity.startTime = now
+    _ = await collector.collect(ports: port, processes: snapshot, containers: [], showSystem: false, now: now)
+    #expect(calls.withLock { $0 } == 2)
+    _ = await collector.collect(ports: port, processes: snapshot, containers: [], showSystem: false, now: now.addingTimeInterval(31))
+    #expect(calls.withLock { $0 } == 3)
+}
+
+@Test func devServerAppleSignatureFiltering() async {
+    var process = devProcess(100)
+    process.executablePath = "/example/signed"
+    let snapshot = ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: [process])
+    let ports = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: .init(pid: 100, name: "apple", userName: "test"), descriptor: 1,
+            localAddress: "127.0.0.1:3000", remoteAddress: "", state: "LISTEN")])
+    let collector = DevServerCollector(isAppleSigned: { $0 == "/example/signed" }, workingDirectory: { _ in nil })
+    #expect(await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: false).isEmpty)
+    #expect(await collector.collect(ports: ports, processes: snapshot, containers: [], showSystem: true).count == 1)
+}
+
+@Test func portPairsMergeDuplicatesAndPairAddressFamilies() {
+    let ports = [
+        obsPort(pid: 1, port: 8021, host: "127.0.0.1", fd: 3), obsPort(pid: 1, port: 8021, host: "127.0.0.1", fd: 4),
+        obsPort(pid: 1, port: 8021, host: "[::1]", fd: 5), obsPort(pid: 1, port: 8021, host: "[::1]", fd: 6),
+        obsPort(pid: 1, port: 3000, host: "0.0.0.0", fd: 7)
+    ]
+    let pairs = ListeningPortPair.pairs(ports)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].ipv4?.localAddress == "0.0.0.0:3000" && pairs[0].ipv6 == nil && pairs[0].scope == .external)
+    #expect(pairs[1].ipv4?.localAddress == "127.0.0.1:8021" && pairs[1].ipv6?.localAddress == "[::1]:8021")
+}
+
+@Test func portPairsPerProcessKeepProcessesApart() {
+    let ports = [obsPort(pid: 1, port: 80, host: "0.0.0.0", fd: 3), obsPort(pid: 2, port: 80, host: "[::]", fd: 3)]
+    #expect(ListeningPortPair.pairs(ports).count == 1)
+    #expect(ListeningPortPair.pairs(ports, perProcess: true).count == 2)
+}
+
+@Test func dockerPortPairsMatchAddressFamiliesPerHostPort() {
+    let bindings: [String: [DockerPortBinding]?] = [
+        "80/tcp": [DockerPortBinding(HostIp: "0.0.0.0", HostPort: "8080"), DockerPortBinding(HostIp: "::", HostPort: "8080"),
+                   DockerPortBinding(HostIp: "0.0.0.0", HostPort: "8080")],
+        "53/udp": [DockerPortBinding(HostIp: "127.0.0.1", HostPort: "5353")],
+        "9000/tcp": nil
+    ]
+    let pairs = DockerPortPair.pairs(bindings)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].containerPort == "53/udp" && pairs[0].ipv6 == nil)
+    #expect(pairs[1].ipv4.map(DockerPortPair.host) == "0.0.0.0:8080" && pairs[1].ipv6.map(DockerPortPair.host) == "[::]:8080")
+}
+
+@Test func launchdIsNeverStoppable() {
+    let launchd = ProcessIdentity(pid: 1, startTime: Date(timeIntervalSince1970: 1))
+    let worker = ProcessIdentity(pid: 42, startTime: Date(timeIntervalSince1970: 2))
+    var server = DevServer(id: "x", process: launchd, processName: "launchd", ports: [])
+    server.listenerProcesses = [launchd]
+    #expect(server.stoppableProcesses.isEmpty)
+    server.listenerProcesses.append(worker)
+    #expect(server.stoppableProcesses == [worker])
+}

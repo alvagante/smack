@@ -2,6 +2,7 @@ import Foundation
 
 /// Names shared by the app and its privileged helper.
 public enum SmackIPC {
+    public static let helperProtocolVersion = 3
     public static let appBundleIdentifier = "it.lab42.smack"
     public static let helperIdentifier = "it.lab42.smack.helper"
     public static let machServiceName = helperIdentifier
@@ -12,14 +13,46 @@ public enum SmackIPC {
 }
 
 /// The operations the helper exposes. Each returns encoded JSON data, or an error
-/// description. The only client-supplied input is a PID plus its start time for
-/// `collectInventory`, so the caller can inspect the metadata of any process, including
-/// root processes, but cannot read file contents or process memory, pass a path, or run
-/// a command.
+/// description. Storage scans use a fixed root (/), expose metadata only, and never
+/// accept a client-supplied path or command. Process inspection accepts a PID and start time.
 @objc public protocol SmackPrivilegedSampling {
+    @objc optional func protocolVersion(reply: @escaping (Int) -> Void)
+    @objc optional func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void)
+    @objc optional func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void)
+    @objc optional func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void)
+    func startStorageScan(reply: @escaping (Data?, String?) -> Void)
+    func storageScanStatus(reply: @escaping (Data?, String?) -> Void)
+    func cancelStorageScan(reply: @escaping (Data?, String?) -> Void)
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void)
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
+    func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void)
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void)
+}
+
+/// The unified log query shared by the app and the Privileged Helper, so both read the same records.
+public enum UnifiedLogQuery {
+    public static let timeout: TimeInterval = 10
+    public static let outputLimit = 1_048_576
+    /// The widest range the Privileged Helper reads: 30 days. The user's setting can only narrow it.
+    public static let maximumRange: TimeInterval = 30 * 86_400
+
+    /// Why the helper refuses a requested range, or nil when it is acceptable. Checked in the helper,
+    /// because the app's own limit cannot be trusted by a root process.
+    public static func rejection(start: Double, end: Double, now: Double) -> String? {
+        guard start.isFinite, end.isFinite, start >= 0, end > start, end <= now + 60 else { return "Invalid log time range" }
+        guard end - start <= maximumRange else { return "Log time range is wider than 30 days" }
+        return nil
+    }
+
+    public static func arguments(start: Double, end: Double) -> [String] {
+        ["show", "--style", "ndjson", "--start", "@\(Int64(start))", "--end", "@\(Int64(end))"]
+    }
+}
+
+public struct UnifiedLogPayload: Codable, Sendable {
+    public var output: String
+    public var message: String?
+    public init(output: String, message: String?) { self.output = output; self.message = message }
 }
 
 /// A process observation as read from libproc. The helper is root, so it can see processes
@@ -37,6 +70,9 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
     public var bytesWritten: UInt64
     public var energyNanojoules: UInt64?
     public var threadCount: Int
+    /// Cumulative wakeup counters; nil when `rusage_info_v6` is unavailable. Optional, so payloads from an older helper still decode.
+    public var interruptWakeups: UInt64?
+    public var packageIdleWakeups: UInt64?
 
     public init(
         pid: Int32,
@@ -50,7 +86,9 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
         bytesRead: UInt64,
         bytesWritten: UInt64,
         energyNanojoules: UInt64?,
-        threadCount: Int
+        threadCount: Int,
+        interruptWakeups: UInt64? = nil,
+        packageIdleWakeups: UInt64? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -64,16 +102,20 @@ public struct ProcessRecord: Codable, Sendable, Equatable {
         self.bytesWritten = bytesWritten
         self.energyNanojoules = energyNanojoules
         self.threadCount = threadCount
+        self.interruptWakeups = interruptWakeups
+        self.packageIdleWakeups = packageIdleWakeups
     }
 }
 
 public struct ProcessSnapshotPayload: Codable, Sendable, Equatable {
     public var timestamp: Date
     public var records: [ProcessRecord]
+    public var helperProtocolVersion: Int?
 
-    public init(timestamp: Date, records: [ProcessRecord]) {
+    public init(timestamp: Date, records: [ProcessRecord], helperProtocolVersion: Int? = nil) {
         self.timestamp = timestamp
         self.records = records
+        self.helperProtocolVersion = helperProtocolVersion
     }
 }
 
@@ -105,13 +147,32 @@ public struct ConnectionRecord: Codable, Sendable, Equatable {
     }
 }
 
+/// Scheduler values come from the same `proc_threadinfo` read as the name. They are optional so payloads from an
+/// older helper, which sends only the name, still decode.
 public struct ThreadRecord: Codable, Sendable, Equatable {
     public var id: UInt64
     public var name: String?
+    /// `TH_STATE_*`: 1 running, 2 stopped, 3 waiting, 4 uninterruptible, 5 halted.
+    public var runState: Int32?
+    /// CPU time since the thread started, in nanoseconds.
+    public var userTime: UInt64?
+    public var systemTime: UInt64?
+    /// The scheduler's decaying CPU average, scaled to `TH_USAGE_SCALE` (1000 = one full core).
+    public var cpuUsage: Int32?
+    public var priority: Int32?
+    /// `POLICY_*`: 1 timeshare, 2 round-robin, 4 FIFO.
+    public var policy: Int32?
 
-    public init(id: UInt64, name: String?) {
+    public init(id: UInt64, name: String?, runState: Int32? = nil, userTime: UInt64? = nil, systemTime: UInt64? = nil,
+                cpuUsage: Int32? = nil, priority: Int32? = nil, policy: Int32? = nil) {
         self.id = id
         self.name = name
+        self.runState = runState
+        self.userTime = userTime
+        self.systemTime = systemTime
+        self.cpuUsage = cpuUsage
+        self.priority = priority
+        self.policy = policy
     }
 }
 

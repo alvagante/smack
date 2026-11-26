@@ -1,8 +1,15 @@
 .build/
+.build-appstore/
+.build-store/
+.swiftpm/
+.tmp/
 .DS_Store
 *.xcuserstate
 dist/
+Smack.build
+windows/**/bin/
+windows/**/obj/
 reasoning/
-reasomnming/**
+reasoning/**
 openspec/
 openspec/**

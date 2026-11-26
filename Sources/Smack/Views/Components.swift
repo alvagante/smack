@@ -4,22 +4,24 @@ import Charts
 struct MetricCard<Content: View>: View {
     let title: String
     let systemImage: String
+    var color: Color = .accentColor
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            content
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(color)
+                    .frame(width: 18)
+                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 6) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
-        }
+        .monitorSurface()
     }
 }
 
@@ -31,6 +33,8 @@ struct SparklineSeries {
 struct Sparkline: View {
     let series: [SparklineSeries]
     var domain: ClosedRange<Double>?
+    var minHeight: CGFloat = 38
+    var maxHeight: CGFloat = 48
 
     var body: some View {
         Canvas { context, size in
@@ -62,9 +66,9 @@ struct Sparkline: View {
         }
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(.black.opacity(0.12))
+                .fill(.primary.opacity(0.025))
         }
-        .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 48)
+        .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: maxHeight)
         .clipped()
     }
 
@@ -134,33 +138,13 @@ struct ThermalIndicator: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                Self.thermalLight(.green, active: condition == .nominal)
-                Self.thermalLight(.yellow, active: condition == .fair)
-                Self.thermalLight(.red, active: condition == .serious || condition == .critical)
-            }
+            ThermalLights(condition: condition)
             Text(condition.rawValue.capitalized)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(ThermalLights.color(condition))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Thermal State: \(condition.rawValue)")
-    }
-
-    private var color: Color {
-        switch condition {
-        case .nominal: .green
-        case .fair: .yellow
-        case .serious, .critical: .red
-        case .unavailable: .secondary
-        }
-    }
-
-    private static func thermalLight(_ color: Color, active: Bool) -> some View {
-        Circle()
-            .fill(active ? color : Color.secondary.opacity(0.16))
-            .frame(width: 13, height: 13)
-            .shadow(color: active ? color.opacity(0.55) : .clear, radius: 5)
     }
 }
 
@@ -243,5 +227,44 @@ struct GlassBackground: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.alphaValue = opacity
+    }
+}
+
+
+struct ToolbarIconButton: View {
+    let title: String
+    let systemImage: String
+    var color: Color = .blue
+    var isLoading = false
+    var hint: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+            }
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.bordered)
+        .tint(color)
+        .accessibilityLabel(title)
+        .hoverHint(hint ?? title)
+    }
+}
+
+struct RefreshButton: View {
+    var isLoading = false
+    var hint: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        ToolbarIconButton(title: "Refresh", systemImage: "arrow.clockwise", color: .green,
+                          isLoading: isLoading, hint: hint, action: action)
     }
 }

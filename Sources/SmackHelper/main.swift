@@ -1,16 +1,111 @@
 import Foundation
+import Synchronization
 import SmackIPC
 import os
 
 private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sampling")
 
-/// The daemon has one job: return read-only process metadata. It never accepts a path or a
+/// The daemon returns read-only process and directory metadata. It never accepts a path or a
 /// command. `collectInventory` accepts a PID plus start time, so an accepted client can list
 /// open files, sockets, threads, and loaded images of any process, root processes included.
 /// That is why connections are restricted to the signed Smack app run by an administrator.
-final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
+final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling, Sendable {
+    private let scan = Mutex<StorageScanJob?>(nil)
+    private let capture = FileActivityCapture()
+    private let probe = Mutex<Task<Void, Never>?>(nil)
+
+    func protocolVersion(reply: @escaping (Int) -> Void) { reply(SmackIPC.helperProtocolVersion) }
+
+    func dumpBackgroundTasks(reply: @escaping (Data?, String?) -> Void) {
+        runProbe("/usr/bin/sfltool", ["dumpbtm"], reply: reply)
+    }
+
+    func listConfigurationProfiles(reply: @escaping (Data?, String?) -> Void) {
+        runProbe("/usr/bin/profiles", ["show", "-type", "configuration", "-output", "stdout-xml"], reply: reply)
+    }
+
+    func queryUnifiedLog(start: Double, end: Double, reply: @escaping (Data?, String?) -> Void) {
+        if let rejection = UnifiedLogQuery.rejection(start: start, end: end, now: Date().timeIntervalSince1970) {
+            reply(nil, rejection)
+            return
+        }
+        let completion = Reply(reply)
+        probe.withLock { task in
+            guard task == nil else { completion.send(nil, "A helper probe is already running"); return }
+            task = Task {
+                let result = await Subprocess.run("/usr/bin/log", UnifiedLogQuery.arguments(start: start, end: end),
+                                                  timeout: UnifiedLogQuery.timeout, outputLimit: UnifiedLogQuery.outputLimit)
+                let message = result.timedOut ? "Unified log query timed out; narrow the range."
+                    : result.truncated ? "Unified log output reached 1 MB; narrow the range."
+                    : result.status != 0 ? "Unified log query failed: \(String(result.error.prefix(500)))" : nil
+                self.encode(UnifiedLogPayload(output: result.output, message: message), reply: completion.send)
+                self.probe.withLock { $0 = nil }
+            }
+        }
+    }
+
+    private final class Reply: @unchecked Sendable {
+        let send: (Data?, String?) -> Void
+        init(_ send: @escaping (Data?, String?) -> Void) { self.send = send }
+    }
+
+    private func runProbe(_ path: String, _ arguments: [String], reply: @escaping (Data?, String?) -> Void) {
+        let reply = Reply(reply)
+        probe.withLock { task in
+            guard task == nil else { reply.send(nil, "A helper probe is already running"); return }
+            task = Task {
+                let result = await Subprocess.run(path, arguments, timeout: 5, outputLimit: 1_048_576)
+                if result.status == 0 && !result.truncated && !result.cancelled && !result.timedOut {
+                    self.encode(result.output, reply: reply.send)
+                } else { reply.send(nil, "Helper probe failed or exceeded its limits") }
+                self.probe.withLock { $0 = nil }
+            }
+        }
+    }
+
+    func disconnect() {
+        probe.withLock { $0?.cancel() }
+        stopScan()
+        capture.cancel()
+    }
+
+    func stopScan() {
+        scan.withLock { $0?.cancel() }
+    }
+
+    func startStorageScan(reply: @escaping (Data?, String?) -> Void) {
+        let job = scan.withLock { scan -> StorageScanJob? in
+            if let scan, !scan.status().finished { return nil }
+            let job = StorageScanJob(root: "/")
+            scan = job
+            return job
+        }
+        guard let job else {
+            encode(false, reply: reply)
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { job.run() }
+        encode(true, reply: reply)
+    }
+
+    func storageScanStatus(reply: @escaping (Data?, String?) -> Void) {
+        let status = scan.withLock { scan -> StorageScanSnapshot? in
+            let status = scan?.status()
+            // The app owns the completed tree after this reply.
+            if status?.finished == true { scan = nil }
+            return status
+        }
+        if let status { encode(status, reply: reply) }
+        else { reply(nil, "No storage scan is active.") }
+    }
+
+    func cancelStorageScan(reply: @escaping (Data?, String?) -> Void) {
+        stopScan()
+        encode(true, reply: reply)
+    }
+
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void) {
-        Self.encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records()), reply: reply)
+        encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records(), helperProtocolVersion: SmackIPC.helperProtocolVersion), reply: reply)
     }
 
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {
@@ -18,14 +113,18 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
             pid: pid,
             startTime: Date(timeIntervalSince1970: startTime)
         )
-        Self.encode(payload, reply: reply)
+        encode(payload, reply: reply)
+    }
+
+    func captureFileActivity(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {
+        capture.start(pid: pid, startTime: startTime, reply: reply)
     }
 
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void) {
-        Self.encode(ProcessSockets.collect(), reply: reply)
+        encode(ProcessSockets.collect(), reply: reply)
     }
 
-    private static func encode<T: Encodable>(_ value: T, reply: (Data?, String?) -> Void) {
+    private func encode<T: Encodable>(_ value: T, reply: (Data?, String?) -> Void) {
         do {
             reply(try JSONEncoder().encode(value), nil)
         } catch {
@@ -36,7 +135,6 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
-    private let service = PrivilegedSamplingService()
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         // Checked per connection, so users created or demoted after the admin approved the
@@ -47,7 +145,10 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
             return false
         }
         newConnection.exportedInterface = NSXPCInterface(with: SmackPrivilegedSampling.self)
+        let service = PrivilegedSamplingService()
         newConnection.exportedObject = service
+        newConnection.invalidationHandler = { service.disconnect() }
+        newConnection.interruptionHandler = { service.disconnect() }
         newConnection.resume()
         return true
     }

@@ -13,6 +13,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     targets: [
         .target(name: "SmackIPC"),
+        .executableTarget(name: "SmackCLI", dependencies: ["SmackIPC"]),
         .executableTarget(
             name: "SmackHelper",
             dependencies: ["SmackIPC"],

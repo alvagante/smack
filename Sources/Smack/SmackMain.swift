@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import UserNotifications
 import Darwin
 import ServiceManagement
 import SmackIPC
@@ -8,6 +10,31 @@ import SwiftUI
 @MainActor
 enum SmackMain {
     static func main() {
+        if CommandLine.arguments == [CommandLine.arguments[0], "--baseline-section"] {
+            Task.detached { exit(await BaselineWorker.run()) }
+            dispatchMain()
+        }
+#if !SMACK_APP_STORE
+        if CommandLine.arguments == [CommandLine.arguments[0], "--diagnose-helper"] {
+            Task.detached {
+                let client = PrivilegedSamplingClient()
+                client.setAvailable(true)
+                let snapshot = await client.collectSnapshot()
+                let version = await client.protocolVersion()
+                let btm = await client.dumpBackgroundTasks()
+                let profiles = await client.listConfigurationProfiles()
+                client.setAvailable(false)
+                print("snapshotAvailable=\(snapshot != nil) helperProtocol=\(version) btmBytes=\(btm?.utf8.count ?? 0) profilesBytes=\(profiles?.utf8.count ?? 0)")
+                exit(0)
+            }
+            dispatchMain()
+        }
+#endif
+        if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--signature-metadata" {
+            let info = ProcessProvenanceResolver.signature(path: CommandLine.arguments[2])
+            if let data = try? JSONEncoder().encode(info) { FileHandle.standardOutput.write(data) }
+            exit(0)
+        }
         if CommandLine.arguments.contains("--diagnose") {
             diagnose()
             exit(0)
@@ -16,6 +43,7 @@ enum SmackMain {
         application.setActivationPolicy(.accessory)
         let delegate = AppDelegate()
         application.delegate = delegate
+        delegate.configureMainMenu()
         application.run()
     }
 
@@ -57,6 +85,9 @@ enum SmackMain {
             "disks=\(system.disks.count)",
             "volumes=\(system.volumes.count)",
             "gpu=\(system.gpuName)",
+            "gpuUtilization=\(system.gpu.utilizationPercent.map { String($0) } ?? "unavailable")",
+            "memoryPressure=\(system.memory.pressure.rawValue)",
+            "swapUsed=\(system.memory.swapUsedBytes) swapTotal=\(system.memory.swapTotalBytes)",
             "battery=\(system.battery != nil)",
             "ports=\(ports.ports.count)"
         ]
@@ -73,36 +104,155 @@ enum SmackMain {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+#if !SMACK_APP_STORE
+    private var controlServer: ControlServer?
+    private var controlSettingsObservation: AnyCancellable?
+#endif
+    private var pendingNavigationURL: URL?
     private var statusItem: NSStatusItem!
     private var panelController: PanelController?
+    private var onboarding: OnboardingWindowController?
     private var store: MonitorStore?
     private var scheduler: CollectionScheduler?
+    private var history: HistoryRepository?
+    private var activityObservers: ActivitySystemObservers?
+    private let terminateApplication: () -> Void
+    private(set) var didSynchronizeOnTeardown = false
+
+    init(terminateApplication: @escaping () -> Void = { NSApplication.shared.terminate(nil) }) {
+        self.terminateApplication = terminateApplication
+    }
+
+    /// Shown only for the Standard Window; the Panel keeps the key equivalents.
+    func configureMainMenu() {
+        let mainMenu = NSMenu()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Hide Smack", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+            .keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let quitItem = NSMenuItem(
+            title: "Quit Smack",
+            action: #selector(requestQuit(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.keyEquivalentModifierMask = .command
+        quitItem.target = self
+        appMenu.addItem(quitItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+            .keyEquivalentModifierMask = [.command, .control]
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        for menu in [appMenu, editMenu, windowMenu] {
+            let item = NSMenuItem()
+            item.submenu = menu
+            mainMenu.addItem(item)
+        }
+        NSApplication.shared.mainMenu = mainMenu
+        NSApplication.shared.windowsMenu = windowMenu
+    }
+
+    @objc func requestQuit(_ sender: Any?) {
+        terminateApplication()
+    }
+
+    @objc func showOnboarding(_ sender: Any?) {
+        if let onboarding {
+            onboarding.show()
+            return
+        }
+        guard let store else { return }
+        let onboarding = OnboardingWindowController(store: store) { [weak self] in
+            self?.onboarding = nil
+        }
+        self.onboarding = onboarding
+        onboarding.show()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
-            let history = try HistoryRepository(databaseURL: Self.historyDatabaseURL())
+            let history = try HistoryRepository(
+                databaseURL: Self.historyDatabaseURL(),
+                commitInterval: HistoryRepository.appCommitInterval
+            )
+            self.history = history
             let settingsStore = SettingsStore()
             let privilegedClient = PrivilegedSamplingClient()
             let privilegedController = Capabilities.supportsPrivilegedSampling
                 ? PrivilegedSamplingController(client: privilegedClient)
                 : nil
-            let scheduler = makeScheduler(history: history, settings: settingsStore.settings, privilegedClient: privilegedClient)
+            let dispatcher = AlertDispatcher(notifier: SystemUserNotifier(), defaults: .standard)
+            UNUserNotificationCenter.current().delegate = self
+            UNUserNotificationCenter.current().setNotificationCategories([UNNotificationCategory(
+                identifier: "SMACK_ALERT", actions: [
+                    UNNotificationAction(identifier: "OPEN", title: "Open", options: .foreground),
+                    UNNotificationAction(identifier: "SNOOZE", title: "Snooze 1 h"),
+                    UNNotificationAction(identifier: "MUTE", title: "Mute")
+                ], intentIdentifiers: [])])
+            let scheduler = makeScheduler(
+                history: history,
+                settings: settingsStore.settings,
+                privilegedClient: privilegedClient,
+                dispatcher: dispatcher
+            )
             let store = MonitorStore(
                 settingsStore: settingsStore,
                 history: history,
                 scheduler: scheduler,
                 privilegedSampling: privilegedController
             )
+            store.alertDispatcher = dispatcher
+            dispatcher.isTargetVisible = { [weak store] in store?.alertTargetVisible($0) ?? false }
+            dispatcher.isRuleEnabled = { [weak store] id in store?.alertRules.rules.contains { $0.id == id && $0.enabled } ?? false }
+            _ = store.alertRules
             self.store = store
+            store.securityMonitoring.start(settings: store.settingsStore.settings)
             self.scheduler = scheduler
-            privilegedController?.prepare(enabled: settingsStore.settings.privilegedSampling)
+            AutomationSnapshot.startedAt = Date()
+            AutomationSnapshot.store = store
+            AutomationSnapshot.openURL = { [weak self] in self?.openNavigationURL($0) }
+#if !SMACK_APP_STORE
+            observeControlSocket(settingsStore)
+#endif
+            privilegedController?.prepare(enabled: settingsStore.settings.sampling.privilegedSampling)
+            installActivityObservers(store: store)
             configureStatusItem()
             let nativeMenuBarStore = NativeMenuBarStore()
             panelController = PanelController(store: store, nativeMenuBarStore: nativeMenuBarStore, statusItem: statusItem)
             store.setVisible(false)
-            if CommandLine.arguments.contains("--open-panel") {
-                panelController?.togglePinned()
+            if Onboarding.isPending() {
+                // A link that launched Smack waits until Onboarding is done; the Panel then opens either way,
+                // so the user sees where it lives with the Window style just chosen.
+                let onboarding = OnboardingWindowController(store: store) { [weak self] in
+                    guard let self else { return }
+                    self.onboarding = nil
+                    if let url = self.pendingNavigationURL {
+                        self.pendingNavigationURL = nil
+                        self.openNavigationURL(url)
+                    } else {
+                        self.panelController?.showPinned()
+                    }
+                }
+                self.onboarding = onboarding
+                onboarding.show()
+            } else if let url = pendingNavigationURL {
+                pendingNavigationURL = nil
+                openNavigationURL(url)
+            } else if CommandLine.arguments.contains("--open-panel") || settingsStore.settings.panel.windowStyle == .standardWindow {
+                panelController?.showPinned()
             }
         } catch {
             NSAlert(error: error).runModal()
@@ -125,20 +275,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func makeScheduler(
         history: HistoryRepository,
         settings: CollectionSettings,
-        privilegedClient: PrivilegedSamplingClient
+        privilegedClient: PrivilegedSamplingClient,
+        dispatcher: AlertDispatcher? = nil
     ) -> CollectionScheduler {
         CollectionScheduler(
             systemCollector: SystemCollector(),
-            processCollector: ProcessSnapshotService(local: ProcessCollector(), privileged: privilegedClient),
+            processCollector: ProcessSnapshotService(
+                local: ProcessCollector(),
+                privileged: privilegedClient
+            ),
             inventoryCollector: InventoryCollector(privileged: privilegedClient),
             networkPortCollector: NetworkPortCollector(privileged: privilegedClient),
             history: history,
             settings: settings,
-            onSystem: { [weak self] sample in Task { @MainActor in self?.store?.receive(sample) } },
-            onProcesses: { [weak self] snapshot in Task { @MainActor in self?.store?.receive(snapshot) } },
-            onInventory: { [weak self] id, inventory in Task { @MainActor in self?.store?.receive(inventory, for: id) } },
-            onNetworkPorts: { [weak self] snapshot in Task { @MainActor in self?.store?.receive(snapshot) } }
+            onSystem: { [weak self] sample in
+                Task { @MainActor in self?.store?.receive(sample) }
+            },
+            onProcesses: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onInventory: { [weak self] id, inventory in
+                Task { @MainActor in self?.store?.receive(inventory, for: id) }
+            },
+            onNetworkPorts: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onHistoryHealth: { [weak self] health in
+                Task { @MainActor in self?.store?.receive(health) }
+            },
+            onEvents: { [weak self] events in
+                Task { @MainActor in self?.store?.receive(events) }
+            },
+            onPosture: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onStartup: { [weak self] inventory in
+                Task { @MainActor in self?.store?.receive(inventory) }
+            },
+            helper: privilegedClient,
+            onAlert: { alert in
+                if let dispatcher { return await dispatcher.dispatch(alert) }
+                return .make(kind: .alertFired, timestamp: alert.timestamp, subject: alert.rule.name, severity: .warning, details: alert.details)
+            },
+            onWake: { date in
+                await dispatcher?.noteWake(at: date)
+            }
         )
+    }
+
+    /// A Dock click, or opening Smack again from Finder, shows the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController?.showPinned()
+        return false
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let url = urls.last { openNavigationURL(url) }
+    }
+
+    func openNavigationURL(_ url: URL) {
+        guard let store, let panelController else {
+            pendingNavigationURL = url
+            return
+        }
+        guard store.settingsStore.settings.automation.urlNavigationEnabled else { return }
+        store.navigate(to: url)
+        panelController.showPinned()
+    }
+
+    /// Mounts, sleep, wake and power source changes arrive as notifications; the store forwards them to the recorder.
+    private func installActivityObservers(store: MonitorStore) {
+        let observers = ActivitySystemObservers(handlers: .init(
+            volumeMounted: { path, name in Task { @MainActor in store.recordVolumeMounted(path: path, name: name) } },
+            volumeUnmounted: { path in Task { @MainActor in store.recordVolumeUnmounted(path: path) } },
+            sleep: { Task { @MainActor in store.recordSleep() } },
+            wake: { Task { @MainActor in store.recordWake() } },
+            powerSource: { charging, percent in Task { @MainActor in store.recordPowerSource(charging: charging, chargePercent: percent) } }
+        ))
+        observers.install()
+        activityObservers = observers
     }
 
     private func configureStatusItem() {
@@ -147,13 +362,121 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = "Open Smack"
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
     @objc private func statusItemClicked() {
+        if NSApp.currentEvent?.type == .rightMouseUp, let button = statusItem.button {
+            let menu = NSMenu()
+            for (title, action) in [("Pause alerts 1 h", #selector(pauseAlerts)), ("Pause until tomorrow", #selector(pauseAlertsTomorrow)), ("Pause indefinitely", #selector(pauseAlertsIndefinitely)), ("Resume alerts", #selector(resumeAlerts))] {
+                let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                item.target = self
+                menu.addItem(item)
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+            return
+        }
         panelController?.togglePinned()
     }
 
+    @objc private func pauseAlerts() { store?.alertDispatcher?.pausedUntil = Date().addingTimeInterval(3600) }
+    @objc private func pauseAlertsTomorrow() { store?.alertDispatcher?.pausedUntil = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date())) }
+    @objc private func pauseAlertsIndefinitely() { store?.alertDispatcher?.pausedUntil = .distantFuture }
+    @objc private func resumeAlerts() { store?.alertDispatcher?.pausedUntil = nil }
+
+    // Async variants: the completion-handler forms differ in closure sendability across SDKs.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let id = (response.notification.request.content.userInfo["ruleID"] as? String).flatMap(UUID.init(uuidString:))
+        let action = response.actionIdentifier
+        await MainActor.run { [weak self] in
+            guard let self, let store = self.store, let id,
+                  let rule = store.alertRules.rules.first(where: { $0.id == id }) else { return }
+            switch action {
+            case "SNOOZE": store.alertRules.update { rules in
+                if let i = rules.firstIndex(where: { $0.id == id }) { rules[i].snoozedUntil = Date().addingTimeInterval(3600) }
+            }
+            case "MUTE": store.alertRules.update { rules in
+                if let i = rules.firstIndex(where: { $0.id == id }) { rules[i].enabled = false }
+            }
+            case "OPEN", UNNotificationDefaultActionIdentifier:
+                self.openNavigationURL(rule.target?.url ?? URL(string: "smack://timeline")!)
+            default: break
+            }
+        }
+    }
+
+#if !SMACK_APP_STORE
+    func observeControlSocket(_ settings: SettingsStore, paths: [String] = ControlSocket.paths()) {
+        controlSettingsObservation = settings.$settings.map(\.automation.controlSocketEnabled).removeDuplicates()
+            .sink { [weak self] enabled in self?.setControlSocket(enabled: enabled, paths: paths) }
+    }
+
+    private func setControlSocket(enabled: Bool, paths: [String]) {
+        guard enabled else {
+            controlServer?.stop()
+            controlServer = nil
+            return
+        }
+        guard controlServer == nil else { return }
+        do {
+            controlServer = try ControlServer(paths: paths,
+                stream: { request in await AutomationSnapshot.follow(request) }) { request in
+                await AutomationSnapshot.query(request)
+            }
+        } catch {
+            store?.errorMessage = "Control socket unavailable: \(error.localizedDescription)"
+        }
+    }
+#endif
+
+    /// Commits batched history before the process exits. The reply waits at most a few seconds, so a database busy
+    /// with maintenance cannot hold up quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Before the deferred reply: a logout may not wait long enough for applicationWillTerminate.
+        panelController?.rememberWindowFrame()
+        guard let history else { return .terminateNow }
+        let reply = TerminationReply(sender)
+        Task { try? await history.flush(); reply.send() }
+        Task { try? await Task.sleep(for: .seconds(3)); reply.send() }
+        return .terminateLater
+    }
+
+    /// Handles application termination by hiding the monitor panel and ensuring that all pending
+    /// preference updates in `UserDefaults` are synchronously committed to disk before process exit.
+    /// - Parameter notification: The termination notification posted by `NSApplication`.
     func applicationWillTerminate(_ notification: Notification) {
+        panelController?.rememberWindowFrame()
+        store?.securityMonitoring.stop()
+#if !SMACK_APP_STORE
+        controlSettingsObservation = nil
+        controlServer?.stop()
+        controlServer = nil
+#endif
+        activityObservers?.remove()
         store?.setVisible(false)
+        _ = UserDefaults.standard.synchronize()
+        didSynchronizeOnTeardown = true
+    }
+}
+
+/// Answers a deferred termination once, whichever of the history flush and its timeout finishes first.
+@MainActor
+private final class TerminationReply {
+    private let application: NSApplication
+    private var sent = false
+
+    init(_ application: NSApplication) {
+        self.application = application
+    }
+
+    func send() {
+        guard !sent else { return }
+        sent = true
+        application.reply(toApplicationShouldTerminate: true)
     }
 }

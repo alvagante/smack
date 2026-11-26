@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import Smack
 
@@ -39,4 +40,20 @@ import Testing
     #expect(FileLookup.searchTerm(for: "/usr/lib/swift/libswiftCore.dylib") == "libswiftCore.dylib")
     #expect(FileLookup.searchTerm(for: "/Users/someone/Secret Project/notes.txt") == "notes.txt")
     #expect(FileLookup.googleURL(for: "/usr/lib/libz.1.dylib")?.absoluteString == "https://www.google.com/search?q=%22libz.1.dylib%22%20macOS")
+}
+
+
+@Test func hashingRejectsFIFOsAndDirectoriesWithoutBlocking() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fifo = directory.appendingPathComponent("fifo")
+    #expect(mkfifo(fifo.path, 0o600) == 0)
+    #expect(FileLookup.sha256(ofFileAt: fifo.path) == nil)
+    #expect(FileLookup.sha256(ofFileAt: directory.path) == nil)
+    let file = directory.appendingPathComponent("empty")
+    try Data().write(to: file)
+    let link = directory.appendingPathComponent("link")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+    #expect(FileLookup.sha256(ofFileAt: link.path) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 }

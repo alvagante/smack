@@ -8,19 +8,21 @@ struct VisibleApplicationMetadata: Sendable {
     var executablePath: String?
 }
 
-final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
+actor ProcessCollector: ProcessMetricsCollecting {
     private let builder = ProcessSnapshotBuilder()
     private let pathCacheLock = NSLock()
     private var pathCache: [ProcessPathCacheKey: String?] = [:]
 
     init() {}
 
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
+        guard !Task.isCancelled else { return nil }
         let metadata: [Int32: VisibleApplicationMetadata]
         if let cached = builder.resolveVisibleApplicationMetadata() {
             metadata = cached
         } else {
             metadata = await MainActor.run { ProcessCollector.readVisibleApplicationMetadata() }
+            guard !Task.isCancelled else { return nil }
         }
         // App Sandbox denies proc_pid_rusage for other processes; skip the failing calls
         // instead of generating a denied syscall for every process on every sample.
@@ -37,7 +39,7 @@ final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
         )
     }
 
-    static func groupApplications(
+    nonisolated static func groupApplications(
         _ processes: [ProcessMetrics],
         metadata: [Int32: VisibleApplicationMetadata]
     ) -> (applications: [ApplicationMetrics], background: [ProcessMetrics]) {

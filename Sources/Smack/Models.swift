@@ -3,6 +3,49 @@ import Foundation
 struct CPUSample: Sendable, Equatable {
     var totalUsage: Double
     var coreUsage: [Double]
+    /// User (including nice) and system shares of the same tick window as `totalUsage`; idle is the rest.
+    var userUsage: Double = 0
+    var systemUsage: Double = 0
+    /// 1, 5 and 15 minute load averages; empty when unavailable.
+    var loadAverage: [Double] = []
+    /// False for the first sample (no earlier tick counts to compare), when `totalUsage` is a placeholder 0.
+    var hasUsage = true
+
+    var idleUsage: Double { max(0, 100 - userUsage - systemUsage) }
+}
+
+/// One fan's current speed from the SMC; 0 rpm means the fan is stopped.
+struct FanSample: Sendable, Equatable, Identifiable {
+    var id: Int
+    var rpm: Double
+    /// Rated speed range from the SMC (`F<n>Mn`, `F<n>Mx`); nil when the keys are missing.
+    var minimumRPM: Double? = nil
+    var maximumRPM: Double? = nil
+}
+
+enum MemoryPressure: String, Sendable, Codable {
+    case normal, warning, critical, unavailable
+
+    /// History stores pressure as 0, 1 or 2; unavailable is not stored as a value.
+    var historyValue: Double? {
+        switch self {
+        case .normal: 0
+        case .warning: 1
+        case .critical: 2
+        case .unavailable: nil
+        }
+    }
+}
+
+/// GPU statistics from `IOAccelerator`. Every field is nil when the machine does not expose it.
+struct GPUSample: Sendable, Equatable {
+    var utilizationPercent: Double?
+    var rendererUtilizationPercent: Double?
+    var tilerUtilizationPercent: Double?
+    var inUseMemoryBytes: UInt64?
+    var allocatedMemoryBytes: UInt64? = nil
+    /// GPU recoveries (resets after a hang) since boot.
+    var recoveryCount: Int? = nil
 }
 
 struct MemorySample: Sendable, Equatable {
@@ -12,6 +55,8 @@ struct MemorySample: Sendable, Equatable {
     var wiredBytes: UInt64
     var compressedBytes: UInt64
     var swapUsedBytes: UInt64
+    var swapTotalBytes: UInt64 = 0
+    var pressure: MemoryPressure = .unavailable
 }
 
 struct InterfaceSample: Identifiable, Sendable, Equatable {
@@ -21,6 +66,8 @@ struct InterfaceSample: Identifiable, Sendable, Equatable {
     var bytesSent: UInt64
     var receiveRate: Double
     var sendRate: Double
+    /// Non-loopback IPv4 and IPv6 addresses, sorted, without IPv6 scope suffixes.
+    var addresses: [String] = []
 }
 
 struct DiskSample: Identifiable, Sendable, Equatable {
@@ -48,10 +95,15 @@ struct BatterySample: Sendable, Equatable {
     var timeRemaining: TimeInterval?
     var health: String?
     var cycleCount: Int?
+    var isOnBattery: Bool? = nil
 }
 
 enum ThermalCondition: String, Sendable, Codable {
     case nominal, fair, serious, critical, unavailable
+}
+
+enum GPUProcessStatus: Sendable {
+    case inactive, warmingUp, available, unavailable
 }
 
 struct SystemSample: Sendable {
@@ -64,6 +116,17 @@ struct SystemSample: Sendable {
     var battery: BatterySample?
     var thermalCondition: ThermalCondition
     var gpuName: String
+    var gpu = GPUSample()
+    var gpuCoreCount: Int? = nil
+    /// Driver GPU time per pid as a percent of elapsed wall time, read only while the GPU page is open.
+    /// Nil when not read, unavailable or warming up; empty when no process used the GPU.
+    var gpuProcesses: [Int32: Double]? = nil
+    var gpuProcessStatus: GPUProcessStatus = .inactive
+    /// Hardware sensor readings, read only while the thermal page is open; nil when not read, empty when
+    /// unavailable (App Store build, unsupported hardware).
+    var temperatures: [TemperatureSensor]?
+    /// Fan speeds, read together with `temperatures`; nil when not read, empty when the Mac has no readable fans.
+    var fans: [FanSample]?
 
     var receiveRate: Double { interfaces.reduce(0) { $0 + $1.receiveRate } }
     var sendRate: Double { interfaces.reduce(0) { $0 + $1.sendRate } }
@@ -93,6 +156,12 @@ struct ProcessMetrics: Identifiable, Sendable {
     var energyImpact: Double?
     var threadCount: Int
     var isApplication: Bool
+    var interruptWakeupsPerSecond: Double = 0
+    var packageIdleWakeupsPerSecond: Double = 0
+
+    var networkThroughput: ProcessNetworkThroughput?
+
+    var wakeupsPerSecond: Double { interruptWakeupsPerSecond + packageIdleWakeupsPerSecond }
 }
 
 struct ApplicationMetrics: Identifiable, Sendable {
@@ -100,12 +169,16 @@ struct ApplicationMetrics: Identifiable, Sendable {
     var name: String
     var bundleIdentifier: String?
     var executablePath: String?
-    var processes: [ProcessMetrics]
-    let cpuUsage: Double
-    let memoryBytes: UInt64
-    let diskReadRate: Double
-    let diskWriteRate: Double
-    let energyImpact: Double?
+    var processes: [ProcessMetrics] {
+        didSet { recomputeTotals() }
+    }
+    private(set) var cpuUsage: Double = 0
+    private(set) var memoryBytes: UInt64 = 0
+    private(set) var diskReadRate: Double = 0
+    private(set) var diskWriteRate: Double = 0
+    private(set) var wakeupsPerSecond: Double = 0
+    private(set) var energyImpact: Double?
+    private(set) var networkThroughput: ProcessNetworkThroughput?
 
     init(
         id: String,
@@ -119,28 +192,43 @@ struct ApplicationMetrics: Identifiable, Sendable {
         self.bundleIdentifier = bundleIdentifier
         self.executablePath = executablePath
         self.processes = processes
+        recomputeTotals()
+    }
 
+    private mutating func recomputeTotals() {
         var cpu = 0.0
         var memory: UInt64 = 0
         var diskRead = 0.0
         var diskWrite = 0.0
+        var wakeups = 0.0
         var energySum = 0.0
         var hasEnergy = false
+        var receiveRate = 0.0
+        var sendRate = 0.0
+        var hasNetwork = false
         for process in processes {
             cpu += process.cpuUsage
             memory &+= process.memoryBytes
             diskRead += process.diskReadRate
             diskWrite += process.diskWriteRate
+            wakeups += process.wakeupsPerSecond
             if let energy = process.energyImpact {
                 energySum += energy
                 hasEnergy = true
             }
+            if let throughput = process.networkThroughput {
+                receiveRate += throughput.receiveRate
+                sendRate += throughput.sendRate
+                hasNetwork = true
+            }
         }
-        self.cpuUsage = cpu
-        self.memoryBytes = memory
-        self.diskReadRate = diskRead
-        self.diskWriteRate = diskWrite
-        self.energyImpact = hasEnergy ? energySum : nil
+        cpuUsage = cpu
+        memoryBytes = memory
+        diskReadRate = diskRead
+        diskWriteRate = diskWrite
+        wakeupsPerSecond = wakeups
+        energyImpact = hasEnergy ? energySum : nil
+        networkThroughput = hasNetwork ? ProcessNetworkThroughput(receiveRate: receiveRate, sendRate: sendRate) : nil
     }
 }
 
@@ -163,7 +251,7 @@ enum NetworkPortScope: String, Sendable {
     case external = "External"
 }
 
-struct NetworkClient: Identifiable, Sendable, Equatable {
+struct NetworkClient: Identifiable, Sendable, Equatable, Codable {
     var id: String
     var localAddress: String
     var remoteAddress: String
@@ -172,7 +260,7 @@ struct NetworkClient: Identifiable, Sendable, Equatable {
     var state: String
 }
 
-struct ListeningPort: Identifiable, Sendable, Equatable {
+struct ListeningPort: Identifiable, Sendable, Equatable, Codable {
     var id: String
     var pid: Int32
     var descriptor: Int32
@@ -192,14 +280,48 @@ struct ListeningPort: Identifiable, Sendable, Equatable {
         return .external
     }
 
-    var browserURL: URL? {
+    /// Ports of well-known protocols other than HTTP, never probed or offered as web links.
+    static let nonHTTPPorts: Set<UInt16> = [21, 22, 23, 25, 53, 110, 143, 445, 465, 587, 993, 995, 1433, 1521, 2181,
+        3306, 4317, 5432, 5672, 5900, 6379, 9092, 11211, 27017]
+
+    /// Any TCP listener may serve HTTP; only a probe tells. Well-known other protocols are left out.
+    var mayServeHTTP: Bool { protocolName.uppercased() == "TCP" && !Self.nonHTTPPorts.contains(port) }
+
+    /// Identifies this listener for as long as its process holds it.
+    var probeKey: String { "\(pid)|\(protocolName)|\(localAddress)" }
+
+    /// The address to reach this listener at: wildcard listeners through IPv4 loopback.
+    var probeHost: String {
         let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        let browserHost = normalized.isEmpty || normalized == "*" || normalized == "0.0.0.0" || normalized == "::"
-            ? "127.0.0.1"
-            : normalized.replacingOccurrences(of: "%", with: "%25")
-        let authority = browserHost.contains(":") ? "[\(browserHost)]" : browserHost
-        return URL(string: "http://\(authority):\(port)")
+        return normalized.isEmpty || normalized == "*" || normalized == "0.0.0.0" || normalized == "::" ? "127.0.0.1" : normalized
     }
+
+    var browserURL: URL? { webURL(port == 443 || port == 8443 ? .https : .http) }
+
+    func webURL(_ scheme: HTTPScheme) -> URL? {
+        let host = probeHost.replacingOccurrences(of: "%", with: "%25")
+        let authority = host.contains(":") ? "[\(host)]" : host
+        return URL(string: "\(scheme.rawValue)://\(authority):\(port)")
+    }
+}
+
+struct NetworkConnectionDetail: Identifiable, Sendable, Equatable {
+    var id: String
+    var pid: Int32
+    var descriptor: Int32
+    var processName: String
+    var userName: String?
+    var protocolName: String
+    var localAddress: String
+    var remoteAddress: String
+    var state: String
+}
+
+struct ApplicationNetworkConnections: Identifiable, Sendable {
+    var id: String
+    var name: String
+    var application: ApplicationMetrics?
+    var connections: [NetworkConnectionDetail]
 }
 
 struct NetworkPortSnapshot: Sendable {
@@ -207,13 +329,20 @@ struct NetworkPortSnapshot: Sendable {
     var ports: [ListeningPort] {
         didSet { (externalCount, localhostCount) = Self.scopeCounts(for: ports) }
     }
+    var connections: [NetworkConnectionDetail]
     var warning: String?
     private(set) var externalCount: Int
     private(set) var localhostCount: Int
 
-    init(timestamp: Date, ports: [ListeningPort], warning: String? = nil) {
+    init(
+        timestamp: Date,
+        ports: [ListeningPort],
+        connections: [NetworkConnectionDetail] = [],
+        warning: String? = nil
+    ) {
         self.timestamp = timestamp
         self.ports = ports
+        self.connections = connections
         self.warning = warning
         (externalCount, localhostCount) = Self.scopeCounts(for: ports)
     }
@@ -229,11 +358,60 @@ struct NetworkPortSnapshot: Sendable {
         }
         return (external, localhost)
     }
+
+    var totalConnectionCount: Int { connections.count }
+
+    func connectionGroups(applications: [ApplicationMetrics]) -> [ApplicationNetworkConnections] {
+        var applicationsByPID: [Int32: ApplicationMetrics] = [:]
+        for application in applications {
+            for process in application.processes {
+                applicationsByPID[process.identity.pid] = application
+            }
+        }
+
+        var groups: [String: ApplicationNetworkConnections] = [:]
+        for connection in connections {
+            let application = applicationsByPID[connection.pid]
+            let id = application.map { "application-\($0.id)" } ?? "process-\(connection.processName)"
+            if groups[id] == nil {
+                groups[id] = ApplicationNetworkConnections(
+                    id: id,
+                    name: application?.name ?? connection.processName,
+                    application: application,
+                    connections: []
+                )
+            }
+            groups[id]?.connections.append(connection)
+        }
+
+        return groups.values.map { group in
+            var group = group
+            group.connections.sort {
+                if $0.localAddress != $1.localAddress { return $0.localAddress < $1.localAddress }
+                if $0.remoteAddress != $1.remoteAddress { return $0.remoteAddress < $1.remoteAddress }
+                return $0.id < $1.id
+            }
+            return group
+        }.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
 }
 
 struct ThreadInfo: Identifiable, Sendable {
+    enum State: Sendable { case running, waiting, uninterruptible, stopped, halted }
+
     var id: UInt64
     var name: String?
+    /// The fields below are nil when an older helper sent only the name.
+    var state: State?
+    /// User plus system CPU time since the thread started.
+    var cpuTime: TimeInterval?
+    /// The scheduler's recent CPU average as a fraction of one core.
+    var recentCPU: Double?
+    var priority: Int?
+    /// Set only for a fixed-priority policy ("FIFO" or "Round-robin"); timeshare is the default and stays nil.
+    var fixedPolicy: String?
 }
 
 struct LoadedLibrary: Identifiable, Sendable {
@@ -250,10 +428,31 @@ struct ProcessInventory: Sendable {
 }
 
 struct ProcessSnapshot: Sendable {
+    var agentSessions: [AgentSession] = []
     var timestamp: Date
     var applications: [ApplicationMetrics]
     var backgroundProcesses: [ProcessMetrics]
     var warning: String? = nil
+}
+
+extension ProcessSnapshot {
+    /// Keeps the union of the `limit` highest-CPU and `limit` highest-memory processes; `limit` 0 keeps everything.
+    /// Applications left without processes are dropped.
+    func trimmedForHistory(limit: Int) -> ProcessSnapshot {
+        guard limit > 0 else { return self }
+        let all = applications.flatMap(\.processes) + backgroundProcesses
+        guard all.count > limit else { return self }
+        var keep = Set(all.sorted { $0.cpuUsage > $1.cpuUsage }.prefix(limit).map(\.id))
+        keep.formUnion(all.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(limit).map(\.id))
+        var trimmed = self
+        trimmed.applications = applications.compactMap { application in
+            var application = application
+            application.processes = application.processes.filter { keep.contains($0.id) }
+            return application.processes.isEmpty ? nil : application
+        }
+        trimmed.backgroundProcesses = backgroundProcesses.filter { keep.contains($0.id) }
+        return trimmed
+    }
 }
 
 struct HistoricalProcess: Identifiable, Sendable {
@@ -278,14 +477,19 @@ struct HistoricalProgram: Identifiable, Sendable {
     /// Bytes read and written.
     var diskBytes: Double
     var diskPeak: Double
+    /// Wakeups per second times minutes.
+    var wakeupsTotal: Double = 0
+    var wakeupsPeak: Double = 0
 }
 
 /// One stored process row with every metric, in `ProcessMetric.allCases` order.
 struct ProcessHistoryRow: Sendable {
-    var processID: String
+    /// The integer key that identifies one process instance; rows of the same instance share it.
+    var processKey: Int64
     var timestamp: Double
-    var averages: SIMD4<Double>
-    var peaks: SIMD4<Double>
+    /// Index mapping is fixed: 0 cpu, 1 memory, 2 disk read, 3 disk write, 4 wakeups. Indices 5 to 7 stay zero.
+    var averages: SIMD8<Double>
+    var peaks: SIMD8<Double>
 
     /// Sums instances over time. A skipped row means "unchanged", so each instance's value carries forward until its
     /// next row; after its last row, or more than `gap` without one, the instance stops counting.
@@ -294,22 +498,23 @@ struct ProcessHistoryRow: Sendable {
         let rows = isOrderedByTimestamp(rows) ? rows : rows.sorted { $0.timestamp < $1.timestamp }
         let endsRun = computeRunEnds(for: rows, gap: gap)
 
-        var current: [String: (averages: SIMD4<Double>, peaks: SIMD4<Double>)] = [:]
-        var total = SIMD4<Double>(), totalPeak = SIMD4<Double>()
-        var series = [[HistoricalPoint]](repeating: [], count: 4)
+        let metricCount = ProcessMetric.allCases.count
+        var current: [Int64: (averages: SIMD8<Double>, peaks: SIMD8<Double>)] = [:]
+        var total = SIMD8<Double>(), totalPeak = SIMD8<Double>()
+        var series = [[HistoricalPoint]](repeating: [], count: metricCount)
         let reservedPoints = min(rows.count, 1024)
-        for index in 0..<4 { series[index].reserveCapacity(reservedPoints) }
+        for index in 0..<metricCount { series[index].reserveCapacity(reservedPoints) }
         var start = 0
         while start < rows.count {
             let timestamp = rows[start].timestamp
             let end = advanceBatch(in: rows, from: start, current: &current, total: &total, totalPeak: &totalPeak)
             let date = Date(timeIntervalSince1970: timestamp)
-            for metric in 0..<4 {
+            for metric in 0..<metricCount {
                 let average = max(0, total[metric])
                 series[metric].append(HistoricalPoint(timestamp: date, average: average, peak: max(average, totalPeak[metric])))
             }
             for index in start..<end where endsRun[index] {
-                if let previous = current.removeValue(forKey: rows[index].processID) {
+                if let previous = current.removeValue(forKey: rows[index].processKey) {
                     total -= previous.averages
                     totalPeak -= previous.peaks
                 }
@@ -329,12 +534,12 @@ struct ProcessHistoryRow: Sendable {
 
     private static func computeRunEnds(for rows: [ProcessHistoryRow], gap: TimeInterval) -> [Bool] {
         var endsRun = [Bool](repeating: true, count: rows.count)
-        var previousIndex: [String: Int] = [:]
+        var previousIndex: [Int64: Int] = [:]
         for (index, row) in rows.enumerated() {
-            if let previous = previousIndex[row.processID], row.timestamp - rows[previous].timestamp <= gap {
+            if let previous = previousIndex[row.processKey], row.timestamp - rows[previous].timestamp <= gap {
                 endsRun[previous] = false
             }
-            previousIndex[row.processID] = index
+            previousIndex[row.processKey] = index
         }
         return endsRun
     }
@@ -342,21 +547,21 @@ struct ProcessHistoryRow: Sendable {
     private static func advanceBatch(
         in rows: [ProcessHistoryRow],
         from start: Int,
-        current: inout [String: (averages: SIMD4<Double>, peaks: SIMD4<Double>)],
-        total: inout SIMD4<Double>,
-        totalPeak: inout SIMD4<Double>
+        current: inout [Int64: (averages: SIMD8<Double>, peaks: SIMD8<Double>)],
+        total: inout SIMD8<Double>,
+        totalPeak: inout SIMD8<Double>
     ) -> Int {
         let timestamp = rows[start].timestamp
         var end = start
         while end < rows.count, rows[end].timestamp == timestamp {
             let row = rows[end]
-            if let previous = current[row.processID] {
+            if let previous = current[row.processKey] {
                 total -= previous.averages
                 totalPeak -= previous.peaks
             }
             total += row.averages
             totalPeak += row.peaks
-            current[row.processID] = (row.averages, row.peaks)
+            current[row.processKey] = (row.averages, row.peaks)
             end += 1
         }
         return end
@@ -468,6 +673,12 @@ struct LiveMetricPoint: Identifiable, Sendable {
     var sendRate: Double
     var diskReadRate: Double
     var diskWriteRate: Double
+    var swapUsedBytes: Double = 0
+    var gpuUsage: Double? = nil
+    var gpuRendererUsage: Double? = nil
+    var gpuTilerUsage: Double? = nil
+    /// `MemoryPressure.historyValue`: 0 normal, 1 warning, 2 critical; nil when unavailable.
+    var memoryPressure: Double? = nil
 }
 
 struct LiveMetricHistory {
@@ -513,4 +724,15 @@ struct LiveMetricHistory {
     var cpuPoints: [HistoricalPoint] {
         points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
     }
+}
+
+/// One process-or-application sample kept for the live sparklines in resource detail.
+struct LiveProcessPoint: Sendable {
+    /// The process snapshot's time, so row graphs share the time axis of the system chart.
+    var timestamp: Date
+    var networkThroughput: ProcessNetworkThroughput? = nil
+    var cpuUsage: Double
+    var memoryBytes: Double
+    var diskReadRate: Double
+    var diskWriteRate: Double
 }

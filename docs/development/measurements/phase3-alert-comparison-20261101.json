@@ -1,0 +1,140 @@
+{
+  "host": "Apple M5 Max, macOS 27.2, Xcode 27.2, arm64",
+  "command": "SMACK_PHASE0_BENCHMARK=1 swift test -c release --filter phase0AlertBenchmark",
+  "before": [
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.029292,
+      "maxrss_end_bytes": 45383680,
+      "maxrss_start_bytes": 45154304,
+      "mean_ms": 0.00927706800000003,
+      "p50_ms": 0.009042,
+      "p95_ms": 0.009709,
+      "workload": "system-50-armed"
+    },
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.035166,
+      "maxrss_end_bytes": 47366144,
+      "maxrss_start_bytes": 47284224,
+      "mean_ms": 0.012278409999999945,
+      "p50_ms": 0.012167,
+      "p95_ms": 0.013042,
+      "workload": "system-50-pending"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 0.980583,
+      "maxrss_end_bytes": 48513024,
+      "maxrss_start_bytes": 47382528,
+      "mean_ms": 0.5329004099999998,
+      "p50_ms": 0.484458,
+      "p95_ms": 0.958583,
+      "workload": "process-1-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 7.830375,
+      "maxrss_end_bytes": 49184768,
+      "maxrss_start_bytes": 48513024,
+      "mean_ms": 4.858613800000002,
+      "p50_ms": 4.519375,
+      "p95_ms": 6.977458,
+      "workload": "process-10-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 1.779333,
+      "maxrss_end_bytes": 49217536,
+      "maxrss_start_bytes": 49201152,
+      "mean_ms": 1.5743141400000003,
+      "p50_ms": 1.590583,
+      "p95_ms": 1.691166,
+      "workload": "process-50-exact-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 27.076333,
+      "maxrss_end_bytes": 53182464,
+      "maxrss_start_bytes": 49217536,
+      "mean_ms": 23.263816690000002,
+      "p50_ms": 22.81875,
+      "p95_ms": 26.379334,
+      "workload": "process-50-any-1000"
+    }
+  ],
+  "after": [
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.028083,
+      "maxrss_end_bytes": 45383680,
+      "maxrss_start_bytes": 45154304,
+      "mean_ms": 0.008286833000000014,
+      "p50_ms": 0.008125,
+      "p95_ms": 0.008917,
+      "workload": "system-50-armed"
+    },
+    {
+      "fired": 0,
+      "iterations": 1000,
+      "max_ms": 0.025667,
+      "maxrss_end_bytes": 47300608,
+      "maxrss_start_bytes": 47267840,
+      "mean_ms": 0.011238962999999966,
+      "p50_ms": 0.010875,
+      "p95_ms": 0.012541,
+      "workload": "system-50-pending"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 0.248959,
+      "maxrss_end_bytes": 48447488,
+      "maxrss_start_bytes": 47316992,
+      "mean_ms": 0.2161725,
+      "p50_ms": 0.214666,
+      "p95_ms": 0.2365,
+      "workload": "process-1-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 1.335625,
+      "maxrss_end_bytes": 48988160,
+      "maxrss_start_bytes": 48463872,
+      "mean_ms": 0.9952524900000003,
+      "p50_ms": 0.968083,
+      "p95_ms": 1.307542,
+      "workload": "process-10-any-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 2.123625,
+      "maxrss_end_bytes": 49086464,
+      "maxrss_start_bytes": 49004544,
+      "mean_ms": 1.5923482400000004,
+      "p50_ms": 1.579875,
+      "p95_ms": 1.84,
+      "workload": "process-50-exact-1000"
+    },
+    {
+      "fired": 0,
+      "iterations": 100,
+      "max_ms": 6.010583,
+      "maxrss_end_bytes": 52363264,
+      "maxrss_start_bytes": 49102848,
+      "mean_ms": 4.403140419999997,
+      "p50_ms": 4.338792,
+      "p95_ms": 4.659,
+      "workload": "process-50-any-1000"
+    }
+  ]
+}

@@ -25,6 +25,16 @@ enum SystemHardwareSampler {
         return iterator
     }
 
+    /// Apple silicon publishes `gpu-core-count` on `AGXAccelerator`; nil elsewhere.
+    static func readGPUCoreCount() -> Int? {
+        guard let matching = IOServiceMatching("AGXAccelerator") else { return nil }
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        return (IORegistryEntryCreateCFProperty(service, "gpu-core-count" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? NSNumber)?.intValue
+    }
+
     static func readGPUName() -> String {
         guard let iterator = openServiceIterator(matching: "AGXAccelerator") else { return "Unknown" }
         defer { IOObjectRelease(iterator) }
@@ -43,8 +53,30 @@ enum SystemHardwareSampler {
         return name
     }
 
+    static func pressure(level: Int32) -> MemoryPressure {
+        switch level {
+        case 1: .normal
+        case 2: .warning
+        case 4: .critical
+        default: .unavailable
+        }
+    }
+
+    static func readMemoryPressure() -> MemoryPressure {
+        for name in ["kern.memorystatus_vm_pressure_level", "vm.memory_pressure"] {
+            var level: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            guard sysctlbyname(name, &level, &size, nil, 0) == 0, size == MemoryLayout<Int32>.size else { continue }
+            let pressure = Self.pressure(level: level)
+            if pressure != .unavailable { return pressure }
+        }
+        return .unavailable
+    }
+
     static func collectMemory() -> MemorySample {
         let total = ProcessInfo.processInfo.physicalMemory
+        let swap = readSwap()
+        let pressure = readMemoryPressure()
         var info = vm_statistics64()
         var count = mach_msg_type_number_t(
             MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride
@@ -54,14 +86,20 @@ enum SystemHardwareSampler {
                 host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
             }
         }
-        guard result == KERN_SUCCESS else {
-            return emptyMemorySample(totalBytes: total)
+        let scale = Self.hostPageSize
+        guard result == KERN_SUCCESS, scale > 0 else {
+            return MemorySample(
+                totalBytes: total,
+                usedBytes: 0,
+                appBytes: 0,
+                wiredBytes: 0,
+                compressedBytes: 0,
+                swapUsedBytes: swap.used,
+                swapTotalBytes: swap.total,
+                pressure: pressure
+            )
         }
 
-        let scale = Self.hostPageSize
-        guard scale > 0 else {
-            return emptyMemorySample(totalBytes: total)
-        }
         let internalPages = UInt64(info.internal_page_count)
         let purgeablePages = UInt64(info.purgeable_count)
         let app = (internalPages >= purgeablePages ? internalPages - purgeablePages : 0) &* scale
@@ -74,27 +112,18 @@ enum SystemHardwareSampler {
             appBytes: app,
             wiredBytes: wired,
             compressedBytes: compressed,
-            swapUsedBytes: readSwapUsed()
+            swapUsedBytes: swap.used,
+            swapTotalBytes: swap.total,
+            pressure: pressure
         )
     }
 
-    private static func emptyMemorySample(totalBytes: UInt64) -> MemorySample {
-        MemorySample(
-            totalBytes: totalBytes,
-            usedBytes: 0,
-            appBytes: 0,
-            wiredBytes: 0,
-            compressedBytes: 0,
-            swapUsedBytes: readSwapUsed()
-        )
-    }
-
-    static func readSwapUsed() -> UInt64 {
+    static func readSwap() -> (used: UInt64, total: UInt64) {
         var usage = xsw_usage()
         var size = MemoryLayout<xsw_usage>.size
         guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0,
-              size == MemoryLayout<xsw_usage>.size else { return 0 }
-        return usage.xsu_used
+              size == MemoryLayout<xsw_usage>.size else { return (0, 0) }
+        return (usage.xsu_used, usage.xsu_total)
     }
 
     static func collectVolumes() -> [VolumeSample] {
@@ -157,7 +186,8 @@ enum SystemHardwareSampler {
             isPresent: true,
             timeRemaining: timeRemaining,
             health: description[kIOPSBatteryHealthKey as String] as? String,
-            cycleCount: (description["CycleCount"] as? NSNumber)?.intValue
+            cycleCount: (description["CycleCount"] as? NSNumber)?.intValue,
+            isOnBattery: (description[kIOPSPowerSourceStateKey as String] as? String).map { $0 == (kIOPSBatteryPowerValue as String) }
         )
     }
 

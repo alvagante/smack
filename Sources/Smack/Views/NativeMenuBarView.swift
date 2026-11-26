@@ -8,9 +8,9 @@ struct NativeMenuBarView: View {
 
     private var isEnabled: Binding<Bool> {
         Binding(
-            get: { settingsStore.settings.showMenuBarItems },
+            get: { settingsStore.settings.panel.showMenuBarItems },
             set: { enabled in
-                settingsStore.update { $0.showMenuBarItems = enabled }
+                settingsStore.update { $0.panel.showMenuBarItems = enabled }
                 menuBarStore.setFeatureEnabled(enabled)
                 if enabled { menuBarStore.requestPermissions() }
             }
@@ -19,26 +19,27 @@ struct NativeMenuBarView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            if settingsStore.settings.showMenuBarItems {
+            if settingsStore.settings.panel.showMenuBarItems {
                 enabledContent
                 Toggle("Show menu-bar icons", isOn: isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .help("Hide native menu-bar icons")
             } else {
-                Toggle("Show menu-bar icons", isOn: isEnabled)
+                Toggle("Menu-bar icons", isOn: isEnabled)
                     .toggleStyle(.switch)
-                Text("Uses Screen Recording to show icons and Accessibility for their click actions.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .help("Show and activate native menu-bar icons. Requires Screen Recording and Accessibility.")
             }
         }
-        .onAppear { menuBarStore.setFeatureEnabled(settingsStore.settings.showMenuBarItems) }
-        .onChange(of: settingsStore.settings.showMenuBarItems) { _, enabled in
+        .onAppear { menuBarStore.setFeatureEnabled(settingsStore.settings.panel.showMenuBarItems) }
+        .onChange(of: settingsStore.settings.panel.showMenuBarItems) { _, enabled in
             menuBarStore.setFeatureEnabled(enabled)
         }
     }
+
+    /// Windows without a usable capture (blank or never rendered) are dropped: neither text nor a generic icon
+    /// stands in for them, and they otherwise show up as duplicates or raw bundle identifiers.
+    private var visibleItems: [NativeMenuBarItem] { menuBarStore.items.filter { $0.image != nil } }
 
     @ViewBuilder private var enabledContent: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -50,7 +51,15 @@ struct NativeMenuBarView: View {
                     Button("Open Settings") { NativeMenuBarStore.openScreenCaptureSettings() }
                     Button("Reopen") { NativeMenuBarStore.relaunch() }
                 }
-            } else if menuBarStore.items.isEmpty {
+            } else if menuBarStore.accessibilityRequiredForIcons && !menuBarStore.accessibilityAllowed {
+                HStack(spacing: 8) {
+                    Text("Accessibility is required to show and activate native icons.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Open Settings") { NativeMenuBarStore.openAccessibilitySettings() }
+                    Button("Retry") { menuBarStore.refresh() }
+                }
+            } else if visibleItems.isEmpty {
                 if menuBarStore.loadAttempted {
                     Text("No native menu-bar icons found. Move up your mouse to show the menu-bar")
                         .font(.caption)
@@ -59,18 +68,19 @@ struct NativeMenuBarView: View {
                     ProgressView().controlSize(.small)
                 }
             } else {
-                WrappingLayout(horizontalSpacing: 2, verticalSpacing: 2) {
-                    ForEach(menuBarStore.items) { item in
+                // About 16 pt between glyphs, as in the macOS menu bar: 5 pt padding per side plus the gap.
+                WrappingLayout(horizontalSpacing: 6, verticalSpacing: 4) {
+                    ForEach(visibleItems) { item in
                         NativeMenuBarItemButton(
                             item: item,
                             onClick: { menuBarStore.click(item, button: .left) },
                             onRightClick: { menuBarStore.click(item, button: .right) }
                         )
-                        .frame(width: max(24, item.pointSize.width + 6), height: 28)
+                        .frame(width: max(28, item.pointSize.width + 10), height: 28)
                     }
                 }
             }
-            if !menuBarStore.accessibilityAllowed {
+            if !menuBarStore.accessibilityAllowed && !menuBarStore.accessibilityRequiredForIcons {
                 HStack(spacing: 8) {
                     Text("Accessibility is required for native click actions.")
                         .font(.caption2)
@@ -172,12 +182,15 @@ private struct NativeMenuBarItemButton: NSViewRepresentable {
         context.coordinator.onClick = onClick
         context.coordinator.onRightClick = onRightClick
         if let image = item.image {
-            button.image = NSImage(cgImage: image, size: item.pointSize)
+            let template = NSImage(cgImage: image, size: item.pointSize)
+            template.isTemplate = true
+            button.image = template
+            button.contentTintColor = .labelColor
             button.title = ""
             button.imagePosition = .imageOnly
         } else {
             button.image = nil
-            button.title = item.displayName
+            button.title = ""
             button.imagePosition = .noImage
         }
         button.toolTip = item.displayName

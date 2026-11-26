@@ -1,11 +1,12 @@
 import AppKit
 import Foundation
 import SwiftUI
+import Synchronization
 import Testing
 @testable import Smack
 
-private final class ViewTestSystemCollector: SystemMetricsCollecting {
-    func collectSystemSample() -> SystemSample {
+private final class ViewTestSystemCollector: SystemMetricsCollecting, Sendable {
+    func collectSystemSample(includeTemperatures: Bool = false, includeGPUProcesses: Bool = false) -> SystemSample {
         SystemSample(
             timestamp: Date(timeIntervalSince1970: 1_760_000_000),
             cpu: CPUSample(totalUsage: 24.5, coreUsage: [20, 29]),
@@ -21,7 +22,7 @@ private final class ViewTestSystemCollector: SystemMetricsCollecting {
 }
 
 private final class ViewTestProcessCollector: ProcessMetricsCollecting, Sendable {
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         let process = ProcessMetrics(
             identity: ProcessIdentity(pid: 101, startTime: Date(timeIntervalSince1970: 1_760_000_000)),
             name: "Finder",
@@ -133,6 +134,12 @@ private func hostLayoutSize<V: View>(_ view: V, width: CGFloat = 960, height: CG
 @Suite(.serialized)
 struct ViewAndChartTests {
 @Test func applicationIconCacheRasterizesReusesAndCapsEntries() {
+    let previousBudget = MemoryBudget.current.withLock { current in
+        defer { current = .small }
+        return current
+    }
+    defer { MemoryBudget.current.withLock { $0 = previousBudget } }
+
     ApplicationIconCache.reset()
     let fallbackA = ApplicationIconCache.image(bundleIdentifier: nil, executablePath: nil)
     let fallbackB = ApplicationIconCache.image(bundleIdentifier: nil, executablePath: nil)
@@ -146,13 +153,15 @@ struct ViewAndChartTests {
     let byExec = ApplicationIconCache.image(bundleIdentifier: nil, executablePath: "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder")
     #expect(byExec.size == NSSize(width: 64, height: 64))
 
-    // Verify bounded cache evicts after maxEntries (128) rather than growing without bound.
-    for index in 0..<130 {
-        _ = ApplicationIconCache.image(bundleIdentifier: "com.smack.cache-evict-test.\(index)", executablePath: nil)
+    #expect(MemoryBudget.small.iconCount < MemoryBudget.standard.iconCount)
+    for index in 0..<8 {
+        let icon = ApplicationIconCache.image(bundleIdentifier: "com.smack.cache-test.\(index)", executablePath: nil)
+        #expect(icon.size == NSSize(width: 64, height: 64))
     }
-    let afterEviction = ApplicationIconCache.image(bundleIdentifier: "com.apple.finder", executablePath: nil)
-    #expect(afterEviction !== byBundleA)
-    #expect(afterEviction.size == NSSize(width: 64, height: 64))
+    ApplicationIconCache.reset()
+    let afterReset = ApplicationIconCache.image(bundleIdentifier: "com.apple.finder", executablePath: nil)
+    #expect(afterReset !== byBundleA)
+    #expect(afterReset.size == NSSize(width: 64, height: 64))
 
     let process = ProcessMetrics(
         identity: ProcessIdentity(pid: 1, startTime: Date()), name: "Finder", parentPID: nil,
@@ -196,7 +205,8 @@ struct ViewAndChartTests {
     }
 
     store.receive(ViewTestSystemCollector().collectSystemSample())
-    store.receive(await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false))
+    let snapshot = try #require(await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false))
+    store.receive(snapshot)
     for kind in ResourceKind.allCases {
         let populatedSize = hostLayoutSize(ResourceDetailView(store: store, resource: kind))
         #expect(populatedSize.height > 0)
@@ -245,34 +255,34 @@ struct ViewAndChartTests {
     }
 
     store.settingsStore.update { settings in
-        settings.hoverDelay = 99
-        settings.retentionDays = 0
-        settings.glassMode = false
+        settings.panel.hoverDelay = 99
+        settings.history.retentionDays = 0
+        settings.panel.glassMode = false
     }
-    #expect(store.settingsStore.settings.hoverDelay <= 3)
-    #expect(store.settingsStore.settings.retentionDays >= 1)
+    #expect(store.settingsStore.settings.panel.hoverDelay <= 3)
+    #expect(store.settingsStore.settings.history.retentionDays >= 1)
     let reloadedDefaults = try #require(UserDefaults(suiteName: suite))
-    #expect(SettingsStore(defaults: reloadedDefaults, legacyDefaults: nil).settings.glassMode == false)
+    #expect(SettingsStore(defaults: reloadedDefaults, legacyDefaults: nil).settings.panel.glassMode == false)
     store.settingsChanged()
 
     store.loadNetworkPorts()
-    for _ in 0..<80 where store.networkPortsState.isLoading {
+    for _ in 0..<80 where store.networkPortsLoading {
         try await Task.sleep(for: .milliseconds(25))
     }
-    #expect(store.networkPortsState.snapshot?.ports.count == 2)
-    #expect(store.networkPortsState.isLoading == false)
+    #expect(store.networkPorts?.ports.count == 2)
+    #expect(store.networkPortsLoading == false)
 
-    let snapshot = await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false)
+    let snapshot = try #require(await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false))
     store.receive(snapshot)
     let targetProcess = try #require(snapshot.applications.first?.processes.first)
-    store.loadInventory(for: targetProcess)
-    for _ in 0..<80 where store.inventoryState.isLoading {
+    store.inspection.loadInventory(for: targetProcess)
+    for _ in 0..<80 where store.inspection.inventoryLoading {
         try await Task.sleep(for: .milliseconds(25))
     }
-    #expect(store.inventoryState.current?.files.first?.path == "/tmp/example.txt")
-    #expect(store.inventoryState.isLoading == false)
+    #expect(store.inspection.inventory?.files.first?.path == "/tmp/example.txt")
+    #expect(store.inspection.inventoryLoading == false)
 
-    #expect(await MonitorHistoryReader.historicalInstances(of: "Finder", hours: 1, store: store).isEmpty)
+    #expect(await store.historicalData.historicalInstances(of: "Finder", hours: 1).isEmpty)
 }
 
 @Test func allSwiftUIViewsLayOutPopulatedAndEmptyStatesCleanly() async throws {
@@ -291,7 +301,7 @@ struct ViewAndChartTests {
     // Populated system, processes, network ports, and inventory states
     let sample = ViewTestSystemCollector().collectSystemSample()
     store.receive(sample)
-    let snapshot = await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false)
+    let snapshot = try #require(await ViewTestProcessCollector().collectProcessSnapshot(includePrivileged: false))
     store.receive(snapshot)
     store.receive(await ViewTestNetworkPortCollector().collectNetworkPorts(includePrivileged: false))
     let appProcess = try #require(snapshot.applications.first?.processes.first)
@@ -299,14 +309,14 @@ struct ViewAndChartTests {
 
     #expect(hostLayoutSize(SummaryView(store: store)).height > 0)
     #expect(hostLayoutSize(NetworkPortsView(store: store)).height > 0)
-    store.viewModels.networkPorts.query = "no-match-port"
+    store.networkPortsViewModel.query = "no-match-port"
     #expect(hostLayoutSize(NetworkPortsView(store: store)).height > 0)
 
     #expect(hostLayoutSize(ApplicationListView(store: store)).height > 0)
     #expect(hostLayoutSize(ApplicationDetailView(store: store, id: "com.apple.finder")).height > 0)
     #expect(hostLayoutSize(ProcessDetailView(store: store, id: appProcess.id)).height > 0)
     #expect(hostLayoutSize(HistoryView(store: store)).height > 0)
-    store.viewModels.history.select(program: "Finder")
+    store.historyViewModel.select(program: "Finder")
     #expect(hostLayoutSize(HistoryView(store: store)).height > 0)
     #expect(hostLayoutSize(SettingsView(store: store)).height > 0)
 

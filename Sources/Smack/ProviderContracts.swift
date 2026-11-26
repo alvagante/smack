@@ -2,13 +2,29 @@ import Foundation
 import SmackIPC
 
 protocol SystemMetricsCollecting: AnyObject {
-    func collectSystemSample() -> SystemSample
+    /// `includeTemperatures` reads hardware sensors and fans, which costs an IOHID service walk; only the thermal and
+    /// CPU pages need it. `includeGPUProcesses` walks the GPU driver's clients for per-process GPU time (GPU page).
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample
+}
+
+extension SystemMetricsCollecting {
+    func collectSystemSample() -> SystemSample { collectSystemSample(includeTemperatures: false, includeGPUProcesses: false) }
+    func collectSystemSample(includeTemperatures: Bool) -> SystemSample {
+        collectSystemSample(includeTemperatures: includeTemperatures, includeGPUProcesses: false)
+    }
 }
 
 protocol ProcessMetricsCollecting: AnyObject, Sendable {
+    /// Per-process network rates run only while visible and `interval` is set; nil turns them off.
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async
     /// `includePrivileged` asks for all-users data when the distribution flavor supports it.
     /// Collectors fall back to the current user's visibility when privileged access is unavailable.
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot
+    /// Returns nil for cancelled or stale observations.
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot?
+}
+
+extension ProcessMetricsCollecting {
+    func setNetworkSampling(visible: Bool, interval: TimeInterval?) async {}
 }
 
 protocol InventoryCollecting: AnyObject, Sendable {
@@ -24,7 +40,30 @@ protocol PrivilegedSamplingProviding: AnyObject, Sendable {
     func collectSnapshot() async -> ProcessSnapshotPayload?
     func collectInventory(pid: Int32, startTime: Date) async -> InventoryPayload?
     func collectNetworkPorts() async -> SocketCollection?
+    func captureFileActivity(pid: Int32, startTime: Date) async -> FileActivityPayload?
 }
+
+/// Helper queries behind persistence scans and baselines; both need helper protocol v2.
+protocol PrivilegedSecurityQuerying: AnyObject, Sendable {
+    func protocolVersion() async -> Int
+    func dumpBackgroundTasks() async -> String?
+    func listConfigurationProfiles() async -> String?
+}
+
+protocol PrivilegedLogQuerying: AnyObject, Sendable {
+    func queryUnifiedLog(start: Date, end: Date) async -> UnifiedLogPayload?
+}
+
+/// The helper's storage scan job, polled by `StorageScanModel`.
+protocol PrivilegedStorageScanning: AnyObject, Sendable {
+    func setAvailable(_ value: Bool)
+    func startStorageScan() async -> Bool?
+    func storageScanStatus() async -> StorageScanSnapshot?
+    func cancelStorageScan() async
+}
+
+/// History storage used by `CollectionScheduler`: sample and event writes plus key-value state.
+typealias CollectionHistoryStoring = HistoryWriting & ActivityMetadataStoring
 
 struct MetricDelta {
     static func difference(current: UInt64, previous: UInt64) -> UInt64? {

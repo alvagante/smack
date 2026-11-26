@@ -1,0 +1,555 @@
+{
+ "alert_benchmark_rerun_after_fix": {
+  "run1": [
+   {
+    "fired": 0,
+    "max_ms": 0.025292,
+    "mean_ms": 0.006689829999999984,
+    "p95_ms": 0.007084,
+    "workload": "system-50-armed"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.02975,
+    "mean_ms": 0.008561393999999995,
+    "p95_ms": 0.008916,
+    "workload": "system-50-pending"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.116833,
+    "mean_ms": 0.09665586000000002,
+    "p95_ms": 0.104625,
+    "workload": "process-1-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.270083,
+    "mean_ms": 0.23997118999999997,
+    "p95_ms": 0.260208,
+    "workload": "process-10-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 1.695042,
+    "mean_ms": 1.48778789,
+    "p95_ms": 1.583291,
+    "workload": "process-50-exact-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 1.206833,
+    "mean_ms": 0.8901687299999999,
+    "p95_ms": 0.930333,
+    "workload": "process-50-any-1000"
+   },
+   {
+    "fired": 18000,
+    "max_ms": 3.393625,
+    "mean_ms": 3.12957081,
+    "p95_ms": 3.264042,
+    "workload": "process-50-any-1000-churn"
+   }
+  ],
+  "run2": [
+   {
+    "fired": 0,
+    "max_ms": 0.025791,
+    "mean_ms": 0.006655671999999958,
+    "p95_ms": 0.007,
+    "workload": "system-50-armed"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.01075,
+    "mean_ms": 0.00848041100000002,
+    "p95_ms": 0.009125,
+    "workload": "system-50-pending"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.102625,
+    "mean_ms": 0.09592877,
+    "p95_ms": 0.100916,
+    "workload": "process-1-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.273208,
+    "mean_ms": 0.23851796000000014,
+    "p95_ms": 0.257,
+    "workload": "process-10-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 1.676583,
+    "mean_ms": 1.57463298,
+    "p95_ms": 1.645375,
+    "workload": "process-50-exact-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.969375,
+    "mean_ms": 0.8767941,
+    "p95_ms": 0.950792,
+    "workload": "process-50-any-1000"
+   },
+   {
+    "fired": 18000,
+    "max_ms": 3.525958,
+    "mean_ms": 3.094694200000002,
+    "p95_ms": 3.192583,
+    "workload": "process-50-any-1000-churn"
+   }
+  ],
+  "run3": [
+   {
+    "fired": 0,
+    "max_ms": 0.026875,
+    "mean_ms": 0.0068401580000000016,
+    "p95_ms": 0.007458,
+    "workload": "system-50-armed"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.010417,
+    "mean_ms": 0.008293922000000028,
+    "p95_ms": 0.00875,
+    "workload": "system-50-pending"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.115375,
+    "mean_ms": 0.09709370999999994,
+    "p95_ms": 0.104417,
+    "workload": "process-1-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 0.2635,
+    "mean_ms": 0.2288083,
+    "p95_ms": 0.237709,
+    "workload": "process-10-any-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 1.839875,
+    "mean_ms": 1.5528116799999998,
+    "p95_ms": 1.701417,
+    "workload": "process-50-exact-1000"
+   },
+   {
+    "fired": 0,
+    "max_ms": 1.231375,
+    "mean_ms": 0.9593620899999994,
+    "p95_ms": 1.219875,
+    "workload": "process-50-any-1000"
+   },
+   {
+    "fired": 18000,
+    "max_ms": 3.848083,
+    "mean_ms": 3.1847874600000012,
+    "p95_ms": 3.520375,
+    "workload": "process-50-any-1000-churn"
+   }
+  ]
+ },
+ "date": "2026-11-01",
+ "host": "M5 Max, macOS 27.2 (26B123 SDK 26B118), release builds via swift test -c release, direct flavor, app 0.7.0 (7)",
+ "hourly_helper_probes": {
+  "agent_run_non_root": {
+   "backgroundtaskmanagementd_cpu_s_for_3_runs": 0.03,
+   "profiles_show": {
+    "instructions_retired": 37490856,
+    "output_bytes": 181,
+    "real_s": 0.03
+   },
+   "sfltool_dumpbtm": {
+    "instructions_retired": [
+     28078413,
+     27695610,
+     27593542,
+     29564294
+    ],
+    "note": "output size equals the signed helper's btmBytes=145084; the work happens in backgroundtaskmanagementd",
+    "output_bytes": 145084,
+    "real_s": [
+     3.07,
+     2.51,
+     1.58,
+     1.05
+    ],
+    "sys_s": 0,
+    "user_s": 0
+   }
+  },
+  "conclusion": "Both probes are far under the 1 s child CPU budget (client under 10 ms CPU each, daemon about 0.01 s per BTM dump). Wall time of the BTM dump varied 1.05 to 3.07 s against the helper's 5 s probe timeout, so a loaded host has about 2 s of margin.",
+  "date": "2026-11-01",
+  "host": "M5 Max, macOS 27.2",
+  "user_run": {
+   "command": "sudo /usr/bin/time -l /usr/bin/profiles show -type configuration -output stdout-xml (3 runs; the pasted sfltool loop produced no output because the two loops were pasted merged)",
+   "instructions_retired": [
+    26847693,
+    26818010,
+    26843507
+   ],
+   "max_rss_bytes": 2883584,
+   "real_s": [
+    0.03,
+    0.01,
+    0.01
+   ],
+   "sys_s": [
+    0,
+    0,
+    0
+   ],
+   "user_s": [
+    0,
+    0,
+    0
+   ]
+  }
+ },
+ "m1": {
+  "note": "M1/macOS 15 results not yet provided; section 8 budgets remain unverified on M1.",
+  "status": "pending"
+ },
+ "posture_collection": {
+  "measurement": "posture-collection",
+  "runs": [
+   {
+    "checks": 19,
+    "children_cpu_s": 0.05763,
+    "run": 0,
+    "self_cpu_s": 0.007764,
+    "statuses": {
+     "pass": 10,
+     "unknown": 9
+    },
+    "wall_s": 0.429582833
+   },
+   {
+    "checks": 19,
+    "children_cpu_s": 0.07040900000000001,
+    "run": 1,
+    "self_cpu_s": 0.006586999999999989,
+    "statuses": {
+     "pass": 10,
+     "unknown": 9
+    },
+    "wall_s": 0.371383916
+   },
+   {
+    "checks": 19,
+    "children_cpu_s": 0.049958999999999976,
+    "run": 2,
+    "self_cpu_s": 0.004718,
+    "statuses": {
+     "pass": 10,
+     "unknown": 9
+    },
+    "wall_s": 0.333083083
+   },
+   {
+    "checks": 19,
+    "children_cpu_s": 0.06291100000000002,
+    "run": 3,
+    "self_cpu_s": 0.00620699999999999,
+    "statuses": {
+     "pass": 10,
+     "unknown": 9
+    },
+    "wall_s": 0.35076825
+   },
+   {
+    "checks": 19,
+    "children_cpu_s": 0.064464,
+    "run": 4,
+    "self_cpu_s": 0.006652999999999992,
+    "statuses": {
+     "pass": 10,
+     "unknown": 9
+    },
+    "wall_s": 0.353296625
+   }
+  ]
+ },
+ "production_watcher_burst": {
+  "note": "Production watcher plus scanner with enrichment, 40 plists per burst under a unique home subdirectory (relevance restricted to that fixture), packaged app copy as signature child.",
+  "result": {
+   "bursts": [
+    {
+     "burst": 0,
+     "children_cpu_s": 0.484698,
+     "enriched": 20,
+     "events": 40,
+     "scans": 1,
+     "self_cpu_s": 0.048894999999999994,
+     "wall_s": 3.543806292
+    },
+    {
+     "burst": 1,
+     "children_cpu_s": 0.4993870000000001,
+     "enriched": 20,
+     "events": 40,
+     "scans": 1,
+     "self_cpu_s": 0.05816299999999999,
+     "wall_s": 4.806933916
+    },
+    {
+     "burst": 2,
+     "children_cpu_s": 0.47462099999999974,
+     "enriched": 20,
+     "events": 40,
+     "scans": 1,
+     "self_cpu_s": 0.05520200000000003,
+     "wall_s": 3.502380042
+    }
+   ],
+   "enrichment_cap": 20,
+   "measurement": "production-watcher-burst",
+   "plists_per_burst": 40
+  }
+ },
+ "production_watcher_idle": {
+  "note": "Production PersistenceWatcher and PersistenceScanner on the real watched roots, in a dedicated test process (not the user's running app).",
+  "result": {
+   "children_cpu_s": 0,
+   "cpu_percent": 0.04625389019403692,
+   "cpu_s": 0.29384899999999997,
+   "measurement": "production-watcher-idle",
+   "paths_delivered": 6354,
+   "per_minute_cpu_percent": [
+    0.03491833333333333,
+    0.039631666666666655,
+    0.029788333333333337,
+    0.04474166666666668,
+    0.025281666666666647,
+    0.023825000000000006,
+    0.03441833333333334,
+    0.11012833333333334,
+    0.05678666666666665,
+    0.09021499999999996
+   ],
+   "scans_in_window": 1,
+   "startup_children_cpu_s": 0,
+   "startup_scan_cpu_s": 0.013506000000000004,
+   "watched": "real home, /Library/LaunchAgents, /Library/LaunchDaemons, /private/etc, /Library/Preferences",
+   "window_s": 635.295753
+  }
+ },
+ "real_dropped_events": {
+  "note": "Main queue blocked while 8 threads create files under /Users/Shared/smack-phase7-drop-*; relevance rejects every path, so only a delivered drop flag can trigger the rescan. A second raw stream on the same queue records delivered flags.",
+  "runs": [
+   {
+    "files": 100000,
+    "flood_and_block_wall_s": 10,
+    "kernel_dropped": false,
+    "main_blocked_s": 10,
+    "measurement": "real-dropped-events",
+    "must_scan_subdirs": true,
+    "observed_batches": 22,
+    "observed_events": 617,
+    "rescans_after_flood": 1,
+    "sentinel_recovered": true,
+    "user_dropped": true
+   },
+   {
+    "files": 100000,
+    "flood_and_block_wall_s": 10,
+    "kernel_dropped": false,
+    "main_blocked_s": 10,
+    "measurement": "real-dropped-events",
+    "must_scan_subdirs": true,
+    "observed_batches": 21,
+    "observed_events": 617,
+    "rescans_after_flood": 1,
+    "sentinel_recovered": true,
+    "user_dropped": true
+   },
+   {
+    "files": 100000,
+    "flood_and_block_wall_s": 10,
+    "kernel_dropped": false,
+    "main_blocked_s": 10,
+    "measurement": "real-dropped-events",
+    "must_scan_subdirs": true,
+    "observed_batches": 21,
+    "observed_events": 617,
+    "rescans_after_flood": 1,
+    "sentinel_recovered": true,
+    "user_dropped": true
+   },
+   {
+    "files": 300000,
+    "flood_and_block_wall_s": 20,
+    "kernel_dropped": false,
+    "main_blocked_s": 20,
+    "measurement": "real-dropped-events",
+    "must_scan_subdirs": true,
+    "observed_batches": 21,
+    "observed_events": 617,
+    "rescans_after_flood": 1,
+    "sentinel_recovered": true,
+    "user_dropped": true
+   }
+  ]
+ },
+ "running_app_passive": {
+  "app_billed_energy_nJ_per_s": 579672790.4072255,
+  "app_cpu_percent": 2.4387917128822694,
+  "app_rss_bytes_end": 143671296,
+  "app_wakeups_per_s": 1.3040722547932182,
+  "helper_cpu_percent_self_only": 23.094596735858026,
+  "note": "Read-only proc_pid_rusage and ps of the user's running dist/Smack.app (pid 54804) and root helper (pid 3886); no setting, file or process was touched. Includes all app work, not only the watcher.",
+  "samples": 64,
+  "window_s": 631.1
+ },
+ "system_rule_allocations": {
+  "after_fix": [
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 0,
+    "workload": "no-rules"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "cpu-50-armed"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "cpu-50-pending-sustain-100000s"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0.11,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "cpu-50-pending-sustain-60s"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "volume-free-50-armed"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 52,
+    "workload": "all-metrics-armed"
+   }
+  ],
+  "before_fix": [
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 0,
+    "workload": "no-rules"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "cpu-50-armed"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     50,
+     50,
+     50,
+     50,
+     50
+    ],
+    "rules": 50,
+    "workload": "cpu-50-pending-sustain-100000s"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     0.11,
+     0,
+     0,
+     0,
+     0
+    ],
+    "rules": 50,
+    "workload": "cpu-50-pending-sustain-60s"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     50,
+     50,
+     50,
+     50,
+     50
+    ],
+    "rules": 50,
+    "workload": "volume-free-50-armed"
+   },
+   {
+    "allocations_per_evaluate_rounds": [
+     4,
+     4,
+     4,
+     4,
+     4
+    ],
+    "rules": 52,
+    "workload": "all-metrics-armed"
+   }
+  ],
+  "characterization": {
+   "fnv1a": 7272896085814175147,
+   "identical_before_and_after": true,
+   "log_lines": 137,
+   "test": "systemEvaluationCharacterization"
+  },
+  "finding": "Before: 1 allocation per rule per sample for rules in a pending state whose text exceeded 15 bytes (sustain of 1000 s or more) and for volumeFreeRatio rules (compactMap/min array). After: 0 for every steady-state workload. The 0.11 in the 60 s pending round is the 50 rules firing once (event construction), not steady state.",
+  "method": "malloc_logger counter validated against 1000 known allocations (counted 1004); 5 rounds of 1000 evaluate(system:) calls after 50 warm-up samples; samples prebuilt outside the counted region; two volumes, interface, disk, GPU present"
+ }
+}

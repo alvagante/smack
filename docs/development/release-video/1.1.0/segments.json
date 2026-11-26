@@ -1,0 +1,17 @@
+{"version": "1.1.0",
+ "tagline": "A tiny menu-bar monitor for your Mac",
+ "features": "Projects  ·  Session Timeline  ·  Live Summary  ·  Onboarding",
+ "outro": ["brew install alvagante/tap/smack", "github.com/alvagante/smack"],
+ "segments": [
+  {"start": 0,   "length": 10, "caption": "Live Summary tiles", "weight": 0.4},
+  {"start": 12,  "length": 26, "caption": "Agent Sessions: Claude Code, Codex, OpenCode"},
+  {"start": 70,  "length": 24, "caption": "Activity Timeline"},
+  {"start": 90,  "length": 24, "caption": "Insights"},
+  {"start": 120, "length": 10, "caption": "Network connections, one click to the process", "weight": 0.7},
+  {"start": 130, "length": 28, "caption": "Baselines and drift", "weight": 1.3},
+  {"start": 168, "length": 22, "caption": "Projects: files, Git history, dev servers, Docker", "weight": 0.8},
+  {"start": 192, "length": 12, "caption": "Docker"},
+  {"start": 220, "length": 16, "caption": "Development environments", "weight": 1.3},
+  {"start": 242, "length": 16, "caption": "User home", "weight": 1.3},
+  {"start": 260, "length": 10, "caption": "Standard Window, Settings, Onboarding", "weight": 0.7}
+ ]}

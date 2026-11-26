@@ -1,0 +1,504 @@
+{
+ "after": [
+  {
+   "log": "/tmp/smack-004-alert-after-run1.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.023584,
+     "maxrss_end_bytes": 45858816,
+     "maxrss_start_bytes": 45776896,
+     "mean_ms": 0.007146344999999973,
+     "p50_ms": 0.006875,
+     "p95_ms": 0.007708,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.026125,
+     "maxrss_end_bytes": 47857664,
+     "maxrss_start_bytes": 47792128,
+     "mean_ms": 0.011197836999999995,
+     "p50_ms": 0.010917,
+     "p95_ms": 0.012125,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.110458,
+     "maxrss_end_bytes": 48578560,
+     "maxrss_start_bytes": 47874048,
+     "mean_ms": 0.09329077,
+     "p50_ms": 0.091166,
+     "p95_ms": 0.103333,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.265416,
+     "maxrss_end_bytes": 48594944,
+     "maxrss_start_bytes": 48594944,
+     "mean_ms": 0.23202160000000005,
+     "p50_ms": 0.230042,
+     "p95_ms": 0.258125,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.609792,
+     "maxrss_end_bytes": 48676864,
+     "maxrss_start_bytes": 48627712,
+     "mean_ms": 1.4627142100000001,
+     "p50_ms": 1.4455,
+     "p95_ms": 1.578292,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.938458,
+     "maxrss_end_bytes": 48693248,
+     "maxrss_start_bytes": 48676864,
+     "mean_ms": 0.8690907899999999,
+     "p50_ms": 0.869208,
+     "p95_ms": 0.887333,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 3.567,
+     "maxrss_end_bytes": 50511872,
+     "maxrss_start_bytes": 48726016,
+     "mean_ms": 3.2818416899999985,
+     "p50_ms": 3.262417,
+     "p95_ms": 3.431709,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  },
+  {
+   "log": "/tmp/smack-004-alert-after-run2.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.021959,
+     "maxrss_end_bytes": 45842432,
+     "maxrss_start_bytes": 45760512,
+     "mean_ms": 0.00704814099999996,
+     "p50_ms": 0.006833,
+     "p95_ms": 0.007417,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.031334,
+     "maxrss_end_bytes": 47857664,
+     "maxrss_start_bytes": 47792128,
+     "mean_ms": 0.011414385999999967,
+     "p50_ms": 0.01125,
+     "p95_ms": 0.011958,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.124375,
+     "maxrss_end_bytes": 48594944,
+     "maxrss_start_bytes": 47874048,
+     "mean_ms": 0.09759665000000001,
+     "p50_ms": 0.096542,
+     "p95_ms": 0.10325,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.2775,
+     "maxrss_end_bytes": 48611328,
+     "maxrss_start_bytes": 48611328,
+     "mean_ms": 0.24098503999999998,
+     "p50_ms": 0.238583,
+     "p95_ms": 0.255375,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.699291,
+     "maxrss_end_bytes": 48709632,
+     "maxrss_start_bytes": 48660480,
+     "mean_ms": 1.53318874,
+     "p50_ms": 1.533167,
+     "p95_ms": 1.620625,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.912459,
+     "maxrss_end_bytes": 48726016,
+     "maxrss_start_bytes": 48709632,
+     "mean_ms": 0.87250456,
+     "p50_ms": 0.87975,
+     "p95_ms": 0.899833,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 3.377333,
+     "maxrss_end_bytes": 50479104,
+     "maxrss_start_bytes": 48758784,
+     "mean_ms": 3.24727087,
+     "p50_ms": 3.235583,
+     "p95_ms": 3.338834,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  },
+  {
+   "log": "/tmp/smack-004-alert-after-run3.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.025875,
+     "maxrss_end_bytes": 45907968,
+     "maxrss_start_bytes": 45826048,
+     "mean_ms": 0.006989674999999948,
+     "p50_ms": 0.006792,
+     "p95_ms": 0.007417,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.024292,
+     "maxrss_end_bytes": 47906816,
+     "maxrss_start_bytes": 47874048,
+     "mean_ms": 0.011306373999999968,
+     "p50_ms": 0.011208,
+     "p95_ms": 0.012083,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.1315,
+     "maxrss_end_bytes": 48611328,
+     "maxrss_start_bytes": 47923200,
+     "mean_ms": 0.09475745999999999,
+     "p50_ms": 0.092083,
+     "p95_ms": 0.103833,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.269708,
+     "maxrss_end_bytes": 48627712,
+     "maxrss_start_bytes": 48627712,
+     "mean_ms": 0.23489167000000002,
+     "p50_ms": 0.231708,
+     "p95_ms": 0.261208,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.608209,
+     "maxrss_end_bytes": 48726016,
+     "maxrss_start_bytes": 48644096,
+     "mean_ms": 1.49341831,
+     "p50_ms": 1.497875,
+     "p95_ms": 1.565459,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.93525,
+     "maxrss_end_bytes": 48742400,
+     "maxrss_start_bytes": 48742400,
+     "mean_ms": 0.8740262900000003,
+     "p50_ms": 0.873666,
+     "p95_ms": 0.914333,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 3.481208,
+     "maxrss_end_bytes": 50495488,
+     "maxrss_start_bytes": 48758784,
+     "mean_ms": 3.303121279999998,
+     "p50_ms": 3.296917,
+     "p95_ms": 3.407125,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  }
+ ],
+ "before": [
+  {
+   "log": "/tmp/smack-004-alert-before-run1.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.027042,
+     "maxrss_end_bytes": 45989888,
+     "maxrss_start_bytes": 45793280,
+     "mean_ms": 0.00801616599999999,
+     "p50_ms": 0.008,
+     "p95_ms": 0.008292,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.029084,
+     "maxrss_end_bytes": 47988736,
+     "maxrss_start_bytes": 47939584,
+     "mean_ms": 0.010457090000000027,
+     "p50_ms": 0.010167,
+     "p95_ms": 0.0115,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.243375,
+     "maxrss_end_bytes": 49184768,
+     "maxrss_start_bytes": 48005120,
+     "mean_ms": 0.20838001999999997,
+     "p50_ms": 0.206375,
+     "p95_ms": 0.216083,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.960083,
+     "maxrss_end_bytes": 49659904,
+     "maxrss_start_bytes": 49184768,
+     "mean_ms": 0.9277250400000007,
+     "p50_ms": 0.93,
+     "p95_ms": 0.944292,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.74825,
+     "maxrss_end_bytes": 49790976,
+     "maxrss_start_bytes": 49676288,
+     "mean_ms": 1.6041383100000006,
+     "p50_ms": 1.59525,
+     "p95_ms": 1.717416,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 4.471625,
+     "maxrss_end_bytes": 52412416,
+     "maxrss_start_bytes": 49790976,
+     "mean_ms": 4.248209589999999,
+     "p50_ms": 4.23625,
+     "p95_ms": 4.408666,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 7.617375,
+     "maxrss_end_bytes": 55607296,
+     "maxrss_start_bytes": 52445184,
+     "mean_ms": 5.903548769999999,
+     "p50_ms": 5.785625,
+     "p95_ms": 7.161,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  },
+  {
+   "log": "/tmp/smack-004-alert-before-run2.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.011208,
+     "maxrss_end_bytes": 46071808,
+     "maxrss_start_bytes": 45826048,
+     "mean_ms": 0.008568381999999984,
+     "p50_ms": 0.0085,
+     "p95_ms": 0.009,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.030584,
+     "maxrss_end_bytes": 48103424,
+     "maxrss_start_bytes": 48021504,
+     "mean_ms": 0.011810232999999993,
+     "p50_ms": 0.011584,
+     "p95_ms": 0.012583,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.228459,
+     "maxrss_end_bytes": 49250304,
+     "maxrss_start_bytes": 48119808,
+     "mean_ms": 0.22217000000000003,
+     "p50_ms": 0.221791,
+     "p95_ms": 0.225125,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.139458,
+     "maxrss_end_bytes": 49741824,
+     "maxrss_start_bytes": 49250304,
+     "mean_ms": 1.0240479,
+     "p50_ms": 1.022583,
+     "p95_ms": 1.056375,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 2.154459,
+     "maxrss_end_bytes": 49840128,
+     "maxrss_start_bytes": 49758208,
+     "mean_ms": 1.6516079599999995,
+     "p50_ms": 1.629708,
+     "p95_ms": 1.755125,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 4.837542,
+     "maxrss_end_bytes": 52428800,
+     "maxrss_start_bytes": 49840128,
+     "mean_ms": 4.5146433299999975,
+     "p50_ms": 4.496666,
+     "p95_ms": 4.713458,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 6.043333,
+     "maxrss_end_bytes": 53067776,
+     "maxrss_start_bytes": 52461568,
+     "mean_ms": 5.811755440000001,
+     "p50_ms": 5.804917,
+     "p95_ms": 5.945625,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  },
+  {
+   "log": "/tmp/smack-004-alert-before-run3.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.0285,
+     "maxrss_end_bytes": 46006272,
+     "maxrss_start_bytes": 45760512,
+     "mean_ms": 0.008163163000000006,
+     "p50_ms": 0.007916,
+     "p95_ms": 0.008875,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.028667,
+     "maxrss_end_bytes": 48054272,
+     "maxrss_start_bytes": 47972352,
+     "mean_ms": 0.01111116399999997,
+     "p50_ms": 0.010875,
+     "p95_ms": 0.011916,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.237084,
+     "maxrss_end_bytes": 49184768,
+     "maxrss_start_bytes": 48070656,
+     "mean_ms": 0.21237837000000012,
+     "p50_ms": 0.210292,
+     "p95_ms": 0.224291,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.164917,
+     "maxrss_end_bytes": 50331648,
+     "maxrss_start_bytes": 49184768,
+     "mean_ms": 0.9604858900000002,
+     "p50_ms": 0.94475,
+     "p95_ms": 1.0245,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.764583,
+     "maxrss_end_bytes": 50429952,
+     "maxrss_start_bytes": 50348032,
+     "mean_ms": 1.5785987000000012,
+     "p50_ms": 1.565583,
+     "p95_ms": 1.713375,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 4.3225,
+     "maxrss_end_bytes": 52985856,
+     "maxrss_start_bytes": 50429952,
+     "mean_ms": 4.132560070000002,
+     "p50_ms": 4.121292,
+     "p95_ms": 4.251667,
+     "workload": "process-50-any-1000"
+    },
+    {
+     "fired": 18000,
+     "iterations": 100,
+     "max_ms": 5.868125,
+     "maxrss_end_bytes": 61292544,
+     "maxrss_start_bytes": 53002240,
+     "mean_ms": 5.591329600000002,
+     "p50_ms": 5.585334,
+     "p95_ms": 5.708,
+     "workload": "process-50-any-1000-churn"
+    }
+   ]
+  }
+ ],
+ "change": "AlertEngine stores only non-idle tracks, keys process tracks by ProcessIdentity, builds identity strings only on fire and writes runtime once per rule. Adds the process-50-any-1000-churn workload (moving values, 10% exits per sample, rules fire and clear).",
+ "command": "SMACK_PHASE0_BENCHMARK=1 swift test -c release --filter phase0AlertBenchmark (3 sequential runs before, 3 after)",
+ "date": "2026-11-01",
+ "equivalence": "processEvaluationCharacterization (491 alerts, FNV-1a 16698215640196081790) recorded before the change passes after it; churn fired counts are 18000 before and after.",
+ "host": "Apple M5 Max, macOS 27.2, arm64, Swift 6.4.2",
+ "note": "M5 Max only; the section 8 budget is defined for M1, which remains unverified. No allocation profiling. Earlier evidence files are unchanged."
+}

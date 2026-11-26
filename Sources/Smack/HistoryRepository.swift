@@ -1,626 +1,412 @@
 import Foundation
 import SQLite3
 
-enum SystemMetric: String, CaseIterable, Identifiable, Sendable {
-    case cpu
-    case memoryUsedBytes
-    case networkReceiveRate
-    case networkSendRate
-    case diskReadRate
-    case diskWriteRate
+/// SQLite store for metric history and activity events. Writing and the SQL helpers live here; reads, events,
+/// maintenance and export are extensions in the `HistoryRepository+*.swift` files. Schema migration is `HistorySchema`.
+actor HistoryRepository {
+    static let lastCompactedKey = "history.lastCompactedAt"
+    static let eventPruneBatch = 10_000
+    /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
+    static let processHeartbeatInterval: TimeInterval = 60
+    /// The `processes` table only carries names and a coarse last-seen time, so it is written once a minute instead
+    /// of on every sample; rewriting a row per process per second was a third of the database's write volume.
+    static let processMetadataInterval: TimeInterval = 60
+    /// How long the app keeps sample writes in one open transaction. Every commit appends the tables' tail pages to
+    /// the WAL again, so one commit per interval writes far fewer bytes than one per sample. A crash loses at most
+    /// this much history; reads on this connection see uncommitted rows, so charts never lag.
+    static let appCommitInterval: TimeInterval = 30
+    /// Share of the storage limit the file may exceed before it is compacted. Compaction rewrites the whole
+    /// database, twice counting the WAL, so it runs only when free pages would otherwise stay unused for long.
+    static let compactionSlack = 0.25
+    /// Charts break a process line only after this long without rows.
+    static let processMinimumGap = processHeartbeatInterval * 2.5
+    static let idleCPUThreshold = 0.05
+    /// Wakeups per second above which a process counts as active even with no CPU or disk use. Nearly every
+    /// process wakes a little, so a threshold of zero would defeat idle-row skipping and grow the database.
+    static let idleWakeupThreshold = 10.0
+    static let idleMemoryTolerance = 0.005
+    /// A footprint moves by more than half a percent between two samples on almost any idle process, which stored a
+    /// row for every sample: 27% of idle rows in a measured window were jitter, not change. Changes below this floor
+    /// are held back to the next heartbeat at most, so they are delayed, never lost.
+    static let idleMemoryFloor: Double = 256 * 1_024
 
-    var id: Self { self }
+    struct ProcessRow {
+        var timestamp: Double
+        var cpu: Double
+        var memory: Double
+        var diskRead: Double
+        var diskWrite: Double
+        var wakeups: Double
 
-    fileprivate var columns: (raw: String, total: String, peak: String) {
-        switch self {
-        case .cpu: ("cpu", "cpu_total", "cpu_peak")
-        case .memoryUsedBytes: ("memory_used", "memory_used_total", "memory_used_peak")
-        case .networkReceiveRate: ("network_receive", "network_receive_total", "network_receive_peak")
-        case .networkSendRate: ("network_send", "network_send_total", "network_send_peak")
-        case .diskReadRate: ("disk_read", "disk_read_total", "disk_read_peak")
-        case .diskWriteRate: ("disk_write", "disk_write_total", "disk_write_peak")
+        var isIdle: Bool {
+            cpu < HistoryRepository.idleCPUThreshold && diskRead == 0 && diskWrite == 0
+                && wakeups < HistoryRepository.idleWakeupThreshold
+        }
+
+        /// True when `next` is idle with the same memory, so storing it would only repeat this row. The floor absorbs
+        /// footprint jitter on small processes; the relative part keeps large footprints sensitive.
+        func isRepeated(by next: ProcessRow) -> Bool {
+            isIdle && next.isIdle
+                && abs(next.memory - memory) <= max(HistoryRepository.idleMemoryFloor, memory * HistoryRepository.idleMemoryTolerance)
         }
     }
-}
 
-enum ProcessMetric: String, CaseIterable, Sendable {
-    case cpuUsage
-    case memoryBytes
-    case diskReadRate
-    case diskWriteRate
+    /// Last stored row per process and the idle run skipped since. Skipped samples are added to the stored row's
+    /// weight; the last skipped one is stored when the run ends with a change, so lines stay flat up to the change.
+    struct IdleRun {
+        var key: Int64
+        var stored: ProcessRow
+        var storedRowID: Int64
+        var skipped = 0
+        var lastSkipped: ProcessRow?
+    }
 
-    fileprivate var columns: (raw: String, total: String, peak: String) {
-        switch self {
-        case .cpuUsage: ("cpu", "cpu_total", "cpu_peak")
-        case .memoryBytes: ("memory", "memory_total", "memory_peak")
-        case .diskReadRate: ("disk_read", "disk_read_total", "disk_read_peak")
-        case .diskWriteRate: ("disk_write", "disk_write_total", "disk_write_peak")
+    /// Write state kept in memory. A failed write restores it as a whole, so nothing can be left out of a rollback.
+    struct WriterState {
+        /// One run per live process; its key also spares a database lookup per sample.
+        var idleRuns: [String: IdleRun] = [:]
+        /// Names seen since the last metadata write, by process key.
+        var pendingProcessMetadata: [Int64: String] = [:]
+        var lastProcessMetadataWrite: TimeInterval = 0
+        var lastProcessSnapshot: Double?
+    }
+
+    /// Used only from the actor; `nonisolated(unsafe)` lets the nonisolated `deinit` close it.
+    nonisolated(unsafe) let database: OpaquePointer
+    private var state = WriterState()
+    /// Zero commits every write on its own.
+    private let commitInterval: TimeInterval
+    /// Uptime at which the open batch transaction began, or nil when none is open.
+    private var batchStartedAt: TimeInterval?
+
+    init(databaseURL: URL, commitInterval: TimeInterval = 0) throws {
+        self.commitInterval = commitInterval
+        try FileManager.default.createDirectory(at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var connection: OpaquePointer?
+        let result = sqlite3_open_v2(
+            databaseURL.path,
+            &connection,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard result == SQLITE_OK, let connection else {
+            let message = connection.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open history database"
+            sqlite3_close_v2(connection)
+            throw HistoryRepositoryError.sqlite(code: result, message: message)
         }
-    }
-}
-
-enum HistoryExportFormat: String, Sendable {
-    case json
-    case csv
-}
-
-enum HistoryRepositoryError: LocalizedError, Equatable {
-    case sqlite(code: Int32, message: String)
-    case unsupportedSchemaVersion(Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .sqlite(let code, let message):
-            "History database error (\(code)): \(message)"
-        case .unsupportedSchemaVersion(let version):
-            "History database schema version \(version) is newer than this build supports (max \(HistorySchemaMigrator.schemaVersion))."
-        }
-    }
-}
-
-private struct ProcessRow {
-    private static let idleCPUThreshold = 0.05
-    private static let idleMemoryTolerance = 0.005
-
-    var timestamp: Double
-    var cpu: Double
-    var memory: Double
-    var diskRead: Double
-    var diskWrite: Double
-
-    var isIdle: Bool { cpu < Self.idleCPUThreshold && diskRead == 0 && diskWrite == 0 }
-
-    /// True when `next` is idle with the same memory, so storing it would only repeat this row.
-    func isRepeated(by next: ProcessRow) -> Bool {
-        isIdle && next.isIdle && abs(next.memory - memory) <= memory * Self.idleMemoryTolerance
-    }
-}
-
-/// Last stored row per process and the idle run skipped since. Skipped samples are added to the stored row's
-/// weight; the last skipped one is stored when the run ends with a change, so lines stay flat up to the change.
-private struct IdleRun {
-    var key: Int64
-    var name: String
-    var stored: ProcessRow
-    var skipped = 0
-    var lastSkipped: ProcessRow?
-}
-
-private struct ProcessWriteStatements: @unchecked Sendable {
-    let upsertProcess: OpaquePointer
-    let insertSample: OpaquePointer
-    let addWeight: OpaquePointer
-
-    static func prepare(in db: HistorySQLiteDatabase) throws -> ProcessWriteStatements {
-        let upsertProcess = try db.prepare("""
-            INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen
-            RETURNING key
-            """)
-        let insertSample: OpaquePointer
+        database = connection
         do {
-            insertSample = try db.prepare("""
-                INSERT INTO process_samples (
-                    process_key, timestamp, cpu, memory, disk_read, disk_write, weight
-                ) VALUES (?, ?, ?, ?, ?, ?, 1)
-                """)
+            sqlite3_busy_timeout(database, 5_000)
+            try HistorySchema.migrate(database: database, databaseURL: databaseURL)
         } catch {
-            sqlite3_finalize(upsertProcess)
-            throw error
-        }
-        do {
-            let addWeight = try db.prepare(
-                "UPDATE process_samples SET weight = weight + ? WHERE process_key = ? AND timestamp = ?"
-            )
-            return ProcessWriteStatements(
-                upsertProcess: upsertProcess,
-                insertSample: insertSample,
-                addWeight: addWeight
-            )
-        } catch {
-            sqlite3_finalize(upsertProcess)
-            sqlite3_finalize(insertSample)
+            sqlite3_close_v2(database)
             throw error
         }
     }
 
-    func finalize() {
-        sqlite3_finalize(upsertProcess)
-        sqlite3_finalize(insertSample)
-        sqlite3_finalize(addWeight)
-    }
-}
-
-private final class HistoryProcessWriter: @unchecked Sendable {
-    private var idleRuns: [String: IdleRun] = [:]
-    private var statements: ProcessWriteStatements?
-    private var systemInsertStatement: OpaquePointer?
-
-    func reset() {
-        idleRuns = [:]
+    deinit {
+        // Closing with a batch open would roll it back.
+        if sqlite3_get_autocommit(database) == 0 { sqlite3_exec(database, "COMMIT", nil, nil, nil) }
+        sqlite3_close_v2(database)
     }
 
-    func finalize() {
-        if let systemInsertStatement {
-            sqlite3_finalize(systemInsertStatement)
-            self.systemInsertStatement = nil
+    func save(system sample: SystemSample) throws {
+        try batched {
+            try withStatement("""
+                INSERT INTO system_samples (
+                    timestamp, cpu, memory_used, network_receive, network_send, disk_read, disk_write,
+                    gpu_utilization, gpu_available, memory_pressure, swap_used
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(timestamp) DO UPDATE SET
+                    cpu = excluded.cpu,
+                    memory_used = excluded.memory_used,
+                    network_receive = excluded.network_receive,
+                    network_send = excluded.network_send,
+                    disk_read = excluded.disk_read,
+                    disk_write = excluded.disk_write,
+                    gpu_utilization = excluded.gpu_utilization,
+                    gpu_available = excluded.gpu_available,
+                    memory_pressure = excluded.memory_pressure,
+                    swap_used = excluded.swap_used
+                """) { statement in
+                bind(sample.timestamp.timeIntervalSince1970, at: 1, to: statement)
+                bind(sample.cpu.totalUsage, at: 2, to: statement)
+                bind(Double(sample.memory.usedBytes), at: 3, to: statement)
+                bind(sample.receiveRate, at: 4, to: statement)
+                bind(sample.sendRate, at: 5, to: statement)
+                bind(sample.diskReadRate, at: 6, to: statement)
+                bind(sample.diskWriteRate, at: 7, to: statement)
+                bind(sample.gpu.utilizationPercent ?? 0, at: 8, to: statement)
+                bind(sample.gpu.utilizationPercent == nil ? 0 : 1, at: 9, to: statement)
+                bind(sample.memory.pressure.historyValue ?? -1, at: 10, to: statement)
+                bind(Double(sample.memory.swapUsedBytes), at: 11, to: statement)
+                try step(statement)
+            }
         }
-        statements?.finalize()
-        statements = nil
     }
 
-    func prepareSystemInsert(in db: HistorySQLiteDatabase) throws -> OpaquePointer {
-        if let systemInsertStatement { return systemInsertStatement }
-        let statement = try db.prepare("""
-            INSERT INTO system_samples (
-                timestamp, cpu, memory_used, network_receive, network_send, disk_read, disk_write
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(timestamp) DO UPDATE SET
-                cpu = excluded.cpu,
-                memory_used = excluded.memory_used,
-                network_receive = excluded.network_receive,
-                network_send = excluded.network_send,
-                disk_read = excluded.disk_read,
-                disk_write = excluded.disk_write
-            """)
-        systemInsertStatement = statement
-        return statement
-    }
-
-    private func beginTransactionIfNeeded(
-        _ inTransaction: inout Bool,
-        db: HistorySQLiteDatabase
-    ) throws -> ProcessWriteStatements {
-        if !inTransaction {
-            try db.execute("BEGIN IMMEDIATE")
-            inTransaction = true
-        }
-        if let statements { return statements }
-        let prepared = try ProcessWriteStatements.prepare(in: db)
-        statements = prepared
-        return prepared
-    }
-
-    func save(_ snapshot: ProcessSnapshot, db: HistorySQLiteDatabase) throws {
+    func save(processes snapshot: ProcessSnapshot) throws {
         let totalCount = snapshot.applications.reduce(snapshot.backgroundProcesses.count) { $0 + $1.processes.count }
         let timestamp = snapshot.timestamp.timeIntervalSince1970
-        var inTransaction = false
-        do {
+        // No unique index guards process_samples, so the same snapshot saved twice would store every row twice.
+        guard timestamp != state.lastProcessSnapshot else { return }
+        try batched {
             var seen = Set<String>()
             seen.reserveCapacity(totalCount)
             for application in snapshot.applications {
                 for sample in application.processes {
                     seen.insert(sample.id)
-                    try recordProcessSample(sample, timestamp: timestamp, inTransaction: &inTransaction, db: db)
+                    try recordProcessSample(sample, at: timestamp)
                 }
             }
             for sample in snapshot.backgroundProcesses {
                 seen.insert(sample.id)
-                try recordProcessSample(sample, timestamp: timestamp, inTransaction: &inTransaction, db: db)
+                try recordProcessSample(sample, at: timestamp)
             }
-            for id in idleRuns.keys where !seen.contains(id) {
-                try closeIdleRun(processID: id, inTransaction: &inTransaction, db: db, updateProcessLastSeen: true)
-                idleRuns[id] = nil
+            for id in Array(state.idleRuns.keys) where !seen.contains(id) {
+                try flushExitedProcess(processID: id)
             }
-            if inTransaction {
-                try db.execute("COMMIT")
-            }
-        } catch {
-            if inTransaction {
-                try? db.execute("ROLLBACK")
-            }
-            throw error
+            try writeProcessMetadataIfDue(at: timestamp)
+            state.lastProcessSnapshot = timestamp
         }
     }
 
-    private func recordProcessSample(
-        _ sample: ProcessMetrics,
-        timestamp: Double,
-        inTransaction: inout Bool,
-        db: HistorySQLiteDatabase
-    ) throws {
+    private func recordProcessSample(_ sample: ProcessMetrics, at timestamp: Double) throws {
+        let key = try processKey(for: sample.id, name: sample.name, at: timestamp)
+        state.pendingProcessMetadata[key] = sample.name
         let row = ProcessRow(
             timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
-            diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate
+            diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate, wakeups: sample.wakeupsPerSecond
         )
-        if let run = idleRuns[sample.id], run.name == sample.name, run.stored.isRepeated(by: row) {
-            if timestamp - run.stored.timestamp < HistoryRepository.processHeartbeatInterval {
-                idleRuns[sample.id]?.skipped += 1
-                idleRuns[sample.id]?.lastSkipped = row
+        if let run = state.idleRuns[sample.id], run.stored.isRepeated(by: row) {
+            if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
+                state.idleRuns[sample.id]?.skipped += 1
+                state.idleRuns[sample.id]?.lastSkipped = row
                 return
             }
             // Heartbeat: values are unchanged, so the skipped run needs no closing row.
-            let statements = try beginTransactionIfNeeded(&inTransaction, db: db)
-            try Self.addWeight(run.skipped, toRowOf: run.key, at: run.stored.timestamp, statement: statements.addWeight, db: db)
+            try addWeight(run.skipped, toRow: run.storedRowID)
         } else {
-            try closeIdleRun(processID: sample.id, inTransaction: &inTransaction, db: db, updateProcessLastSeen: false)
+            try closeIdleRun(processID: sample.id)
         }
-        let statements = try beginTransactionIfNeeded(&inTransaction, db: db)
-        let key = try Self.upsertProcess(id: sample.id, name: sample.name, timestamp: timestamp, statement: statements.upsertProcess, db: db)
-        try Self.insert(row, processKey: key, statement: statements.insertSample, db: db)
-        idleRuns[sample.id] = IdleRun(key: key, name: sample.name, stored: row)
+        let rowID = try insert(row, key: key)
+        state.idleRuns[sample.id] = IdleRun(key: key, stored: row, storedRowID: rowID)
+    }
+
+    /// Resolves the integer key of a process identity, inserting the row on its first sighting. A process with an
+    /// idle run already carries its key, so the per-sample path does no database work for processes it tracks.
+    func processKey(for id: String, name: String, at timestamp: Double) throws -> Int64 {
+        if let key = state.idleRuns[id]?.key { return key }
+        var existing: Int64?
+        try withStatement("SELECT key FROM processes WHERE id = ?") { statement in
+            bind(id, at: 1, to: statement)
+            if sqlite3_step(statement) == SQLITE_ROW { existing = sqlite3_column_int64(statement, 0) }
+        }
+        if let existing { return existing }
+        try withStatement("INSERT INTO processes (id, name, last_seen) VALUES (?, ?, ?)") { statement in
+            bind(id, at: 1, to: statement)
+            bind(name, at: 2, to: statement)
+            bind(timestamp, at: 3, to: statement)
+            try step(statement)
+        }
+        return sqlite3_last_insert_rowid(database)
+    }
+
+    /// Names and `last_seen` move at minute resolution, so the row is updated at most once per interval instead of
+    /// on every sample. A new process is still visible immediately, through `processKey(for:name:at:)`.
+    func writeProcessMetadataIfDue(at timestamp: TimeInterval) throws {
+        let elapsed = timestamp - state.lastProcessMetadataWrite
+        // A backwards clock step writes immediately rather than waiting for the clock to catch up.
+        guard elapsed >= Self.processMetadataInterval || elapsed < 0 else { return }
+        state.lastProcessMetadataWrite = timestamp
+        guard !state.pendingProcessMetadata.isEmpty else { return }
+        let pending = state.pendingProcessMetadata
+        try withStatement("UPDATE processes SET name = ?, last_seen = ? WHERE key = ?") { statement in
+            for (key, name) in pending {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+                bind(name, at: 1, to: statement)
+                bind(timestamp, at: 2, to: statement)
+                sqlite3_bind_int64(statement, 3, key)
+                try step(statement)
+            }
+        }
+        state.pendingProcessMetadata.removeAll()
     }
 
     /// Ends an idle run before a changed row or a process exit: stores its last skipped sample and weights the rest
     /// onto the row that started the run.
-    private func closeIdleRun(
-        processID: String,
-        inTransaction: inout Bool,
-        db: HistorySQLiteDatabase,
-        updateProcessLastSeen: Bool
-    ) throws {
-        guard let run = idleRuns[processID] else { return }
+    func closeIdleRun(processID: String) throws {
+        guard let run = state.idleRuns[processID], let lastSkipped = run.lastSkipped else { return }
+        try addWeight(run.skipped - 1, toRow: run.storedRowID)
+        let rowID = try insert(lastSkipped, key: run.key)
+        state.idleRuns[processID] = IdleRun(key: run.key, stored: lastSkipped, storedRowID: rowID)
+    }
+
+    private func flushExitedProcess(processID: String) throws {
+        guard let run = state.idleRuns.removeValue(forKey: processID) else { return }
         if let lastSkipped = run.lastSkipped {
-            let statements = try beginTransactionIfNeeded(&inTransaction, db: db)
-            try Self.addWeight(run.skipped - 1, toRowOf: run.key, at: run.stored.timestamp, statement: statements.addWeight, db: db)
-            try Self.insert(lastSkipped, processKey: run.key, statement: statements.insertSample, db: db)
-            if updateProcessLastSeen {
-                _ = try Self.upsertProcess(id: processID, name: run.name, timestamp: lastSkipped.timestamp, statement: statements.upsertProcess, db: db)
+            try addWeight(run.skipped - 1, toRow: run.storedRowID)
+            _ = try insert(lastSkipped, key: run.key)
+        }
+        let lastSeen = run.lastSkipped?.timestamp ?? run.stored.timestamp
+        if let name = state.pendingProcessMetadata.removeValue(forKey: run.key) {
+            try withStatement("UPDATE processes SET name = ?, last_seen = ? WHERE key = ?") { statement in
+                bind(name, at: 1, to: statement)
+                bind(lastSeen, at: 2, to: statement)
+                sqlite3_bind_int64(statement, 3, run.key)
+                try step(statement)
+            }
+        } else if run.lastSkipped != nil {
+            try withStatement("UPDATE processes SET last_seen = ? WHERE key = ?") { statement in
+                bind(lastSeen, at: 1, to: statement)
+                sqlite3_bind_int64(statement, 2, run.key)
+                try step(statement)
             }
         }
-        idleRuns[processID] = IdleRun(key: run.key, name: run.name, stored: run.lastSkipped ?? run.stored)
     }
 
-    private static func upsertProcess(
-        id: String,
-        name: String,
-        timestamp: Double,
-        statement: OpaquePointer,
-        db: HistorySQLiteDatabase
-    ) throws -> Int64 {
-        HistorySQLiteDatabase.reset(statement)
-        defer { HistorySQLiteDatabase.reset(statement) }
-        HistorySQLiteDatabase.bind(id, at: 1, to: statement)
-        HistorySQLiteDatabase.bind(name, at: 2, to: statement)
-        HistorySQLiteDatabase.bind(timestamp, at: 3, to: statement)
-        let code = sqlite3_step(statement)
-        guard code == SQLITE_ROW else { throw db.sqliteError(code: code) }
-        return sqlite3_column_int64(statement, 0)
-    }
-
-    private static func addWeight(
-        _ weight: Int,
-        toRowOf processKey: Int64,
-        at timestamp: Double,
-        statement: OpaquePointer,
-        db: HistorySQLiteDatabase
-    ) throws {
+    func addWeight(_ weight: Int, toRow rowID: Int64) throws {
         guard weight > 0 else { return }
-        HistorySQLiteDatabase.reset(statement)
-        HistorySQLiteDatabase.bind(Int64(weight), at: 1, to: statement)
-        HistorySQLiteDatabase.bind(processKey, at: 2, to: statement)
-        HistorySQLiteDatabase.bind(timestamp, at: 3, to: statement)
-        try db.step(statement)
+        try withStatement("UPDATE process_samples SET weight = weight + ? WHERE id = ?") { statement in
+            sqlite3_bind_int64(statement, 1, Int64(weight))
+            sqlite3_bind_int64(statement, 2, rowID)
+            try step(statement)
+        }
     }
 
-    private static func insert(
-        _ row: ProcessRow,
-        processKey: Int64,
-        statement: OpaquePointer,
-        db: HistorySQLiteDatabase
-    ) throws {
-        HistorySQLiteDatabase.reset(statement)
-        HistorySQLiteDatabase.bind(processKey, at: 1, to: statement)
-        HistorySQLiteDatabase.bind(row.timestamp, at: 2, to: statement)
-        HistorySQLiteDatabase.bind(row.cpu, at: 3, to: statement)
-        HistorySQLiteDatabase.bind(row.memory, at: 4, to: statement)
-        HistorySQLiteDatabase.bind(row.diskRead, at: 5, to: statement)
-        HistorySQLiteDatabase.bind(row.diskWrite, at: 6, to: statement)
-        try db.step(statement)
+    /// Returns the rowid, which later weight updates address directly.
+    func insert(_ row: ProcessRow, key: Int64) throws -> Int64 {
+        try withStatement("""
+            INSERT INTO process_samples (
+                process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            """) { statement in
+            sqlite3_bind_int64(statement, 1, key)
+            bind(row.timestamp, at: 2, to: statement)
+            bind(row.cpu, at: 3, to: statement)
+            bind(row.memory, at: 4, to: statement)
+            bind(row.diskRead, at: 5, to: statement)
+            bind(row.diskWrite, at: 6, to: statement)
+            bind(row.wakeups, at: 7, to: statement)
+            try step(statement)
+            return sqlite3_last_insert_rowid(database)
+        }
     }
-}
 
-actor HistoryRepository {
-    /// An idle, unchanged process is still stored this often, so idle periods are never mistaken for collection gaps.
-    static let processHeartbeatInterval: TimeInterval = 60
-    /// Charts break a process line only after this long without rows.
-    static let processMinimumGap = processHeartbeatInterval * 2.5
+    /// Drops the write state of processes whose rows maintenance deleted, so a later sample inserts a new row
+    /// instead of writing under a key that no longer resolves. Other idle runs keep their unwritten weight.
+    func forget(removedProcesses removed: [(key: Int64, id: String)]) {
+        for process in removed {
+            state.idleRuns[process.id] = nil
+            state.pendingProcessMetadata[process.key] = nil
+        }
+    }
 
-    private let db: HistorySQLiteDatabase
-    private let processWriter = HistoryProcessWriter()
+    func resetWriterState() {
+        state = WriterState()
+    }
 
-    init(databaseURL: URL) throws {
-        let connection = try HistorySQLiteDatabase.open(at: databaseURL)
-        let db = HistorySQLiteDatabase(handle: connection)
+    func databaseSize() throws -> Int {
+        try integerQuery("PRAGMA page_count") * integerQuery("PRAGMA page_size")
+    }
+
+    func integerQuery(_ sql: String) throws -> Int {
+        try withStatement(sql) { statement in
+            let result = sqlite3_step(statement)
+            guard result == SQLITE_ROW else { throw sqliteError(code: result) }
+            return Int(sqlite3_column_int64(statement, 0))
+        }
+    }
+
+    /// Runs `body` atomically. Inside an open batch it is a savepoint, so a failure undoes only this write and the
+    /// batch carries on.
+    func transaction(_ body: () throws -> Void) throws {
+        let saved = state
+        let nested = batchStartedAt != nil
+        try execute(nested ? "SAVEPOINT history_write" : "BEGIN IMMEDIATE")
         do {
-            try HistorySchemaMigrator.migrate(db)
+            try body()
+            try execute(nested ? "RELEASE history_write" : "COMMIT")
         } catch {
-            db.close()
+            try? execute(nested ? "ROLLBACK TO history_write" : "ROLLBACK")
+            if nested { try? execute("RELEASE history_write") }
+            state = saved
             throw error
         }
-        self.db = db
     }
 
-    deinit {
-        processWriter.finalize()
-        db.close()
+    /// Writes `body` into the open batch, starting one when needed, and commits the batch once it is
+    /// `commitInterval` old. Events and metadata written meanwhile join the batch through `transaction`.
+    func batched(_ body: () throws -> Void) throws {
+        guard commitInterval > 0 else { return try transaction(body) }
+        let now = ProcessInfo.processInfo.systemUptime
+        if batchStartedAt == nil {
+            try execute("BEGIN IMMEDIATE")
+            batchStartedAt = now
+        }
+        try transaction(body)
+        if let started = batchStartedAt, now - started >= commitInterval { try flush() }
     }
 
-    func save(system sample: SystemSample) throws {
-        let statement = try processWriter.prepareSystemInsert(in: db)
-        try db.transaction {
-            HistorySQLiteDatabase.reset(statement)
-            HistorySQLiteDatabase.bind(sample.timestamp.timeIntervalSince1970, at: 1, to: statement)
-            HistorySQLiteDatabase.bind(sample.cpu.totalUsage, at: 2, to: statement)
-            HistorySQLiteDatabase.bind(Double(sample.memory.usedBytes), at: 3, to: statement)
-            HistorySQLiteDatabase.bind(sample.receiveRate, at: 4, to: statement)
-            HistorySQLiteDatabase.bind(sample.sendRate, at: 5, to: statement)
-            HistorySQLiteDatabase.bind(sample.diskReadRate, at: 6, to: statement)
-            HistorySQLiteDatabase.bind(sample.diskWriteRate, at: 7, to: statement)
-            try db.step(statement)
+    /// Commits the open batch. A failed commit loses the batch, and with it the rows the write state points at, so
+    /// the state starts over.
+    func flush() throws {
+        guard batchStartedAt != nil else { return }
+        batchStartedAt = nil
+        do {
+            try execute("COMMIT")
+        } catch {
+            if sqlite3_get_autocommit(database) == 0 { try? execute("ROLLBACK") }
+            state = WriterState()
+            throw error
         }
     }
 
-    func save(processes snapshot: ProcessSnapshot) throws {
-        try processWriter.save(snapshot, db: db)
+    func execute(_ sql: String) throws {
+        let result = sqlite3_exec(database, sql, nil, nil, nil)
+        guard result == SQLITE_OK else { throw sqliteError(code: result) }
     }
 
-    func systemSeries(_ metric: SystemMetric, from start: Date) throws -> [HistoricalPoint] {
-        let columns = metric.columns
-        return try readPoints(sql: """
-            SELECT timestamp, \(columns.raw), \(columns.raw)
-            FROM system_samples WHERE timestamp >= ?
-            UNION ALL
-            SELECT timestamp, \(columns.total) / sample_count, \(columns.peak)
-            FROM system_minutes WHERE timestamp >= ?
-            ORDER BY timestamp
-            """, bind: { statement in
-                HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 1, to: statement)
-                HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 2, to: statement)
-            })
+    func withStatement<T>(_ sql: String, _ body: (OpaquePointer) throws -> T) throws -> T {
+        var statement: OpaquePointer?
+        let result = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+        guard result == SQLITE_OK, let statement else { throw sqliteError(code: result) }
+        defer { sqlite3_finalize(statement) }
+        return try body(statement)
     }
 
-    func processSeries(processID: String, metric: ProcessMetric, from start: Date) throws -> [HistoricalPoint] {
-        let columns = metric.columns
-        return try readPoints(sql: """
-            SELECT s.timestamp, s.\(columns.raw), s.\(columns.raw)
-            FROM process_samples s
-            JOIN processes p ON p.key = s.process_key
-            WHERE p.id = ? AND s.timestamp >= ?
-            UNION ALL
-            SELECT m.timestamp, m.\(columns.total) / m.sample_count, m.\(columns.peak)
-            FROM process_minutes m
-            JOIN processes p ON p.key = m.process_key
-            WHERE p.id = ? AND m.timestamp >= ?
-            ORDER BY 1
-            """, bind: { statement in
-                HistorySQLiteDatabase.bind(processID, at: 1, to: statement)
-                HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 2, to: statement)
-                HistorySQLiteDatabase.bind(processID, at: 3, to: statement)
-                HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 4, to: statement)
-            })
+    func bind(_ value: Double, at index: Int32, to statement: OpaquePointer) {
+        sqlite3_bind_double(statement, index, value)
     }
 
-    /// Programs (process names) with history since `start`, with interval-independent totals for ranking.
-    func programs(from start: Date) throws -> [HistoricalProgram] {
-        try db.withStatement("""
-            SELECT p.name, COUNT(DISTINCT u.process_key), MAX(p.last_seen),
-                SUM(u.cpu), MAX(u.cpu_peak), SUM(u.memory), MAX(u.memory_peak), SUM(u.disk) * 60, MAX(u.disk_peak)
-            FROM (
-                SELECT process_key,
-                    SUM(cpu * weight) / SUM(weight) AS cpu, MAX(cpu) AS cpu_peak,
-                    SUM(memory * weight) / SUM(weight) AS memory, MAX(memory) AS memory_peak,
-                    SUM((disk_read + disk_write) * weight) / SUM(weight) AS disk, MAX(disk_read + disk_write) AS disk_peak
-                FROM process_samples WHERE timestamp >= ?
-                GROUP BY process_key, CAST(timestamp / 60 AS INTEGER)
-                UNION ALL
-                SELECT process_key,
-                    cpu_total / sample_count, cpu_peak,
-                    memory_total / sample_count, memory_peak,
-                    (disk_read_total + disk_write_total) / sample_count, disk_read_peak + disk_write_peak
-                FROM process_minutes WHERE timestamp >= ?
-            ) u
-            JOIN processes p ON p.key = u.process_key
-            GROUP BY p.name
-            """) { statement in
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 1, to: statement)
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 2, to: statement)
-            var result: [HistoricalProgram] = []
-            while true {
-                let code = sqlite3_step(statement)
-                if code == SQLITE_DONE { return result }
-                guard code == SQLITE_ROW else { throw db.sqliteError(code: code) }
-                result.append(HistoricalProgram(
-                    name: HistorySQLiteDatabase.stringColumn(statement, index: 0),
-                    instanceCount: Int(sqlite3_column_int64(statement, 1)),
-                    lastSeen: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
-                    cpuTotal: sqlite3_column_double(statement, 3),
-                    cpuPeak: sqlite3_column_double(statement, 4),
-                    memoryTotal: sqlite3_column_double(statement, 5),
-                    memoryPeak: sqlite3_column_double(statement, 6),
-                    diskBytes: sqlite3_column_double(statement, 7),
-                    diskPeak: sqlite3_column_double(statement, 8)
-                ))
-            }
+    func bind(_ value: String, at index: Int32, to statement: OpaquePointer) {
+        sqlite3_bind_text(statement, index, value, Int32(value.utf8.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+
+    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer) {
+        if let value {
+            bind(value, at: index, to: statement)
+        } else {
+            sqlite3_bind_null(statement, index)
         }
     }
 
-    /// Instances of a program with history since `start`, most recent first.
-    func instances(named name: String, from start: Date) throws -> [HistoricalProcess] {
-        try db.withStatement("""
-            SELECT id, name, last_seen FROM processes
-            WHERE name = ? AND (
-                EXISTS (SELECT 1 FROM process_samples WHERE process_key = processes.key AND timestamp >= ?)
-                OR EXISTS (SELECT 1 FROM process_minutes WHERE process_key = processes.key AND timestamp >= ?)
-            )
-            ORDER BY last_seen DESC
-            """) { statement in
-            HistorySQLiteDatabase.bind(name, at: 1, to: statement)
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 2, to: statement)
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 3, to: statement)
-            var result: [HistoricalProcess] = []
-            while true {
-                let code = sqlite3_step(statement)
-                if code == SQLITE_DONE { return result }
-                guard code == SQLITE_ROW else { throw db.sqliteError(code: code) }
-                result.append(HistoricalProcess(
-                    id: HistorySQLiteDatabase.stringColumn(statement, index: 0),
-                    name: HistorySQLiteDatabase.stringColumn(statement, index: 1),
-                    lastSeen: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
-                ))
-            }
-        }
+    func step(_ statement: OpaquePointer) throws {
+        let result = sqlite3_step(statement)
+        guard result == SQLITE_DONE else { throw sqliteError(code: result) }
     }
 
-    /// Every metric for one instance, or summed over all instances of a program, downsampled to `limit` points.
-    func processHistory(program name: String, processID: String?, from start: Date, limit: Int) throws -> [ProcessMetric: [HistoricalPoint]] {
-        let filter = processID == nil ? "p.name = ?" : "p.id = ?"
-        let key = processID ?? name
-        let rows = try db.withStatement("""
-            SELECT p.id, s.timestamp, s.cpu, s.memory, s.disk_read, s.disk_write, s.cpu, s.memory, s.disk_read, s.disk_write
-            FROM process_samples s
-            JOIN processes p ON p.key = s.process_key
-            WHERE \(filter) AND s.timestamp >= ?
-            UNION ALL
-            SELECT p.id, m.timestamp,
-                m.cpu_total / m.sample_count, m.memory_total / m.sample_count, m.disk_read_total / m.sample_count, m.disk_write_total / m.sample_count,
-                m.cpu_peak, m.memory_peak, m.disk_read_peak, m.disk_write_peak
-            FROM process_minutes m
-            JOIN processes p ON p.key = m.process_key
-            WHERE \(filter) AND m.timestamp >= ?
-            ORDER BY 2
-            """) { statement in
-            HistorySQLiteDatabase.bind(key, at: 1, to: statement)
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 2, to: statement)
-            HistorySQLiteDatabase.bind(key, at: 3, to: statement)
-            HistorySQLiteDatabase.bind(start.timeIntervalSince1970, at: 4, to: statement)
-            var rows: [ProcessHistoryRow] = []
-            while true {
-                let code = sqlite3_step(statement)
-                if code == SQLITE_DONE { return rows }
-                guard code == SQLITE_ROW else { throw db.sqliteError(code: code) }
-                func column(_ index: Int32) -> Double { sqlite3_column_double(statement, index) }
-                rows.append(ProcessHistoryRow(
-                    processID: HistorySQLiteDatabase.stringColumn(statement, index: 0),
-                    timestamp: column(1),
-                    averages: SIMD4(column(2), column(3), column(4), column(5)),
-                    peaks: SIMD4(column(6), column(7), column(8), column(9))
-                ))
-            }
-        }
-        return ProcessHistoryRow.summed(rows, gap: Self.processMinimumGap).mapValues {
-            HistoricalPoint.downsampled($0, limit: limit, minimumGap: Self.processMinimumGap)
-        }
+    func stringColumn(_ statement: OpaquePointer, index: Int32) -> String {
+        guard let value = sqlite3_column_text(statement, index) else { return "" }
+        return String(cString: value)
     }
 
-    func maintain(settings: CollectionSettings) throws {
-        try HistoryMaintenance.maintain(db: db, settings: settings)
+    func optionalStringColumn(_ statement: OpaquePointer, index: Int32) -> String? {
+        sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : stringColumn(statement, index: index)
     }
 
-    func deleteAll() throws {
-        try db.transaction {
-            try db.execute("DELETE FROM system_samples")
-            try db.execute("DELETE FROM system_minutes")
-            try db.execute("DELETE FROM process_samples")
-            try db.execute("DELETE FROM process_minutes")
-            try db.execute("DELETE FROM processes")
-        }
-        processWriter.reset()
-        try db.compactFile()
-    }
-
-    func export(to url: URL, format: HistoryExportFormat) throws {
-        var records: [HistoryExportRecord] = []
-        try appendSystemExportRecords(into: &records)
-        try appendProcessExportRecords(into: &records)
-        try HistoryExporter.write(HistoryExporter.sorted(records), to: url, format: format)
-    }
-
-    private func appendSystemExportRecords(into records: inout [HistoryExportRecord]) throws {
-        for metric in SystemMetric.allCases {
-            Self.appendExportPoints(
-                try systemSeries(metric, from: .distantPast),
-                kind: "system",
-                processID: nil,
-                processName: nil,
-                metric: metric.rawValue,
-                into: &records
-            )
-        }
-    }
-
-    private func appendProcessExportRecords(into records: inout [HistoryExportRecord]) throws {
-        try db.withStatement("""
-            SELECT p.id, p.name, s.timestamp,
-                s.cpu, s.memory, s.disk_read, s.disk_write,
-                s.cpu, s.memory, s.disk_read, s.disk_write
-            FROM process_samples s
-            JOIN processes p ON p.key = s.process_key
-            UNION ALL
-            SELECT p.id, p.name, m.timestamp,
-                m.cpu_total / m.sample_count, m.memory_total / m.sample_count, m.disk_read_total / m.sample_count, m.disk_write_total / m.sample_count,
-                m.cpu_peak, m.memory_peak, m.disk_read_peak, m.disk_write_peak
-            FROM process_minutes m
-            JOIN processes p ON p.key = m.process_key
-            """) { statement in
-            let metrics = ProcessMetric.allCases
-            while true {
-                let code = sqlite3_step(statement)
-                if code == SQLITE_DONE { return }
-                guard code == SQLITE_ROW else { throw db.sqliteError(code: code) }
-                let processID = HistorySQLiteDatabase.stringColumn(statement, index: 0)
-                let processName = HistorySQLiteDatabase.stringColumn(statement, index: 1)
-                let timestamp = sqlite3_column_double(statement, 2)
-                for (offset, metric) in metrics.enumerated() {
-                    records.append(HistoryExportRecord(
-                        kind: "process",
-                        processID: processID,
-                        processName: processName,
-                        metric: metric.rawValue,
-                        timestamp: timestamp,
-                        average: sqlite3_column_double(statement, Int32(3 + offset)),
-                        peak: sqlite3_column_double(statement, Int32(7 + offset))
-                    ))
-                }
-            }
-        }
-    }
-
-    private static func appendExportPoints(
-        _ points: [HistoricalPoint],
-        kind: String,
-        processID: String?,
-        processName: String?,
-        metric: String,
-        into records: inout [HistoryExportRecord]
-    ) {
-        records.reserveCapacity(records.count + points.count)
-        for point in points {
-            records.append(HistoryExportRecord(
-                kind: kind,
-                processID: processID,
-                processName: processName,
-                metric: metric,
-                timestamp: point.timestamp.timeIntervalSince1970,
-                average: point.average,
-                peak: point.peak
-            ))
-        }
-    }
-
-    func enforceStorageLimit(bytes limit: Int, now: Date = Date(), batchRows: Int = 10_000) throws {
-        try HistoryMaintenance.enforceStorageLimit(db: db, bytes: limit, now: now, batchRows: batchRows)
-    }
-
-    /// Bytes held by live pages; unlike the file size it drops as soon as rows are deleted.
-    func usedStorageBytes() throws -> Int {
-        try db.usedStorageBytes()
-    }
-
-    private func readPoints(sql: String, bind: (OpaquePointer) throws -> Void) throws -> [HistoricalPoint] {
-        try db.withStatement(sql) { statement in
-            try bind(statement)
-            var points: [HistoricalPoint] = []
-            while true {
-                let result = sqlite3_step(statement)
-                if result == SQLITE_DONE { return points }
-                guard result == SQLITE_ROW else { throw db.sqliteError(code: result) }
-                points.append(HistoricalPoint(
-                    timestamp: Date(timeIntervalSince1970: sqlite3_column_double(statement, 0)),
-                    average: sqlite3_column_double(statement, 1),
-                    peak: sqlite3_column_double(statement, 2)
-                ))
-            }
-        }
+    func sqliteError(code: Int32) -> HistoryRepositoryError {
+        .sqlite(code: code, message: String(cString: sqlite3_errmsg(database)))
     }
 }

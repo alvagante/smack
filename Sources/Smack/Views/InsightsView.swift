@@ -1,0 +1,406 @@
+import SwiftUI
+
+/// Answers from stored history: who writes to the disk, what keeps restarting, and which programs reach new hosts.
+struct InsightsView: View {
+    @ObservedObject var store: MonitorStore
+    @ObservedObject private var model: InsightsModel
+    @ObservedObject private var settingsStore: SettingsStore
+    @State private var diskExpanded = true
+    @State private var churnExpanded = true
+    @State private var destinationsExpanded = true
+
+    init(store: MonitorStore) {
+        self.store = store
+        model = store.insights
+        settingsStore = store.settingsStore
+    }
+
+    private var sources: InsightsSources { InsightsSources(settings: settingsStore.settings) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let message = model.errorMessage {
+                        Label(message, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("HISTORY INSIGHTS")
+                            .font(.caption2.weight(.bold)).tracking(0.8).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Expand All") { setExpanded(true) }
+                        Button("Collapse All") { setExpanded(false) }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.link)
+                    diskCard
+                    churnCard
+                    if InsightsModel.supportsDestinations { destinationsCard }
+                }
+                .padding([.horizontal, .bottom])
+            }
+        }
+        .task(id: model.range) { await model.load() }
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        diskExpanded = expanded
+        churnExpanded = expanded
+        destinationsExpanded = expanded
+    }
+
+    private var header: some View {
+        DetailPageHeader(padding: MonitorStyle.spacing) {
+            ResourceTitle(title: "Insights", systemImage: AppRoute.insights.systemImage, color: AppRoute.insights.tint,
+                          subtitle: "Answers from recorded history")
+        } actions: {
+            Picker("Range", selection: $model.range) {
+                ForEach(InsightsRange.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            RefreshButton(isLoading: model.loading, hint: "Read history again") { Task { await model.load() } }
+        } overview: {
+            ResourceStatsRow(stats: stats)
+        }
+    }
+
+    private var stats: [ResourceStat] {
+        var stats = [
+            ResourceStat(title: "Written", systemImage: "square.and.arrow.down", value: model.ledger.map { Formatting.bytes(UInt64($0.attributedTotal)) } ?? "—",
+                         detail: "by programs", help: "Logical bytes written by all programs in the range.", color: .pink),
+            ResourceStat(title: "Restarts often", systemImage: "arrow.triangle.2.circlepath", value: model.churn.filter(\.restartsOften).count.formatted(),
+                         detail: "programs", help: "Started by launchd repeatedly with short lifetimes, outside system paths.", color: .orange),
+        ]
+        if InsightsModel.supportsDestinations {
+            stats.append(ResourceStat(title: "New hosts", systemImage: "globe", value: model.destinations.map { $0.newHostCount.formatted() } ?? "—",
+                                      detail: "last 24h", help: "Public hosts each program reached for the first time in the last 24 hours.", color: .cyan))
+        }
+        return stats
+    }
+
+    // MARK: Disk writes
+
+    private var diskCard: some View {
+        InsightsCard(title: "Disk writes", systemImage: "internaldrive", color: .pink,
+                     summary: model.ledger.map { "\(Formatting.bytes(UInt64($0.attributedTotal))) written · \($0.programCount) programs" } ?? "Unavailable",
+                     caption: diskCaption, isExpanded: $diskExpanded) {
+            if !sources.processHistory {
+                SourceHint(text: "Process history is off, so no new writes are recorded.", pane: .processes, store: store)
+            }
+            if let ledger = model.ledger, !ledger.rows.isEmpty {
+                let maximum = ledger.rows.flatMap(\.buckets).max() ?? 0
+                ForEach(ledger.rows) { row in
+                    programLink(name: row.name) {
+                        Text(row.name).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        BucketBars(values: row.buckets, maximum: maximum, color: .pink)
+                            .frame(width: 140, height: 18)
+                            .help(bucketHelp(row, ledger: ledger))
+                        Text(Formatting.bytes(UInt64(row.total))).monospacedDigit().frame(width: 80, alignment: .trailing)
+                        Text(share(row.total, of: ledger.attributedTotal)).foregroundStyle(.secondary).monospacedDigit()
+                            .lineLimit(1).fixedSize().frame(minWidth: 64, alignment: .trailing)
+                    }
+                }
+            } else if !model.loading {
+                Text("No disk writes recorded in this range.").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var diskCaption: String {
+        guard let ledger = model.ledger else { return "Bytes written per program." }
+        var text = "\(Formatting.bytes(UInt64(ledger.perDay(ledger.attributedTotal))))/day by \(ledger.programCount) programs"
+        if let system = ledger.systemTotal {
+            text += "; the disks recorded \(Formatting.bytes(UInt64(max(0, system)))) of device writes"
+        }
+        if sources.processHistoryTopCount > 0 {
+            text += ". Only the \(sources.processHistoryTopCount) busiest processes of each sample are stored, so program totals are lower bounds"
+        }
+        return text + ". Program figures are logical writes, so they include cached and overwritten data and are not comparable one to one with device writes."
+    }
+
+    private func bucketHelp(_ row: DiskWriteLedger.Row, ledger: DiskWriteLedger) -> String {
+        let format: Date.FormatStyle = model.range == .day ? .dateTime.hour() : .dateTime.weekday(.abbreviated).day()
+        return zip(ledger.bucketStarts, row.buckets).map { "\($0.formatted(format)): \(Formatting.bytes(UInt64($1)))" }.joined(separator: "\n")
+    }
+
+    // MARK: Churn
+
+    private var churnCard: some View {
+        InsightsCard(title: "Process churn", systemImage: "arrow.triangle.2.circlepath", color: .orange,
+                     summary: "\(model.churn.count) programs · \(model.churn.filter(\.restartsOften).count) restart often",
+                     caption: "Programs by starts in the range. \"Restarts often\" means launchd started it at least \(ProcessChurn.minimumLaunchdStarts) times, at least once an hour, living \(Int(ProcessChurn.maximumAverageLifetime / 60)) minutes or less on average, outside system paths. Exit status is not recorded, so this does not mean it crashed.", isExpanded: $churnExpanded) {
+            if !sources.processEvents {
+                SourceHint(text: "Process events are off, so no new starts are recorded.", pane: .processes, store: store)
+            }
+            if model.churn.isEmpty, !model.loading {
+                Text("No process starts recorded in this range.").foregroundStyle(.secondary)
+            }
+            ForEach(model.churn) { row in
+                programLink(name: row.name, path: row.path) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text(row.name).lineLimit(1).truncationMode(.middle)
+                            if row.restartsOften { DetailBadge(text: "Restarts often", color: .orange) }
+                        }
+                        if let path = row.path { Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(perHour(row.starts)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
+                        .help("Average starts per hour over the range")
+                    Text(row.starts.formatted()).monospacedDigit().frame(width: 60, alignment: .trailing)
+                        .help("\(row.starts) starts, \(row.launchdStarts) by launchd")
+                    Text(Formatting.duration(row.averageLifetime)).monospacedDigit().foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
+                        .help("Average lifetime of \(row.matchedExits) starts whose exit was recorded; \(row.shortLived) lived under \(Int(ProcessChurn.shortLivedThreshold)) s")
+                }
+            }
+        }
+    }
+
+    private func perHour(_ starts: Int) -> String {
+        "\((Double(starts) / model.range.rawValue).formatted(.number.precision(.fractionLength(1))))/h"
+    }
+
+    // MARK: Destinations
+
+    private var destinationsCard: some View {
+        InsightsCard(title: "New destinations, last 24 hours", systemImage: "globe", color: .cyan,
+                     summary: model.destinations.map { "\($0.newHostCount) new hosts · \($0.programs.count) programs" } ?? "Unavailable",
+                     caption: destinationsCaption, isExpanded: $destinationsExpanded) {
+            if !sources.connectionEvents {
+                SourceHint(text: "Connection events are off by default. Turn on Include connections to record them; they add about 0.1 to 1 MB of events per hour.", pane: .network, store: store)
+            }
+            if let report = model.destinations {
+                if report.programs.isEmpty, !model.loading {
+                    Text("No program reached a new public host.").foregroundStyle(.secondary)
+                }
+                ForEach(report.programs) { program in
+                    DisclosureGroup {
+                        ForEach(program.newHosts) { host in
+                            HStack(spacing: 10) {
+                                Text(host.host).font(.callout.monospaced()).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(host.ports.map(String.init).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                                Text(host.firstSeen, style: .relative).font(.caption).foregroundStyle(.secondary).frame(width: 90, alignment: .trailing)
+                                IPLookupLinks(host: host.host)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            programIcon(name: program.name, path: nil)
+                            Text(program.name).lineLimit(1)
+                            if program.isNew { DetailBadge(text: "First connection", systemImage: "sparkle", color: .cyan) }
+                            Spacer()
+                            Text("\(program.newHosts.count) new · \(program.knownHostCount) known").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            historyLink(name: program.name, hours: InsightsRange.day.rawValue)
+                        }
+                    }
+                }
+                if report.omittedHosts > 0 {
+                    Text("+\(report.omittedHosts) older new hosts not listed").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var destinationsCaption: String {
+        var text = "Public hosts, ignoring ports, each program reached for the first time. Private, local and loopback addresses are excluded; no lookups are made."
+        guard let report = model.destinations else { return text }
+        if let coverage = report.coverageStart {
+            text += " Compared with connections recorded since \(coverage.formatted(date: .abbreviated, time: .shortened))."
+        }
+        if report.hasShortCoverage {
+            text += " Less than a day of earlier history is retained, so most hosts will look new."
+        }
+        return text
+    }
+
+    private func share(_ value: Double, of total: Double) -> String {
+        total > 0 ? Formatting.percent(value / total * 100) : "—"
+    }
+
+    /// Opens the running application, or the running process when the name is not an application.
+    /// A program that is not running has no detail page, so the row is not a link.
+    /// Every row also gets a history icon, which works whether or not the program is running.
+    private func programLink<Content: View>(name: String, path: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        let route = detailRoute(name: name, path: path)
+        let label = HStack(spacing: 10) {
+            programIcon(name: name, path: path)
+            content()
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                .opacity(route == nil ? 0 : 1)
+        }
+        return HStack(spacing: 8) {
+            if let route {
+                Button { store.route = route } label: { label.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .help("Open \(name)")
+            } else {
+                label
+            }
+            historyLink(name: name)
+        }
+    }
+
+    /// The running application's icon, else the icon for the program's path, else a terminal tile.
+    @ViewBuilder private func programIcon(name: String, path: String?) -> some View {
+        let application = store.processes?.applications.first { $0.name == name || (path?.isEmpty == false && $0.executablePath == path) }
+        if let application {
+            ApplicationIcon(application: application, size: 20)
+        } else {
+            ProgramIcon(executablePath: path, size: 20)
+        }
+    }
+
+    /// Opens Historical Data on this program over the card's range.
+    private func historyLink(name: String, hours: Double? = nil) -> some View {
+        Button {
+            store.historyViewModel.hours = hours ?? model.range.rawValue
+            store.historyViewModel.select(program: name)
+            store.route = .history
+        } label: {
+            Image(systemName: AppRoute.history.systemImage).font(.caption).foregroundStyle(AppRoute.history.tint)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show \(name) in Historical Data")
+        .accessibilityLabel("Show \(name) in Historical Data")
+    }
+
+    private func detailRoute(name: String, path: String? = nil) -> AppRoute? {
+        guard let snapshot = store.processes else { return nil }
+        if let application = snapshot.applications.first(where: { application in
+            if application.name == name { return true }
+            return path?.isEmpty == false && application.executablePath == path
+        }) {
+            return .application(application.id)
+        }
+        let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
+        if let path, !path.isEmpty, let process = processes.filter({ $0.executablePath == path }).max(by: { $0.cpuUsage < $1.cpuUsage }) {
+            return .process(process.id)
+        }
+        return processes.filter { $0.name == name }.max(by: { $0.cpuUsage < $1.cpuUsage }).map { .process($0.id) }
+    }
+}
+
+/// A recording an Insights card depends on is off; opens the Settings pane that owns it.
+private struct SourceHint: View {
+    let text: String
+    let pane: SettingsPane
+    let store: MonitorStore
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(text, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Open \(pane.title) Settings") {
+                store.settingsViewModel.pane = pane
+                store.route = .settings
+            }
+            .controlSize(.small)
+        }
+    }
+}
+
+private struct InsightsCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    let summary: String
+    let caption: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: systemImage)
+                        .font(.headline)
+                        .foregroundStyle(color)
+                        .frame(width: 36, height: 36)
+                        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title).font(.headline).foregroundStyle(.primary)
+                        Text(summary).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+            if isExpanded {
+                Divider()
+                Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) { content }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .monitorSurface()
+    }
+}
+
+/// Bars scaled to a shared maximum, so rows compare with each other.
+private struct BucketBars: View {
+    let values: [Double]
+    let maximum: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(alignment: .bottom, spacing: 1) {
+                ForEach(values.indices, id: \.self) { index in
+                    let fraction = maximum > 0 ? values[index] / maximum : 0
+                    Rectangle().fill(color.opacity(values[index] > 0 ? 0.8 : 0.15))
+                        .frame(height: max(1, geometry.size.height * fraction))
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Summary card for the last 24 hours; opens Insights.
+struct InsightsDigestCard: View {
+    @ObservedObject var model: InsightsModel
+    let sources: InsightsSources
+    let open: () -> Void
+    @Environment(\.summaryTileSize) private var tileSize
+
+    var body: some View {
+        SummaryTile(route: .insights, headline: "Last 24 hours",
+                    help: "Peaks, top consumers, disk writes and notable changes in the last 24 hours. Click for Insights.", open: open) {
+            VStack(alignment: .leading, spacing: 3) {
+                if let digest = model.digest {
+                    if !digest.usageLine.isEmpty { Text(digest.usageLine).font(.caption).lineLimit(1...3) }
+                    if let disk = digest.diskLine { Text(disk).font(.caption).lineLimit(1...3) }
+                    if tileSize == .large {
+                        ForEach(Array(digest.expandedLines.enumerated()), id: \.offset) { _, line in
+                            Text(line).font(.caption).lineLimit(1)
+                        }
+                    }
+                    ForEach(digest.highlights, id: \.self) { line in
+                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1...3)
+                    }
+                    if digest.usageLine.isEmpty, digest.diskLine == nil, digest.highlights.isEmpty {
+                        Text("No history recorded yet").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .accessibilityLabel("Insights. Last 24 hours")
+        .task(id: sources) { await model.refreshDigestIfStale(sources: sources) }
+    }
+}

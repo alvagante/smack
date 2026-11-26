@@ -12,6 +12,8 @@ final class ProcessSnapshotBuilder {
         var bytesRead: UInt64
         var bytesWritten: UInt64
         var energyNanojoules: UInt64?
+        var interruptWakeups: UInt64? = nil
+        var packageIdleWakeups: UInt64? = nil
     }
 
     private var previousCounters: [ProcessIdentity: Counters] = [:]
@@ -58,7 +60,9 @@ final class ProcessSnapshotBuilder {
                 cpuTime: record.cpuTimeNanoseconds,
                 bytesRead: record.bytesRead,
                 bytesWritten: record.bytesWritten,
-                energyNanojoules: record.energyNanojoules
+                energyNanojoules: record.energyNanojoules,
+                interruptWakeups: record.interruptWakeups,
+                packageIdleWakeups: record.packageIdleWakeups
             )
         }
 
@@ -95,7 +99,9 @@ final class ProcessSnapshotBuilder {
             diskWriteRate: rates.diskWriteRate,
             energyImpact: rates.energyImpact,
             threadCount: record.threadCount,
-            isApplication: application != nil
+            isApplication: application != nil,
+            interruptWakeupsPerSecond: rates.interruptWakeupRate,
+            packageIdleWakeupsPerSecond: rates.packageIdleWakeupRate
         )
     }
 
@@ -103,13 +109,20 @@ final class ProcessSnapshotBuilder {
         for record: ProcessRecord,
         previous: Counters?,
         timestamp: Date
-    ) -> (cpuUsage: Double, diskReadRate: Double, diskWriteRate: Double, energyImpact: Double?) {
+    ) -> (
+        cpuUsage: Double,
+        diskReadRate: Double,
+        diskWriteRate: Double,
+        energyImpact: Double?,
+        interruptWakeupRate: Double,
+        packageIdleWakeupRate: Double
+    ) {
         guard let previous else {
-            return (0, 0, 0, nil)
+            return (0, 0, 0, nil, 0, 0)
         }
         let elapsed = timestamp.timeIntervalSince(previous.timestamp)
         guard elapsed > 0 else {
-            return (0, 0, 0, nil)
+            return (0, 0, 0, nil, 0, 0)
         }
         let cpuUsage = MetricDelta.difference(current: record.cpuTimeNanoseconds, previous: previous.cpuTime)
             .map { Double($0) * 100 / (elapsed * 1_000_000_000) } ?? 0
@@ -122,7 +135,18 @@ final class ProcessSnapshotBuilder {
         } else {
             nil
         }
-        return (cpuUsage, diskReadRate, diskWriteRate, energyImpact)
+        // A missing or reset counter yields 0, never a spike.
+        let interruptWakeupRate: Double = if let current = record.interruptWakeups, let before = previous.interruptWakeups {
+            MetricDelta.rate(current: current, previous: before, elapsed: elapsed) ?? 0
+        } else {
+            0
+        }
+        let packageIdleWakeupRate: Double = if let current = record.packageIdleWakeups, let before = previous.packageIdleWakeups {
+            MetricDelta.rate(current: current, previous: before, elapsed: elapsed) ?? 0
+        } else {
+            0
+        }
+        return (cpuUsage, diskReadRate, diskWriteRate, energyImpact, interruptWakeupRate, packageIdleWakeupRate)
     }
 
     private static func sortByCPUAndName<Item: SortableProcessItem>(_ items: [Item]) -> [Item] {

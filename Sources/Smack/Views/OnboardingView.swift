@@ -1,0 +1,227 @@
+import AppKit
+import SwiftUI
+
+/// Shows Onboarding in its own centered window, so changing the Window style does not rebuild the window it lives in.
+@MainActor
+final class OnboardingWindowController: NSObject, NSWindowDelegate {
+    private let window: NSWindow
+    private let defaults: UserDefaults
+    private var onDone: (() -> Void)?
+
+    /// - Parameter onDone: Runs once after Finish, Skip or closing the window, with the choices already saved.
+    init(store: MonitorStore, defaults: UserDefaults = .standard, onDone: @escaping () -> Void) {
+        self.defaults = defaults
+        self.onDone = onDone
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 680),
+                          styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        super.init()
+        var finish: (OnboardingChoices?) -> Void = { _ in }
+        window.contentViewController = NSHostingController(rootView: OnboardingView(
+            choices: OnboardingChoices(settings: store.settingsStore.settings),
+            finish: { finish($0) }
+        ))
+        finish = { [weak self, weak store] choices in
+            if let choices, let store {
+                let helperChanged = choices.privilegedSampling != store.settingsStore.settings.sampling.privilegedSampling
+                store.settingsStore.update { choices.apply(to: &$0) }
+                store.settingsChanged()
+                if helperChanged { store.privilegedSampling?.setEnabled(choices.privilegedSampling) }
+            }
+            self?.complete(closing: true)
+        }
+        window.title = "Welcome to Smack"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+    }
+
+    func show() {
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        complete(closing: false)
+    }
+
+    private func complete(closing: Bool) {
+        guard let onDone else { return }
+        self.onDone = nil
+        Onboarding.markDone(defaults)
+        if closing { window.close() }
+        // After the button action or close notification has unwound, since `onDone` releases this controller.
+        DispatchQueue.main.async { onDone() }
+    }
+}
+
+struct OnboardingView: View {
+    @State var choices: OnboardingChoices
+    /// Nil skips, keeping every Setting as it was.
+    let finish: (OnboardingChoices?) -> Void
+
+    private static let environmentPages: [SummaryPage] = [.projects, .devServers, .agents, .docker, .homebrew, .devEnvironments, .installedApps, .userHome]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.tint)
+                Text("Welcome to Smack").font(.title2.weight(.semibold))
+                Text("A few choices to start with. Everything here can be changed later in Settings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 36)
+            .padding([.horizontal, .bottom])
+
+            Form {
+                Section {
+                    Picker("Window style", selection: $choices.windowStyle) {
+                        ForEach(WindowStyle.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.radioGroup)
+                    if choices.windowStyle == .panel {
+                        Picker("Open the Panel on", selection: $choices.trigger) {
+                            ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        if choices.trigger == .hover {
+                            LabeledContent("Hover delay") {
+                                NumberField(value: $choices.hoverDelay, unit: "s")
+                            }
+                        }
+                    }
+                    Toggle("Launch at login", isOn: $choices.launchAtLogin)
+                } header: {
+                    Text("Window")
+                } footer: {
+                    SettingsFooter(choices.windowStyle == .panel
+                        ? "The Panel drops down from the menu-bar icon and hides when you move away or click elsewhere."
+                        : "Smack opens as an ordinary window with a Dock icon; the menu-bar icon still brings it forward.")
+                }
+
+                Section {
+                    HStack {
+                        Picker("Sound", selection: $choices.panelSound) {
+                            ForEach(PanelSound.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        if choices.panelSound != .none {
+                            Button("Preview") { SmackSound().play(sound: choices.panelSound) }
+                                .help("Play the selected sound without saving it")
+                        }
+                    }
+                } header: {
+                    Text("Audio")
+                } footer: {
+                    SettingsFooter("Played when the Panel opens. New installations start muted; use Preview to hear a sound before saving.")
+                }
+
+                Section("Appearance") {
+                    Picker("Color scheme", selection: $choices.appearance) {
+                        ForEach(PanelAppearance.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Toggle("Glass mode", isOn: $choices.glassMode)
+                        .help("Show the desktop through a translucent background")
+                    if Capabilities.supportsNativeMenuBarIcons {
+                        Toggle("Show top bar icons row", isOn: $choices.showTopBarIcons)
+                    }
+                    if choices.glassMode {
+                        LabeledContent("Opacity") {
+                            HStack {
+                                Slider(value: $choices.glassOpacity, in: CollectionSettings.glassOpacityRange)
+                                    .frame(width: 160)
+                                Text(choices.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                                    .frame(width: 40, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Picker("Performance Preset", selection: $choices.preset) {
+                        if choices.startedCustom { Text("Custom (keep current)").tag(nil as PerformancePreset?) }
+                        ForEach(PerformancePreset.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                    }
+                } header: {
+                    Text("Performance")
+                } footer: {
+                    SettingsFooter(choices.preset?.summary ?? "Your current sampling and history Settings are kept as they are.")
+                }
+
+                Section {
+                    Toggle("System data in background", isOn: Binding(
+                        get: { choices.backgroundSystemEnabled ?? (choices.effectiveSampling.backgroundSystemInterval != nil) },
+                        set: { choices.backgroundSystemEnabled = $0 }
+                    ))
+                    Toggle("App and process data in background", isOn: Binding(
+                        get: { choices.backgroundProcessEnabled ?? (choices.effectiveSampling.backgroundProcessInterval != nil) },
+                        set: { choices.backgroundProcessEnabled = $0 }
+                    ))
+                } header: {
+                    Text("Background Collection")
+                } footer: {
+                    SettingsFooter("System data tracks overall CPU, memory, disk and network. App and process data tracks individual processes and can feed process history. Both run while the Panel is closed; turning them off saves work and pauses their background history. At Standard intervals, storage is about 60 KB/hour for system data and 1.1 MB/hour for 500 processes. Live Data remains available while the Panel is open.")
+                }
+
+                if Capabilities.supportsPrivilegedSampling {
+                    Section {
+                        Toggle("Enable Superuser Sampling", isOn: $choices.privilegedSampling)
+                    } header: {
+                        Text("Privileged Helper")
+                    } footer: {
+                        SettingsFooter("The root helper includes other users' processes and enables additional inspections. macOS may request approval or an administrator password when you start Smack. Check its status in Settings › Privileged Helper. The helper's energy cost has not been measured.")
+                    }
+                }
+
+                if !Capabilities.isSandboxed {
+                    Section {
+                        FolderListRows(folders: $choices.projectFolders, addTitle: "Add Project Folder…", empty: "No project folders")
+                    } header: {
+                        Text("Project Folders")
+                    } footer: {
+                        SettingsFooter("Folders holding your Git repositories, such as ~/Developer or ~/src. Only directory entries and .git files are read, while Projects is visible, to the project scan depth.")
+                    }
+
+                    Section {
+                        FolderListRows(folders: $choices.documentFolders, addTitle: "Add Documents Folder…", empty: "No saved folders")
+                    } header: {
+                        Text("Documents Folders")
+                    } footer: {
+                        SettingsFooter("Saved locations appear in Documents. Search or browse one folder at a time; adding folders does not start a scan.")
+                    }
+
+                    Section {
+                        ForEach(Self.environmentPages) { page in
+                            Toggle(page.rawValue, isOn: Binding(
+                                get: { choices.shownPages.contains(page) },
+                                set: { show in
+                                    if show { choices.shownPages.insert(page) } else { choices.shownPages.remove(page) }
+                                }
+                            ))
+                        }
+                    } header: {
+                        Text("Show on Summary")
+                    } footer: {
+                        SettingsFooter("A page that is off drops its Summary tile and stops its discovery and background work.")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .toggleStyle(.switch)
+
+            HStack {
+                Button("Skip") { finish(nil) }
+                    .help("Keep every Setting as it is")
+                Spacer()
+                Button("Start Smack") { finish(choices) }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 560, height: 680)
+    }
+}

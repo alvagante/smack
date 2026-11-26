@@ -1,99 +1,100 @@
 # Smack
 
-Smack is a lightweight macOS system monitor that opens from the camera island or menu bar. It presents live metrics in a compact, visual dashboard without third-party dependencies.
+### **What a Pro user wants to know about a Mac.**
 
-![Smack panel with native menu-bar icons, live metrics, and summary cards](docs/Smack.png)
+Smack lives in the notch and menu bar. Move the pointer up to see what your Mac is doing, who is doing it, and act on it. No third-party dependencies, no data leaving the machine.
+
+[![Watch the Smack 1.1.0 video](https://img.youtube.com/vi/LAxwJI7sho4/hqdefault.jpg)](https://youtu.be/LAxwJI7sho4)
+
+[Watch the Smack 1.1.0 video](https://youtu.be/LAxwJI7sho4) · [Smack 1.0.0 brochure](https://lab42.it/assets/images/smack/Smack-1.0.0-Brochure.pdf)
 
 ## Features
 
-- **Camera-island dashboard:** hover or click the notch (or use the menu-bar icon) for live CPU, memory, network, and disk activity graphs, storage and battery gauges, and thermal state.
-- **Native menu-bar icons in the panel:** see every menu-bar icon, including those hidden behind the notch, and click them from Smack (opt-in).
-- **Network Ports:** listening TCP ports with the owning process, browser links, and active client connections (direct build).
-- **One-click investigation:** look up public remote addresses on IPinfo, Hurricane Electric BGP, AbuseIPDB, VirusTotal, GreyNoise, and Shodan; reveal, search, or check open files and libraries on VirusTotal by SHA-256.
-- **Applications and processes:** sortable metrics with real app icons, and process details with open files, connections, threads, and loaded libraries.
-- **Optional superuser sampling:** a signed helper, registered through Login Items, includes processes owned by other users and extends open-file, connection, and listening-port inspection. Available only in the direct build.
-- **Advanced system details:** Mac hardware and software information.
-- **History:** persistent history of system metrics and programs, with several metrics overlaid, peaks, programs ranked by CPU, memory, or disk, JSON/CSV export, configurable background collection, and launch at login.
-- **Glass mode:** optional translucent panel with adjustable opacity.
+- **Agent session metrics:** visualize transcript activity, input and output token mix, and each event's share of session duration.
+- **Application logs:** inspect recent nonempty log files held open by an application's processes, with process filtering and live tailing.
+- **Onboarding:** a first-launch window to pick the menu-bar Panel or a Standard Window, opening behavior, sound (muted by default), color scheme, glass appearance, Project folders and a Performance preset. Reopen it from General Settings.
+- **Work:** Projects, Dev servers, Docker and AI agents grouped in a dedicated sidebar category, with matching violet icon shades across pages and Summary.
+- **Summary at a glance:** live tiles for every area (per-core load, memory composition, traffic and disk charts, busiest apps, running agent sessions, containers, updates), with what needs attention at the top; Arrange to drag tiles into order and choose 1×1, 2×1 or 2×2 shapes with size-aware details and top-five resource consumers; neighbors move while dragging and the layout is remembered for next time.
+- **Live dashboard:** CPU, GPU, memory, network, disk, battery and thermal, with live, 1h, 24h and 7d charts.
+- **Applications and processes:** sortable lists with open files, connections, threads, libraries, signature, ancestry and logs; filter active and network-facing sockets and expand details.
+- **Profiling:** `footprint`, `vmmap`, `heap`, `leaks` and `sample` results summarized per application.
+- **Network:** per-process traffic, listening ports and every TCP connection grouped by application.
+- **Dev servers:** local listeners grouped by project, with git branch, Docker Compose context and every HTTP(S) endpoint linked on an expandable Summary tile.
+- **AI agents:** live coding-agent sessions with Working/Idle state, live CPU, memory, disk and network charts, nested sessions, MCP servers, helpers, listeners and recent commands, with separate Active Sessions, Saved Sessions (clickable column sorting, combinable agent filter chips, search and key stats), and Configs pages.
+- **Session Timeline:** every prompt, answer, command, MCP and tool call of a Claude Code, Codex or OpenCode session on zoomable lanes, live or replayed from History, with each event's full text, output or diff a click away and the details box beside or under the chart.
+- **Projects:** Git repositories discovered under your Project folders, with a Summary tile of recent projects and clickable ports, a folder-filtered table with visible sort buttons (latest activity first by default), sortable by name, latest activity, running session start time, size, language, branch, status or location, and a detail page with an at-a-glance Overview (sync and working-tree state, last commit, 12-week activity, what is running, stack install status), the repository's active and saved AI agent sessions, a file browser and text viewer, Git Insights (activity heatmap, punchcard, top authors, line churn and most changed files), local commit history and patches, branches, tags, remotes, deep git status, clickable listening ports, related dev servers, Docker Compose containers (statistics, ports, inspect and start/stop/restart in place), AI agent sessions (the full session detail and Session Timeline in place) and the runtimes each repository pins or carries (virtualenvs, `.tool-versions`, `.nvmrc`, `mise.toml`, each expandable to its version and packages, plus a summary of every language file at the root and whether the runtime it asks for is installed); Summary rows show ports, running agent sessions, container counts and runtimes per project.
+- **Documents:** a Summary tile of recent files, a sortable recent-files table with type icons, saved folder locations and full document Detail Pages, plus the shared Projects/Files and User Home folder browser with filesystem details, text contents, Quick Look, Open, Open With, sharing and Finder actions.
+- **Docker:** containers, images, volumes and networks, with start, stop and restart.
+- **Homebrew:** browse, install, update, uninstall, services and cleanup.
+- **Startup items:** login items, launch agents, daemons and cron jobs, with status, expandable details and on/off controls.
+- **Security:** offline checks for SIP, encryption, exposure, MDM, privacy grants and persistence changes.
+- **Timeline:** Smack activity, on-demand unified logs, diagnostic reports and selected log files, with source coverage, custom time ranges and event inspection.
+- **History and Insights:** stored system and per-program history, zoomable charts, and top disk writers and new destinations.
+- **Baselines:** snapshot a Mac and see what has changed since, or compare it with another Mac ([format](docs/baseline-format.md)).
+- **Alerts:** local notifications for thresholds and events (CPU, memory, disk, battery, new listeners, persistence).
+- **Storage explorer:** a disk usage map of your home folder or the whole disk.
+- **Installed apps:** app sizes and uninstall to the Trash.
+- **Dev environments:** 26 languages and runtimes with versions, paths and packages.
+- **Menu-bar icons:** every menu-bar icon in the panel, including those hidden by the notch.
+- **Standard window (optional):** run Smack as an ordinary app with a Dock icon, minimize and full screen. In both window styles, size and position survive quit, force quit and reboot.
+- **Quick lookups:** check IP addresses and file hashes on IPinfo, AbuseIPDB, VirusTotal, Shodan and others.
+- **Automation:** `smack://` URLs, a `smack` CLI with JSON/CSV output, and Shortcuts actions. See the [CLI](docs/cli.md) and [URL scheme](docs/url-scheme.md).
+- **Superuser sampling (optional):** a signed helper that also shows other users' processes and files.
 
-All data stays on your Mac: lookups send only an address, file name, or hash, and only when you click. Some Apple system processes remain hidden even with the helper.
-
-Smack has two distribution flavors. The **direct build** has every feature and the optional
-superuser helper. The **App Store build** runs in App Sandbox, so it cannot include the
-helper, native menu-bar icons, click forwarding, or Network Ports, and memory, disk, and
-energy details are limited for other processes. See
-[docs/distribution.md](docs/distribution.md) for the full matrix.
+Lookups send only an address or hash, and only when you click.
 
 ## Requirements
 
-- macOS 15 or later
-- Apple-silicon Mac
-- Swift 6 toolchain for development
-- Optional: Screen Recording and Accessibility permissions for native menu-bar icons (direct build)
-- Optional: administrator approval in Login Items for superuser sampling (direct Developer ID build)
+macOS 15 or later on Apple silicon.
 
-## Install from a GitHub release
-
-Release builds are not notarized by Apple, so macOS blocks the first launch.
-
-1. Download `Smack-<version>-macOS-arm64.zip` from the GitHub release, optionally check it against the `.sha256` file (`shasum -a 256 -c Smack-<version>-macOS-arm64.zip.sha256`), unzip it, and move `Smack.app` to `/Applications`.
-2. Try to open the app normally. macOS blocks it and shows a warning that it cannot be opened.
-3. Click **OK** to close the warning.
-4. Go to **Apple menu > System Settings > Privacy & Security**.
-5. Scroll down to the **Security** section. You will see a message saying Smack was blocked.
-6. Click **Open Anyway** and enter your Mac's administrator password.
-7. Click **Open** on the final confirmation prompt.
-
-The **Open Anyway** button is only available for about one hour after your first attempt to open the app. Control-click > Open no longer bypasses this check on macOS 15 and later.
-
-Alternatively, from Terminal, remove the quarantine flag and open the app:
+## Install
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Smack.app
+brew install alvagante/tap/smack
+```
+
+Or download `Smack-<version>-macOS-arm64.dmg` from [Releases](../../releases), open it and drag Smack to Applications. Releases are signed and notarized.
+
+Open the panel by hovering over or clicking the notch, or by clicking the menu-bar icon. Quit with ⌘Q. To use Smack as a regular resizable window with a Dock icon, set Settings > General > Window style to Standard Window.
+
+## Update
+
+```bash
+brew upgrade --cask smack
+```
+
+Or replace `/Applications/Smack.app` with the new release.
+
+**From 0.7.0 or earlier:** 1.0.0 has a new signature, so reset the old permission grants once:
+
+```bash
+pkill -x Smack
+tccutil reset All it.lab42.smack
 open /Applications/Smack.app
 ```
 
-Only do this for a download you trust and have verified against its checksum.
+Grant Screen Recording and Accessibility again when asked. If you used superuser sampling, turn **Sample processes owned by other users** off and on in Settings. Then approve Smack in System Settings > General > Login Items & Extensions.
 
-If you enable native menu-bar icons, grant Screen Recording and Accessibility when asked, then reopen Smack. Release builds are not signed with a stable identity yet, so each update may ask for these permissions again; see [docs/signing.md](docs/signing.md).
+## Uninstall
 
-## Build and run
-
-```bash
-Scripts/build-app.sh          # direct build with the optional helper
-SMACK_FLAVOR=app-store Scripts/build-app.sh   # sandboxed build without the helper
-open dist/Smack.app
-```
-
-Create a `Smack Local Dev` code-signing certificate (or set `SMACK_SIGN_IDENTITY`) to keep Screen Recording and Accessibility grants across rebuilds; see [docs/signing.md](docs/signing.md) for local and release signing.
-
-Superuser sampling is off by default and needs nothing until you enable **Sample
-processes owned by other users** in Settings. A notarized Developer ID build then asks you
-to approve Smack Helper in Login Items; a self-signed build asks for an administrator
-password and installs the helper in `/Library/PrivilegedHelperTools`. Ad-hoc builds cannot
-run the helper. It accepts only the app from its own signer, run by an administrator.
-Turning the option off removes it. If you delete Smack while the helper is installed:
+Turn off superuser sampling in Settings, then delete `Smack.app` (`brew uninstall --cask smack`). If you deleted the app while the helper was installed:
 
 ```bash
 sudo launchctl bootout system/it.lab42.smack.helper
-sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist \
-  /Library/PrivilegedHelperTools/it.lab42.smack.helper
+sudo rm -f /Library/LaunchDaemons/it.lab42.smack.helper.plist /Library/PrivilegedHelperTools/it.lab42.smack.helper
 ```
 
-Hover over or click the camera island to open the panel, depending on Settings. The menu-bar icon works on every display. Closing the panel only hides it; use **Settings → Quit Smack** to exit completely.
+## Build from source
 
-## Test
+Requires full Xcode 16 or later (Command Line Tools alone are not enough).
 
 ```bash
-swift test
-swift build -Xswiftc -DSMACK_APP_STORE --product Smack
+Scripts/build-app.sh
+open dist/Smack.app
 ```
 
-Pull requests run the test workflow and compile both flavors. Pushing a Git tag builds the
-direct `Smack-<tag>-macOS-arm64.zip` and publishes it with a SHA-256 checksum to the GitHub
-release. App Store packages are produced by the manual workflow; see
-[docs/distribution.md](docs/distribution.md).
+Without a signing certificate the app is ad-hoc signed. It runs, but superuser sampling is unavailable and you must grant permissions again after each rebuild. To avoid both, create a `Smack Local Dev` certificate as described in [docs/development/signing.md](docs/development/signing.md). Specs, design notes and release procedures are in [docs/development](docs/development).
 
 ## License
 
-Smack is released under the [MIT License](LICENSE).
+[MIT](LICENSE)

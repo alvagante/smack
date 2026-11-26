@@ -2,38 +2,406 @@
 
 All notable changes to Smack are documented in this file.
 
-## [Unreleased] - 2026-11-26 UTC
-Branch: feature/reduce-complexity | Commit: 38bc42f
+## [1.3.1] - 2026-11-26
 
 ### Changed
 
-- Updated bundle metadata (`Info.plist`) to `1.3.1-beta2` (build `15`).
-- Replaced `1 + 4 × N` per-process export queries with a single SQLite `UNION ALL` query in `HistoryRepository.appendProcessExportRecords`, and passed exact UTF-8 byte lengths to `sqlite3_bind_text` in `HistorySQLiteDatabase.bind`.
-- Precomputed `NetworkPortSnapshot.externalCount` and `localhostCount` in a single pass (`init` + `didSet`) and replaced string interpolation filtering in `NetworkPortsView` with `Self.matches(_:query:)`.
-- Cached boot-immutable `SystemInformation` sections and properties (`cachedHardwareSection`, `cachedOSBuild`, `cachedDarwinVersion`, `cachedKernelVersion`, `cachedBootTime`) and pre-allocated `storageSection(volumes:)`.
-- Added `ProcessSampling.allProcessIdentifiers(preferSysctl:)` and guarded `SmackMain.diagnose()` socket collection behind `Capabilities.supportsNetworkPortInspection` to eliminate avoidable App Sandbox kernel denials (`listpids`, `pidfdinfo`, `rusage`).
-- Cached per-process executable paths (`ProcessPathCacheKey` + `NSLock`), `getpwuid_r` lookups, boot-time `hostPageSize` / volume resource keys, IOKit disk names, `SystemInformation` properties, and bounded `64×64` rasterized `ApplicationIconCache` entries (`maxEntries = 128`).
-- Reused prepared SQLite statements (`ProcessWriteStatements` and `systemInsertStatement`) in `HistoryProcessWriter`, skipped `BEGIN IMMEDIATE`/`COMMIT` on quiet ticks with zero writes, and deferred `upsertProcess` past the `idleRuns` fast-skip path until change, 60s heartbeat, or exit.
-- Replaced O(P × A) application prefix scans with O(1) backwards root lookups (`inheritedApplicationsByRoot`), precomputed `ApplicationMetrics` totals, pre-reserved `LiveMetricHistory` series, added an O(N) `isAlreadySorted` fast-path in `ApplicationListViewModel`, and removed intermediate allocations in `HistoryView`, `SummaryView`, `Sparkline`, `HistoryExporter`, `SmackSound`, and `IPLookup`.
-- Expanded `Tests/SmackTests/` (`SmackMainTests`, `ViewAndChartTests`, `PrivilegedSamplingTests`, `ProcessCollectorTests`, `NativeMenuBarTests`, `SettingsTests`, `FormattingAndSoundTests`, `HistoryRepositoryTests`) for 100% file-level coverage across pending `Sources/` files and both `direct` and `-DSMACK_APP_STORE` targets.
-- Decomposed `HistoryRepository` into `HistorySQLiteDatabase`, `HistorySchemaMigrator`, `HistoryMaintenance`, and `HistoryExporter`, removing duplicated SQLite execution helpers in `migrate` (`openspec/specs/complexity-reduction/spec.md`).
-- Separated stateless hardware/OS readers (`SystemHardwareSampler`) and `SystemIOMetricsReader` from `SystemCollector`, extracted `CollectionScheduler` helpers and `PanelPlacement` from `PanelController`, and extracted `NativeMenuBarSystemBridge` (`!SMACK_APP_STORE`) from `NativeMenuBarStore`.
-- Unified duplicated application and process filtering/sorting in `ProcessViews` via `SortableProcessItem` inside `ApplicationListViewModel`, and extracted per-record rate computation in `ProcessSnapshotBuilder`.
-- Extracted a shared two-pass `proc_pidinfo` buffer helper and split vnode/socket inspection in `InventorySampling`.
+- **Version:** prepare 1.3.1 (build 16); Summary, About and baseline exports report the new version.
+- **Process & socket sampling:** add `ProcessSampling.allProcessIdentifiers(preferSysctl:)` and guard `SmackMain.diagnose()` socket collection behind `Capabilities.supportsNetworkPortInspection` to avoid App Sandbox kernel denials (`listpids`, `pidfdinfo`, `rusage`). Cache per-process executable paths (`ProcessPathCacheKey` + `NSLock`), switch `ProcessSockets` and `ProcessSnapshotBuilder` user lookups to thread-safe `getpwuid_r` with negative caching, and use O(1) backwards `.app` root lookups in `ProcessCollector`.
+- **History & SQLite:** replace `1 + 5 × N` per-process export queries with a single SQLite `UNION ALL` query in `HistoryRepository+Export`, and pass exact UTF-8 byte lengths to `sqlite3_bind_text`.
+- **Hardware & UI hot paths:** cache boot-immutable `SystemInformation` properties (`cachedOSBuild`, `cachedDarwinVersion`, `cachedKernelVersion`, `cachedBootTime`), `hostPageSize`, volume resource keys, and IOKit disk names (`SystemHardwareSampler` / `SystemCollector`); precompute `ApplicationMetrics` totals and `NetworkPortSnapshot` external/localhost counts; pre-reserve `LiveMetricHistory` series; and remove intermediate allocations in `Formatting`, `Sparkline`, `SmackSound`, and `IPLookup`.
 
 ### Fixed
 
-- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
-
-- Fixed 41.67× per-process CPU% under-reporting on Apple Silicon by scaling `proc_taskallinfo` Mach ticks (`pti_total_user + pti_total_system`) to nanoseconds using `mach_timebase_info` via overflow-safe 128-bit arithmetic (`ProcessSampling.machTicksToNanoseconds`).
-- Fixed `0 B` third-party process memory reporting under App Sandbox by falling back to `information.ptinfo.pti_resident_size` in `ProcessSampling.records` and updating sandbox messaging in `ProcessSnapshotBuilder` and `ProcessViews`.
-- Replaced `DispatchQueue.main.sync` in `ProcessSnapshotBuilder` with `@MainActor` async metadata resolution, made `PanelController.smackSound` lazy on first open, guarded `PanelPlacement.targetFrame()` against empty `NSScreen.screens`, and pruned exited PIDs from `MonitorStore.inventoryState.scheduled`.
-- Fixed permanent hover auto-dismiss failure in `PanelController.mouseMoved` by resetting `dismissTask` to `nil` on pointer re-entry and grace-period completion, and added `deinit` cleanup for `NSEvent` monitors.
-- Fixed IPv4 socket address decoding in `InventorySampling.addressBytes` to read `in4in6_addr.i46a_addr4` at bytes `12..<16` instead of `0..<4` (which previously reported `0.0.0.0`).
+- **Apple Silicon CPU%:** scale `proc_taskallinfo` Mach ticks (`pti_total_user + pti_total_system`) to nanoseconds using `mach_timebase_info` via overflow-safe 128-bit arithmetic (`ProcessSampling.machTicksToNanoseconds`), fixing 41.67× per-process CPU% under-reporting on `arm64`.
+- **App Sandbox memory:** fall back to `information.ptinfo.pti_resident_size` when `proc_pid_rusage` is unavailable under App Sandbox, reporting resident memory instead of `0 B` and updating sandbox labels in `ProcessSnapshotBuilder` and `ProcessDetailView`.
+- **Panel hover & lifecycle:** fix hover auto-dismiss in `PanelController` by tracking and resetting `dismissTask` on pointer re-entry and grace-period completion, guard default window placement when `NSScreen.screens` is empty, and remove `NSEvent` monitors in `deinit`.
+- **Concurrency:** resolve `NSWorkspace` running-application metadata asynchronously on `@MainActor` when uncached in `ProcessCollector` and `ProcessSnapshotService`.
 
 ### Security
 
-- Replaced raw timestamp string interpolation in `HistoryRepository` retention and storage-limit `DELETE` queries with bound SQLite `?` parameters (`CWE-89`).
+- **SQLite (`CWE-89`):** replace timestamp string interpolation in `HistoryRepository+Maintenance` retention and storage-limit `DELETE` statements with bound SQLite `?` parameters.
+
+## [1.3.0] - 2026-11-26
+
+### Added
+
+- **Application logs:** list recent nonempty open log files by process and view or tail their last 128 KiB. Discovery reuses the existing inventory, checks up to 500 matching paths and writes no data; release performance measurements are pending.
+- **Timeline:** discover local log files and add selected files, with sampled source coverage bars and events. Scans are on demand and bounded to 200 files and 64 KiB at each end; release performance measurements are pending.
+- **Timeline:** inspect Smack events alongside opt-in unified logs and diagnostic reports over custom time ranges. Queries run only on the Timeline, with a 10-second, 1 MiB limit per log request; no log data is stored. Performance measurements are pending.
+- **Onboarding:** reopen the welcome window from General Settings, prefilled with current choices.
+- **Onboarding:** choose background system and process collection, Superuser Sampling, top bar icons, and saved Documents folders. Saved Documents folders can also be managed in Settings and selected in Documents; they add no background scanning.
+- **Timeline:** add 15-day, 30-day and Full ranges; Full starts at the oldest event loaded from enabled sources.
+- **Timeline:** show selected event details beneath the graph, with chronological first, previous, next and last navigation.
+- **AI Agents:** visualize transcript activity and token mix in session timelines and opened active-session cards, and show each event's duration as a share of its session. Uses already loaded transcript data.
+
+### Changed
+
+- **CI:** a release performance budget exceeded by up to 50% now raises a warning instead of failing the run.
+- **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
+- **Summary:** tile rows no longer grow with column width: they are capped at 210 points, so tiles on wide Panels have much less empty space. Layout only; no collection or persistence changes.
+- **Timeline:** new **Unified log range** Setting (Activity Timeline pane: 1 hour, 6 hours, 1 day, 7 days or 30 days; default 30 days) sets the widest stretch of unified log one Timeline load reads. Longer windows keep their most recent part and say so. The Privileged Helper now refuses ranges wider than 30 days instead of letting `log show` scan the whole log store until its 10 s timeout. Narrower ranges reduce `log show` CPU time and its output (still capped at 1 MB); nothing is stored.
+- **Timeline:** closing the Timeline or an Open Log File view now cancels the diagnostic report scan, log file discovery and log reads in progress. Log file parsing builds its date parsers once instead of once per file (up to 200 files per scan).
+- **AI Agents:** widen and highlight the timeline divider's drag target, and move keyboard guidance to the timeline tooltip.
+- **AI Agents:** resize the Session Timeline and event details with their divider, move lane controls below the timeline, and add hide-all and first/last event navigation.
+- **Connections:** show the browser link in listener headers and use the full row width for expansion.
+- **Timeline:** log file discovery no longer enumerates folders below the two levels it reads, so a deep `~/Library/Logs` costs no more than its top. Log file, diagnostic report and Application log reads go through one injected file seam, so their tests no longer touch the disk.
+- **Insights, Dev servers, Agents:** programs, servers and agent sessions show their application icon (a terminal or symbol tile when there is none); Dev server cards gain a header with branch, kind and the starting agent; the agent list groups Running and Recently ended with counts. Icons come from the existing icon cache, so there is no new collection.
+- **Release:** allow manual releases on a self-hosted macOS ARM64 runner or a GitHub-hosted runner.
+- **Internal:** split navigation, live metric history, historical queries, baseline capture, security monitoring, and environment monitoring out of `MonitorStore`; remove history repository dependency cycles; no collection or persistence changes.
+- **Internal:** split the largest collectors and parsers into smaller functions (baseline sections, runtime discovery, manifest parsing, agent session update, persistence scan, history v5 copy, CLI parsing). Same work and the same results; no collection or persistence changes.
+- **Internal:** deep-link filters now belong to each Page's view model, and environment monitoring reads the Panel state from `MonitorStore` instead of keeping its own copy. The app and the Privileged Helper share one unified log query.
+- **Internal:** more tests for Startup Item toggles (commands, AppleScript quoting, crontab safety), Session Timeline Event Details, CLI query filtering and validation, and Privileged Helper gating on ad hoc builds. Startup Item toggles now take an injected command runner; no behavior or cost change.
+- **Version:** prepare 1.3.0 (build 13); Summary, About and baseline exports report the new version.
+
+### Fixed
+
+- **Window:** the Panel and the Standard Window keep their last position and size after a force quit or a reboot: moves and resizes are saved as they happen, the Standard Window no longer shrinks at relaunch, and quitting without opening the window no longer overwrites the saved frame. Cost: at most two preference writes per second while moving or resizing, none otherwise; a frame-only save re-applies no feature settings (not measured).
+- **AI Agents:** constrain the timeline and event details to their split pane so lane controls remain visible on smaller windows.
+- **Release:** the release workflow removes the Homebrew tap clone, which holds the tap token in its remote URL, from self-hosted runners.
+
+## [1.2.0] - 2026-11-11
+
+### Changed
+
+- **CI:** allow enough time for tests and both app bundle builds on macOS runners.
+
+- **Project Git Insights:** simplify author ranking type checking to restore the macOS test build.
+
+- **AI agents:** one compact header for Active, Saved and Configs: title, key figures and shortened selectors share a single row from about 1100 pt of page width. Saved Sessions no longer repeats its own title row.
+
+- **Documents:** changing folders clears stale Recent filters in both Browse and Recent.
+
+- **Summary and window restoration:** preserve hidden tiles when arranging, and fit restored windows to their chosen display.
+
+- **Insights:** collapsible sections show a compact summary, with Expand All and Collapse All controls. Display only.
+
+- **Connections:** refined listener rows around their owner, port and scope, with bound addresses and actions in the expanded details. Display only.
+
+- **Startup Items:** show the recorded file contents on demand using the existing 1 MiB text preview limit. No polling, subprocesses or history writes.
+
+- **Connections:** filter established connections, listeners and network-facing listeners; show application icons and expandable socket details. Uses the existing TCP inventory.
+
+- **Startup Items:** clearer enabled and running states, application icons where available, and expandable details for identifiers, paths and controls.
+
+- **Documents inspection:** Browse now uses the Projects/Files stat and text-content pane with a bounded-width file column. Preview, Open With, Share, Copy (contents/path/URL), Reveal in Finder and Document Details stay at the top. Selection reuses the bounded User Home reader (up to 1 MiB), with one preview retained and cancellation on hide; no timers, subprocesses or history writes. Whole-app resource measurement remains pending.
+
+- **Documents Browse:** reuses the Projects/Files and User Home folder browser for navigation, filtering, file rows, sizes, symbolic-link labels and Finder actions. Document actions and explicit Quick Look remain available. No collection, timers or history changes.
+
+- **Expanded Summary tiles:** 2×2 CPU, GPU, Memory, Network and Disk Activity tiles list the top five sampled Applications for their metric. Documents, Projects, Dev servers, Applications, Development Environments, Insights and Homebrew show longer lists. Arrange uses the whole tile without a drag icon, moves neighbors during the drag, and saves once on drop. All rankings reuse collected data except GPU: its existing IORegistry client reader runs at the normal live interval only while the 2×2 tile is visible, without subprocesses or additional history writes. Optimized GPU-reader probe: 0.93 ms average per scan (100 scans, p95 1.27 ms); the ten-minute whole-app release comparison remains pending.
+
+- **Summary tiles:** fixed 1×1, 2×1 and 2×2 footprints replace stretched rows. Arrange offers three shape buttons and drag ordering, including insertion after the last tile. Larger tiles show more document, project, application and session rows, larger resource charts and memory details; long lists scroll inside their tile. Shapes and order persist in Settings. Display only: no new collection, timers or history writes.
+
+- **Documents views:** Recent is a single-line table with type-specific icons and clickable sort headers. Rows open a Document Detail Page with current filesystem information, indexed document/media metadata and Open, Open With, Quick Look, Share, Reveal and Copy actions. Browse uses a native selectable list and split preview, double-click folder/file navigation, context menus, drag-out and Space for Quick Look. Filters, sorting and chosen view survive document navigation. Collection stays on demand; one bounded folder listing or one file inspection at a time, no new timers or history writes. Quick Look loads only on request and closes when hidden; its provider memory, caches and cloud downloads are managed by macOS. Whole-app measurement remains pending.
+
+- **Saved Sessions:** sortable table headers replace the sort menu; agent filter chips toggle individually and combine, with counts and Clear filters. The Projects-style header shows loaded sessions, projects, AI Agents and known tokens with coverage. Table rows gain hover feedback and explicit navigation affordances. No new collection, polling or disk writes.
+
+- **Projects:** the Load Git status and Measure project sizes buttons moved from the page header to the top of the Status and Size table columns as small reload buttons with a refresh symbol; while reading or measuring, the same button becomes a click-to-stop spinner. Stop capability, gating and cost are unchanged: no new collection.
+
+- **AI Agents:** separate Active Sessions, Saved Sessions and Configs pages. Saved Sessions filters by agent, title and project, and sorts by agent, project, last activity, duration and input/output tokens. Opening a transcript supplies its token totals to the list. The Session Timeline shows total/input/output tokens, model and duration above the chart; event navigation stays in the inspector's top-right corner. No new collection, timers or disk writes; only two optional token totals retained per loaded catalogue entry.
+
+- **Version:** prepared 1.2.0 (build 12); Summary, About and baseline exports report the new version. No runtime cost change.
+
+### Added
+
+- **Documents Summary tile:** up to five recently modified files with type icons, modification ages and links to their Document Detail Pages. The heading opens Recent; the tile supports the saved Summary Layout, with a two-column default. Reuses the last Documents inventory without starting discovery, adding timers or writing history.
+
+- **Summary Layout:** Arrange on Summary to drag tiles into a new order and switch each between one and two columns. The layout is saved with Settings and restored on the next launch; Reset restores the factory order. Display only: no collection or background cost.
+
+- **Window frame:** the Panel and Standard Window remember their last size and position on close, resize end and quit, and reopen there (clamped to a visible screen). No collection cost.
+
+- **Session Timeline:** Event Details can sit under the chart at full width instead of beside it. Switched from a toolbar button on the Session Timeline or the "Event details under the timeline" row in Settings › Appearance. Display only: no collection, background work or disk writes.
+
+- **Documents:** a Work page for recently modified saved files across Home, iCloud Drive and user-chosen folders or volumes. Search names, paths, authors and tags; filter by kind, location and date range; sort by modification, creation, last opened, name, kind, location or size. Open a Document Detail Page, reveal files in Finder and open related discovered Projects. On-demand only, bounded to one 8-second Spotlight query with 512 KiB output, 2,000 metadata candidates within a two-second cooperative budget, and 500 retained files, using Inventory Cache. Discovery reads metadata only, with no timers or history writes; preview and opening are explicit. Release discovery measured 4.44 seconds for 500 files in Home (bounded sample); the ten-minute whole-app comparison remains pending. Details in docs/development/documents.md.
+
+- **Onboarding:** sound selection with an explicit Preview button, color scheme, Glass mode and opacity, and Hover delay. New installations start muted; saved sound choices and legacy defaults are preserved. Skip or closing keeps current Settings. No collection or background cost change.
+
+- **Project Overview:** redesigned around what matters now: a header with the branch, sync with its upstream, clean or changed state, languages, a link to the hosted remote and the last commit in full; twelve weeks of commit activity; working-tree changes as a proportional bar; dev servers, containers and AI agents running from the repository; the stack, each runtime marked installed or missing; and the location, commit, remote, modification date and size without truncated boxes. The header's stats row now appears on the other sections only.
+  - Cost: opening a repository runs one more bounded `git log` (dates and authors of the last twelve weeks, at most 2,000 commits, no diffs; measured 0.03 s and 45 KB on a 2,224-commit repository), reads the remote from `.git/config` without a subprocess, and reads the language files once with the report instead of on every Runtimes visit. All cached with the report until Refresh, for at most 24 repositories.
+
+- **Project Agent sessions:** a Project's Agent sessions section lists the repository's running and recently ended sessions and its saved sessions together; selecting one shows its live detail or replays its Session Timeline.
+  - Cost: saved sessions are looked up only while the section is open and Read session transcripts is on, once per Inventory Cache period, and kept for the eight most recently opened repositories. Claude Code: only the folders named after the repository, then the 64 KB heads of its newest 40 transcripts. Codex: rollouts of the last 30 days, at most 200 heads of 128 KB. OpenCode: one indexed query by directory. No subprocess, no history writes.
+
+- **Fixed:** the Runtimes count in a Project's sidebar now includes the language files at its root, so it no longer shows 0 when the section lists them.
+
+- **Git Insights:** a Project's Git history section opens on Insights: commits, contributors, active days and longest streak, a year-long daily activity heatmap, a weekday by hour punchcard, top authors, weekly lines added and removed, and the most changed files. Commits stay one click away.
+  - Cost: two local `git log` commands when Insights opens or is refreshed, kept in memory until Refresh: authors and dates of the latest 5,000 commits (no diffs), and `--numstat` of the latest 500 non-merge commits without rename detection, each capped at 8 seconds and 2 MB. Measured: 0.03 s and 73 KB plus 0.35 s and 234 KB on a 2,224-commit repository. Nothing runs while the Panel is closed or another section is open; no history writes.
+
+- **Project runtimes:** a Project's Runtimes section summarizes the language files at its root (`package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `Package.swift`, `Gemfile`, `composer.json`, `pom.xml`, Gradle builds, Puppet `metadata.json` and `Puppetfile`): name, version, scripts, dependency counts, lockfile, supported OS and more. Each runtime they ask for (engines, `requires-python`, `go`, `rust-version`, tools version, Ruby, PHP, Java) and each version pin is matched with the installed runtimes: Installed, Version not installed, or Not installed, with every installation's version, source and PATH status, expandable to its packages.
+  - Cost: opening the section reads at most 13 root files of up to 256 KB each on a utility task and checks lockfiles for existence only; no subprocess. Installed versions are read from version-manager and Homebrew paths in the last Development environments discovery, which this never starts. Runtime probes still run only for the installation you expand.
+
+- **Project details in place:** a Project Detail Page's Docker, Agent sessions and Runtimes sections now show the full detail without leaving the project. Docker shows each Compose container with the Docker page's state, live statistics, ports, Inspect and start, stop, restart and pause Confirmed Actions. Agent sessions embed the Agents page's session list and detail (charts, MCP servers, commands, network, log and Session Timeline), scoped to the repository. Runtimes rows with a discovered interpreter, including virtual environment markers, expand to its paths, version and packages.
+  - Estimated cost (release measurement pending): no new collection while the Panel is closed or another section is open. Agent sessions reuse the Live Data already sampled. The Docker section asks for container details only while it is on screen and Docker shows on Summary, the same work as the Docker page's Containers section (one `docker stats --no-stream` per Docker refresh when live statistics are on). Pages asking for Docker details are now counted, so opening the Docker page from the project tab keeps statistics running and leaving both stops them. Runtime probes run only for the row the user expands, with the existing 10-second limit per command and the Development environments inspection cache. No history writes.
+
+### Fixed
+
+- **Release CI:** notarization now fails with the notary log when Apple does not accept a submission, and stapling retries for up to five minutes, so a ticket that has not yet propagated (stapler Error 68) no longer fails the DMG step. Shared by the app and DMG steps in `Scripts/notarize.sh`. No runtime cost change.
+
+## [1.1.0] - 2026-11-07
+
+Projects (spec 007), Project files and Git history, live Summary tiles, Agent Sessions, Standard Window, relative dates and process navigation, Onboarding, Session Timeline (spec 008), and the Projects table and ordering. Build 11.
+
+### Added
+
+- **Projects ordering:** visible sort tags above the table, with Latest activity selected newest first by default. Clicking the selected tag reverses the order; table headers stay sortable. Activity uses the existing project folder modification date. Start time sorts by the latest running agent or dev-server session, joined from existing Live Data. Unavailable dates stay last in either direction. No collection or refresh cost change.
+
+- **Session Timeline** (spec 008): each Agent Session gets a Details | Timeline switch. The timeline lays out everything the session did, in order, on lanes: prompts, answers, thinking, commands, MCP calls, file reads and edits, web, other tools, subagents, compactions and errors, plus the processes Smack saw (root, MCP servers, helpers, finished commands) and a band of output tokens and CPU. Zoom from the whole session to half a second (scroll, pinch, ⌘-scroll, drag on the ruler or ⇧-drag a range, double-click to fit), drag to pan, click a cluster to drill into it, step with ←/→, filter lanes and search titles. A minimap shows the whole session; selecting an event opens its full prompt, answer, command and output, MCP arguments and result, or diff. Live sessions follow the newest events until you move away; **History** under the session list replays past Claude Code, Codex and OpenCode sessions. Setting: AI Agents › Read session transcripts (on).
+  - Estimated cost (release measurement pending): nothing while the Panel is closed or the timeline and History are not on screen. While a live timeline is open: one size check per Live Refresh, then only the appended bytes (Claude Code, Codex) or one indexed query for rows changed since the last one (OpenCode, read-only, `session_v2` and `session_message` only). Opening a transcript parses it once on a utility task (about 0.3 to 0.6 s for 50 MB, estimated). Memory: about 100 B per event, at most 20,000 events per open timeline; full text is read only for the selected event, capped at 512 KB. History lists directory entries, reads the first 64 KB of up to 40 Claude Code and 128 KB of up to 40 Codex transcripts, and runs one OpenCode query, reused for the Inventory Cache period. No subprocesses, no history writes. Codex rollouts kept only as `.jsonl.zst` are not read (no third-party decompressor). Not part of Performance Presets: it runs only on screen.
+
+- **Projects table:** the Projects list is now a table with sortable columns (click a header; click again to reverse): Name, Language, Branch, Status, Location, Modified and Size. Status shows Clean, changed-file and conflict counts, and ahead/behind. The Sort menu and direction button are gone.
+  - Cost: Git status is read only when you press Load Git status or sort by Status: one `git status --porcelain=v2 --branch` per repository (no `git log`), two at a time, each capped at 8 seconds and 2 MB, cancelled when you leave the page and cleared by Refresh. Held in memory only, about 100 bytes per repository. Nothing runs while the Panel is closed or at discovery; no history writes. Release measurement not yet run.
+
+- **Onboarding:** on first launch, and once after upgrading to this release, a window asks for the Window style (menu-bar Panel or Standard Window), how the Panel opens, Launch at login, a Performance Preset, Project Folders and which environment pages Show on Summary. Choices are prefilled from the current Settings; a hand-tuned (Custom) performance setup is kept unless a preset is picked, and Skip or closing the window changes nothing. Project Folders and Summary pages are hidden in the App Store Build. No cost change: no collection, and one UserDefaults key (`onboarding-revision`).
+- **Project details:** Files opens the existing folder browser and file viewer; Git history shows the latest 100 commits, up to 200 branches and tags, remotes, and a selected commit's message, changed files and patch.
+  - Estimated cost: three local Git commands only when Git history opens or is refreshed, one per selected commit, each capped at 8 seconds and 2 MB. Files reuses the existing 5,000-entry/one-second directory budget and 1 MiB text preview limit. Page tasks cancel on exit; no polling, network requests or persistent writes. Release comparison against main remains pending.
+
+- **Projects:** a new Work page and Summary tile list the Git repositories under your Project folders (Settings › Development), with name, kind, branch, commit, worktree and last modification. The Summary tile shows the most recently modified repositories, expands to the full list, and makes every project and every related listening port clickable. The list is compact and sortable by name, modified time, measured size or language, and filters by Project folder, so large multi-folder setups stay navigable. Each Project Detail Page has Overview (deep git state plus clickable listening ports), Dev servers, Docker and Agent sessions sections. Git status, ahead/behind and the last commit run only for the repository you open.
+  - Cost: discovery reads directory entries and `.git` files only, while Projects or its Summary tile is visible, bounded to 10,000 directories per Project folder at the configured scan depth; results reuse the Inventory Cache. Opening a repository runs two read-only `git` commands (`status --porcelain=v2 --branch`, `log -1`), cached per project for at most 24 repositories. Sizes are measured only when you choose Size or press Measure sizes: Spotlight is used when it has indexed the folder, otherwise a walk stops at 50,000 entries or 1.5 seconds per repository, one repository at a time and cancellable. Related dev servers, containers and sessions are joined from data Smack already collects; nothing new is sampled or written to history. Estimated cost on a 100-repository tree: one readdir pass per inventory interval, two short-lived git processes per opened project, and one sequential size pass only on request.
+- **Projects: runtimes and relations on Summary.** Each repository reports its **Project Runtimes**: local virtual environments (`.venv`, `venv`, `.env` with `pyvenv.cfg`) and version pins (`.python-version`, `.nvmrc`, `.node-version`, `.ruby-version`, `rust-toolchain(.toml)`, `.tool-versions`, `mise.toml`, `.envrc`). The Project Detail Page gains a Runtimes section that also lists Development Environments discovered inside the repository, when that discovery has already run. Each Summary project row now shows, next to its ports, a chip per running Agent Session (opens the session), a running/total Compose container chip (opens the project's Docker section) and up to three runtime chips. Relations are joined by walking each item's path up once against the repository set, instead of testing every item against every repository.
+  - Cost: during discovery only, about 13 bounded opens per repository root (8 KB cap each, a failed open when the marker is absent), no subprocess, under 1 KB per repository for at most 16 runtimes. Development Environments discovery is never started by Projects. No new Setting, no history writes, nothing while the Panel is closed. Release measurement not yet run.
+
+- **Window style** (Settings > General): Standard Window shows Smack as an ordinary app window with a Dock icon, minimize (⌘M), full screen (⌃⌘F), a remembered frame and App, Edit and Window menus. It opens at launch and on a Dock click; closing it keeps Smack in the menu bar. Hover opening, click-away dismissal and the pin button apply to the Menu-bar Panel only, which stays the default.
+  - Cost: no new collection. Live Data stops while the Standard Window is minimized, hidden, on another Space or fully covered (window occlusion), so an open window costs no more than the Panel.
+
+### Changed
+
+- **Applications list:** the section title above the rows ("Apps" or "Applications") is gone; the column labels stay and keep sorting, and "Background Processes" keeps its title. No cost change: rendering only.
+- **Title bar:** the Previous page button now sits right before the page title and appears only when there is a page to go back to. The Smack icon sits at the right edge of the sidebar column and opens Summary. No cost change.
+- **Relative dates:** single-moment dates (Checked, Started, Ended, Modified, Last commit, boot time, baselines, Security check, file dates, Timeline event details) also read as elapsed time, such as "14:03 (5 minutes ago)"; the Projects list shows only the relative age, with the full date on hover. The text is computed when the view renders and does not tick on its own, so no timers or wakeups are added.
+- **Network connections:** process names on listening ports and connections, and connection groups owned by a single background process, open the process Detail Page while it is running. Uses the process list already collected, indexed by PID once per render; no new sampling.
+- **Work:** Projects, Dev servers, Docker and AI agents now have a dedicated Page Category with violet icon shades shared by the sidebar, Summary tiles and page headers. Environment keeps Homebrew, Dev environments, User home, Installed apps and System details, in pink shades. No collection changes.
+
+- **AI Agents:** the top-right switch is larger, with icons and live counts, and its configuration view is now named **Configs**. Agent Session cards and the selected session give the project more evidence: a folder-marked project name, its branch, commit, kind and worktree state, with the path in the tooltip. The sessions overview also counts distinct projects. No new collection.
+- Summary Dev Servers links only endpoints that really serve the web, grouped under their project in bold (or the process when no project is known), in two columns when the tile is wide enough. Each listener is asked once, while Summary is visible, with a `HEAD /` over loopback or the Mac's own address: plain HTTP first, then HTTPS. Well-known other protocols (SSH, databases, message brokers, OTLP gRPC, VNC) are never asked.
+  - Cost: per new listener, at most two local connections with a 1 s timeout each (measured 1 to 3 ms for a web server), four at a time; nothing while the Panel is closed or for listeners already checked. Memory: one entry per open listener, dropped when it closes. No disk writes.
+
+- Summary AI Agents lists every running Agent Session, nested ones indented under their parent: its state, project in bold and branch, agent and CPU. Clicking a row opens that session on the AI Agents page.
+- Dev Servers and AI Agents widen to two columns while they list entries and show the first 8 rows, with Show all to expand the tile. It uses the sessions Smack already tracks: no new collection.
+- Page icons are colored by Page Category: Performance in blues, Health in greens, Activity in oranges, Work in violets, Environment in pinks, each Page a distinct shade. The sidebar, its section headers, Summary tiles and page headers use the same color.
+- Summary is one grid of live tiles instead of rows of text grouped in sections, filling the window width with 1 to 8 columns. Each tile shows its key figure and, where it has one, a live visual: per-core CPU bars, memory composition, mirrored receive/send and read/write charts, volume fill, security check dots, the busiest applications, running AI agent sessions, Docker container states, Homebrew updates, dev server ports and detected languages. The header lists Summary Concerns (Thermal State, memory pressure, low battery, security findings, busy CPU), each linking to its Page, or "All quiet". Tiles use only Live Data and inventories Smack already collects: no new sampling, subprocesses, timers or animations.
+- **AI Agents:** Agent Sessions are a view of their own, opened by default while one runs. Each session shows Working or Idle, a ticking uptime, CPU, memory, MCP servers and ports, with a CPU sparkline; the selected one adds CPU, memory, disk and network charts, nested sessions, per-process CPU and memory with links to the Process Detail Page, paged recent commands, network and log. Recently ended sessions are listed apart.
+  - Cost (estimated, release measurement pending): no new collection, subprocesses or disk writes. Charts reuse the totals the session tracker already computes, kept in memory only (120 points per live session, about 4 KB each). The agent browser should no longer redraw on every process sample.
+
+### Fixed
+
+- CI test compilation: the pure Agent Session Network Rate formatter is explicitly nonisolated so synchronous tests compile with Swift 6 actor isolation. The dropped-event measurement harness uses one file manager per worker instead of capturing a non-Sendable instance.
+- Agent Sessions are detected for agents installed with a native installer, such as Claude Code at `~/.local/share/claude/versions/<version>`, whose process name is the version number.
+- Claude Code session logs are found for project paths containing `.`, `_` or other non-alphanumeric characters.
+- Agent session network shows "Off" instead of "Unavailable" when Network Rate is turned off.
+
+### Distribution
+
+- Releases also publish a signed, notarized and stapled DMG (`Smack-<tag>-macOS-arm64.dmg`) with an Applications shortcut, built by `Scripts/make-dmg.sh`. The zip stays for the Homebrew cask.
+
+## [1.0.0] - 2026-11-04
+
+Combines specs 004 and 005 (dev servers, agent sessions, baseline drift and file export).
+Prometheus metrics export is excluded and will not be implemented. Build 10.
+
+### Distribution
+
+- Releases are signed with Developer ID (team 37L6SLVHJZ), use the hardened runtime and are notarized and stapled, so they open without Gatekeeper warnings. The Homebrew cask no longer strips quarantine.
+- The release workflow fails instead of publishing an ad-hoc build when signing or notarization credentials are missing, and checks the result with `codesign --verify --strict` and `spctl --assess`.
+- The superuser helper is registered through `SMAppService` and approved in Login Items. After upgrading from a 0.x release with the classic helper installed, turn superuser sampling off and on once: Smack removes the old daemon (administrator password) and registers the new one.
+- Upgrading from 0.x asks for Screen Recording and Accessibility once more, because the signature changed. Grants then survive updates.
+- `Scripts/build-app.sh` signs local direct builds with a Developer ID Application identity when one is in the keychain, before falling back to `Smack Local Dev` or ad hoc.
+
+### Changed
+
+- Summary Timeline and Last 24 hours cards grow with the panel width, use the Timeline and Insights icons, and show more of each line.
+- Show the application or process icon beside each event in the Timeline log.
+- Put the Timeline read limit stepper in the Timeline header. It is the same limit as Settings.
+- Match Settings panes that configure a sidebar page to that page's name, icon and color.
+- Cut history disk writes by more than an order of magnitude. Process samples are appended in timestamp order, and the per-process index that turned every stored row into a random page write is gone. History is committed in batches every 30 seconds and before sleep or quit instead of once per sample, so a crash loses at most the last batch. A process's name and last-seen time are written once a minute instead of on every sample.
+- While the panel is open, process history keeps the background process interval: faster refreshes are averaged into one stored sample per interval instead of each being stored, so short spikes still count.
+- The process identity string is stored once in `processes` and replaced by an integer key in both sample tables, which roughly halves stored process history. The database is migrated on the first launch of this build (schema version 5), after a pre-migration copy is taken next to it.
+- Reaching the storage limit no longer rewrites the whole database file: new history reuses the freed space, and the file is compacted only once it grows a quarter past the limit.
+- Hold footprint changes below 256 KiB on idle processes to the next heartbeat instead of storing a row for every sample. Footprint jitter was breaking the idle run on about a quarter of the rows idle processes stored ahead of the heartbeat; with the floor it is about one in twenty-five, and a larger change still appears as soon as it happens.
+- Store settings grouped by feature (panel, sampling, history, activity, security, automation, developer tools). Settings saved by earlier builds are migrated on first launch; nothing changes for the user.
+- Redesign the panel around a shared, resizable sidebar and compact navigation bar. Pages are grouped by Performance, Health, Activity and Environment; hidden environment pages are omitted from navigation.
+- Replace the Summary tile grid with System Settings-style grouped rows, inline performance charts, a Mac overview and live status links.
+- Consolidate page surfaces, headings, icons and action buttons across light and dark appearances. Settings uses a pane picker alongside the shared sidebar.
+- Give every page the same header: icon, title and one-line description, a large key figure that never wraps, secondary figures without card backgrounds, then page actions on the right. Chart pages put the legend with live values and the range picker in one right-aligned row above the chart.
+- Redesign the Application and Process detail pages around a second section sidebar (Overview, Live inventory, Inspection) that collapses to icons on a narrow panel; the titlebar shows the application or process name. Sections use tiles, badges and chips instead of key-value lists: a signature verdict and clickable ancestry chain in Provenance, origin filters (macOS, app bundle, Homebrew, user, temporary) for files and libraries, state filters for connections, thread chips, a numbered argument listing, environment names with `DYLD_` and credential-like variables flagged, root, risky entitlements and unsigned code highlighted, and log levels colored and counted.
+
+### Fixed
+
+- Open a running program from Insights in its application or process detail instead of Historical Data. A program that is not running is not a link.
+- Draw the selected sidebar page in the accent color at launch (it was white text on the inactive gray highlight until the panel became key), clip sidebar rows at the titlebar and start the titlebar page name past the sidebar edge.
+- Keep one streaming `nettop` process while the panel is visible instead of launching it for each network-rate sample.
+- Stop the streaming `nettop` process when Smack exits abruptly (crash, force quit, SIGKILL); previously it was orphaned and kept running.
+- Stop baseline section workers and their commands when Smack exits abruptly, since their deadline is enforced by the app.
+
+- Prevent overlapping agent updates from restoring stale sessions; refresh project context and retain newer network annotations.
+- Target Dev Server Stop actions at listener owners, independently of project grouping.
+- Reject blocking project metadata files and escape terminal control characters in baseline CLI output.
+- Preserve newest battery samples when history reaches its row limit and disclose truncation.
+- Propagate failed listener collection into baseline completeness and collect fresh listeners for manual and scheduled captures.
+- Enforce baseline section deadlines with supervised workers for blocking scans, including descendant cleanup.
+
+### Added
+
+- Add Insights (spec 006 phase 1), read on demand from existing history with no new collection or writes. Spike attribution: clicking a system history chart zooms to five minutes, and any zoom shows the top programs by CPU, memory, disk and wakeups plus the events in the window; the program list ranks the zoomed window. The Insights page (`smack://insights`) has a disk write ledger per program with local-time bars and the device total. Its process churn ranking flags launchd-started programs outside system paths that restart often. It also lists new public destinations per program over the last 24 hours (direct build). A Summary card digests the last 24 hours. Add Settings > Historical Data > Insights > Last 24 hours card on Summary; it is on by default and off in the Minimal preset. Cards show which recording is off and link to its Settings pane.
+
+- Show a sponsor link, hostname, primary IPv4 address with prefix and a configurable clock in the panel title bar, with optional uptime, load average, battery and thermal warning. Each item is toggled in Settings > Appearance; items drop out in groups when the panel is narrow. The sponsor link is not shown in the App Store build.
+- Add project-grouped Dev Servers with git context, Compose mapping, directory actions, confirmed stop and cached CLI v2 queries.
+- Add versioned portable machine baselines, deterministic JSON, field-level drift reports, import/export, retention and pinning, CLI create/list/diff/export with 0/1/2 diff exits, and daily golden-baseline Security events.
+
+- Add live agent sessions with project attribution, nested trees, MCP classification, command exit history, network/resource summaries, metadata-only log adapters, lifecycle events, alert templates and cached `smack agents` queries. Arguments remain outside session models and exports.
+
+- Add disabled-by-default threshold/event alert templates, bounded notification delivery, pause/snooze controls and Timeline firing records, including when notification permission is denied.
+- Add navigation-only `smack://` URLs, same-UID cached CLI queries with future-only follow, CSV/TSV exports and five typed App Intents.
+- Add offline security posture and bounded persistence watching with signing enrichment, helper-v2 BTM/profile polling and graceful old/missing-helper behavior. All spec 004 changes target unreleased 1.0.0.
+
+- Add a GPU page, opened from the GPU reading on Summary: device utilization with Live, 1h, 24h and 7d charts; live renderer and tiler lines; GPU memory in use and allocated, and recoveries since boot. Apple GPU process time has Apps/All scopes, live row graphs and detail navigation. Process counters are read only while the page is visible and never saved to history; unsupported or unreadable counters show as unavailable.
+- Add tuning settings, all defaulting to the previous fixed behavior:
+  - **Collection:** refresh period while the panel is open (1, 2 or 5 s); per-process network rates on or off, with their interval (2-60 s, default 5); a battery and Low Power Mode slowdown that stretches background intervals 2, 4 or 8 times; and a Memory budget (Small, Standard or Large) for profiling output, development runtime inspections, application icons and signature facts.
+  - **Local Environment pane (direct build):**
+    - Show or hide each inventory page on Summary; hidden pages skip discovery when the panel opens.
+    - Reuse inventories for a Short, Standard or Long time.
+    - Docker auto-refresh (15, 30 or 60 s, or only on request) and live container statistics on or off.
+    - Persistent development project folders and their scan depth (1-8 levels).
+    - AI agents to include, and custom agent folders.
+  - **Activity Timeline:** Maximum events (10,000 to 1,000,000; default 100,000).
+  - **Storage Usage:** Compact database now, with the date of the last manual compaction.
+  - **Superuser Sampling:** File Activity trace length (5, 10 or 30 s), captured as consecutive five-second segments without changing the helper.
+
+### Changed
+
+- Reorganize Settings by feature, mirroring Summary: Performance, System, Processes, Network, Security, Development, Docker, AI Agents, Other Pages, Alerts, Activity Timeline, Historical Data, Automation and Privileged Helper. Each feature pane holds its own collection, history and Activity Timeline switches; Storage Usage moves into Historical Data, File Activity into Processes. `smack://settings/alerts` is unchanged.
+- Add Performance presets (Standard, Light, Minimal) that set refresh, Network Rate, background intervals, battery slowdown, process history, Memory Budget and Docker statistics together. The preset is derived from the settings, so existing settings show Standard or Custom and nothing changes on upgrade.
+- Track agent sessions only while AI Agents is on Summary, agent session events are recorded, or an enabled alert rule uses them. Defaults keep tracking on.
+
+- Prepare app metadata for 1.0.0 (build 10), combining specs 004 and 005.
+
+- Reorganize Summary into Performance, Health, Activity and Environment groups. Thermal State, Historical Data and System Details move from header icons to Summary tiles; Health tiles color by state, and the listening-ports tile is renamed Connections.
+- Give Security, Historical Data, System Details and Thermal State the standard page header (icon title, stat cards on the right, content below). Security groups checks by area with readable names, worst first; Thermal State draws sensor temperatures and fan speeds as horizontal bars, with fan limits read from the SMC.
+- Merge Advanced System Details into System Details and add model name and number, serial and hardware UUID (direct build, masked until revealed with the eye button), firmware, per-cluster L2, uptime and load, kernel limits, identity, user and region; figures already shown on resource pages are removed.
+- Open the panel at 80% of the screen height on every page instead of resizing between Summary and other pages.
+- Redesign the Application page: the app icon and name with version, bundle ID and running time, with CPU, Memory, GPU and Energy cards beside the title (below it on a narrow panel) and colored Reveal and Kill buttons; colored cards for disk, network, wakeups and processes. A live GPU chart joins the resource charts, and the charts fill the row. New cards:
+  - **CPU by process:** one bar per process in the style of the CPU page's core bars, with cores in use and share of the Mac.
+  - **GPU:** the app's driver-reported GPU time with device utilization.
+  - **About:** version, build, category, architectures, minimum macOS, agent or regular app, bundle and executable paths, main PID, start time, users and copyright, read from Info.plist without privileges.
+- Process pages of an application's process start with that application's header; its name opens the Application page.
+- Redesign the CPU page: a title with the processor and core layout and a load status badge; current usage beside load average, SoC temperature, fan speed (direct build), process and thread counts, and uptime; a User/System/Idle breakdown; per-core usage grouped by performance level, filling the card width; 1, 5 and 15 minute load averages as bars against the core count. The whole page now scrolls, so the process list is no longer squeezed under the chart.
+- The process list on the CPU, Memory, Network and Disk pages toggles between Apps (applications with their own icon) and All (adding system agents, helpers and background processes). CPU rows also show share of the whole Mac, a live average and thread counts.
+- Redesign the Memory, Network and Disk pages like the CPU page: a title with a summary and status, a stats row, the chart and cards.
+  - **Memory:** status from memory pressure; used, available, app, wired, compressed, swap and GPU memory; a composition bar; shaded bands on the chart for time at warning or critical pressure (live and history); a swap graph on the same time axis; share of the live window at each pressure level.
+  - **Network:** in and out with live-window peaks; interfaces with a routable address or traffic, busiest first, with their addresses (link-local-only tunnels are counted, not listed).
+  - **Disk:** read and write with peaks; bytes read and written since boot, per disk and in total; free space; a capacity bar per volume.
+- CPU page: a GPU stat (utilization, renderer, tiler, GPU memory) when the Mac reports it, and Energy and Wakeups columns. Click the CPU, Energy or Wakeups header to sort; Wakeups also works on 1h, 24h and 7d.
+- Process lists show column headers on every resource page, drop secondary columns when the panel is narrow, and mark background processes that run as another account (root, system daemons). Memory rows add share of RAM; Disk rows split read and write.
+- The Thermal State page lists fan speeds (direct build).
+- Row graphs on the CPU, Memory, Network and Disk pages fill the free width and share the main chart's time axis. Both show thin time guides at round local times (every 10-30 s live, 5 minutes over 1 hour, hourly over 24 hours, every 12 hours over 7 days); hovering a row graph shows the time and value.
+- Redesign Settings in the macOS System Settings layout: a sidebar of panes and grouped forms, with an info button for help and the live cost under each label.
+- Rename the Background Collection pane to Collection; it also covers sampling while the panel is open.
+- Show "Off" instead of "Unavailable" for per-process network rates when they are turned off.
+
+### Fixed
+
+- Avoid false baseline removals across differing startup/app inventory coverage, retain newly imported captures during pruning, tolerate unknown v1 fields, and preserve unaffected sections when a collector returns ambiguous identities.
+- Serialize scheduled drift checks across actor suspension, persist cadence per golden baseline, and suppress delivery after a scheduled check is disabled.
+
+- Disk names show the BSD name and model ("disk0 · APPLE SSD AP4096Z") instead of "IOBlockStorageDriver-<id>".
+
+## [0.7.0] - 2026-10-31
+
+### Added
+
+- Add a Docker page with containers grouped by Compose project, live statistics, published ports, images, volumes, networks, storage and engine details. Inspect objects and confirm Start, Stop, Restart, Pause or Resume actions (direct build).
+- Add Homebrew inventory, outdated packages, search/install, upgrades, user services and cleanup. Package actions include details, uninstall, reinstall, installed-file listing and formula pin/unpin, with confirmation and command-output retry on failure (direct build).
+- Add installed-app discovery in `/Applications` and `~/Applications`, searchable grid/list views, explicit size measurement and a volume-usage indicator. Confirmed multi-select uninstall moves eligible bundles to Trash, skips running, protected and alias-only apps, and keeps support files (direct build).
+- Add development-environment discovery for 26 languages and runtimes across system, Homebrew, version-manager and Python virtual environments, plus bounded project-folder scans and on-demand version, package and configuration inspection (direct build).
+- Add an AI-agent browser for configuration, logs, memory, skills, instructions, MCP servers, hooks, extensions and sessions, discovered from known local directories and inherited PATH (direct build).
+- Add a user-home browser for dotfiles, XDG configuration, preferences, application support, launch agents, containers and Library contents, with Finder reveal, file metadata and bounded text/XML plist previews (direct build).
+- Add Launch Context, Logs, Startup, Security and File Activity tabs to application and process pages. File Activity requests a five-second filesystem trace through the updated privileged helper (direct build).
+- Add live per-process and per-application receive/send rates with sparklines (direct build, live only).
+- Add a Previous page button backed by detail-page navigation history.
+
+### Changed
+
+- Bump the bundle version to 0.7.0 (build 7).
+- Support native menu-bar icons hosted by MenuBarAgent on macOS 27 through Accessibility discovery and shared-window capture; Accessibility is required for discovery. Earlier versions retain individual-window capture.
+- Sample per-process network rates every five seconds only while the panel is visible, independently of process-metric collection; discard stale results after visibility changes.
+- Collect Docker statistics only for Containers, cache inventory sections for one minute, and collect storage only on selection or explicit refresh with a five-minute cache. Homebrew services and cleanup/Cellar sizing load only for their selected sections.
+- Keep installed-app discovery cheap; measure sizes only on request, cache successful results for five minutes against bundle metadata, and label incomplete measurements.
+- Bound directory scans and bundle walks by entry/time budgets, cap runtime inspection text at 16 MB with least-recently-used eviction, and limit the application-icon cache.
+- Read file previews only on selection up to 1 MiB. Refuse binary plist decoding; reveal those files for opening in another app.
+
+### Fixed
+
+- Re-enable the privileged helper before bootstrap so a disabled launchd override does not break reinstallation.
+- Move hosted menu-bar Accessibility discovery off the main actor, prevent overlapping discovery and discard results after display or visibility changes.
+- Prefer real application bundles over symlink aliases and recheck running applications before each Trash operation.
+- Propagate cancellation into discovery and size-measurement workers, and avoid repeated runtime probes and directory-preview account lookups.
+
+### Security
+
+- Share a subprocess runner between the app and helper with independent stdout/stderr caps, nonblocking I/O, process-group termination, escalation and bounded cleanup after timeout or cancellation.
+- Cancel helper file-activity capture when its client disconnects and enforce an independent seven-second watchdog, while retaining PID/start-time validation and the 1 MiB returned-output limit.
+
+## [0.6.0] - 2026-10-30
+
+### Added
+
+- Add an Activity Timeline: persisted events for process starts and exits, new and closed listening ports, startup item changes, volume mounts, sleep and wake, power source, thermal and memory pressure changes, and network interface and address changes. Filter by range (15 minutes to 7 days), kind, or text; rows link to the live process. Optional outbound connection events are off by default.
+- Add a "What changed" card to Summary: events and peaks since the panel was last hidden (last hour as fallback), with a link to the timeline at that window.
+- Add event markers to History charts (up to 50, with an Events toggle) and an "Include activity events" export option: an `events` array in JSON, or an extra `-events.csv` file.
+- Show GPU utilization, memory pressure and swap on Summary and in System Details, and keep all three in history. Unavailable values read "Unavailable", never 0.
+- Collect per-process interrupt and package-idle wakeups: a sortable Wakeups column, separate rates in process detail, and a Wakeups metric in history. Wakeups count as activity for idle-row skipping.
+- Add process provenance: ancestry from launchd, origin, launchd job label (direct build), architecture, Rosetta translation, code signature (identifier, Team ID, certificate, hardened runtime, entitlements), quarantine, a bundled knowledge base of 37 well-known processes with safe-to-quit guidance, and an on-demand Gatekeeper check with a 30-second timeout (direct build). Signature, architecture and quarantine reads happen on demand and are cached for 5 minutes (200 entries).
+- Add a Flat/Tree toggle to the process list: a tree rooted at launchd, with synthetic nodes for exited parents and broken cycles.
+- Add Activity settings: event retention (1 to 30 days, default 7), outbound connection events, chart markers, and per-group Activity Timeline switches.
+- Add an application detail page: inventory merged across all of the application's processes, resource graphs, its timeline, and confirmed Terminate or Force Kill. Terminate asks a regular application to quit as the Dock does, so it can offer to save, and leaves its helpers to it; Force Kill sends SIGKILL. Only the processes shown at confirmation are touched, each start time is re-read right before acting so a reused pid is skipped, and Smack and pid 1 are never signaled.
+- Add on-demand profiling of one application process with `footprint`, `vmmap`, `heap`, `leaks` and `sample` (direct build): runs are sequential, time-limited, cancellable, capped at 16 MB of output, and summarized as highlights next to the full output. Heap and Leaks ask for confirmation before suspending the process. Full outputs share a 16 MB budget; older reports keep their highlights and release their text.
+- Read hardware temperature sensors (direct build) and show them on the thermal page; a thermal dot in the header replaces the Summary thermal card. Sensors are read only while the thermal page is open.
+- Add Resource Insight detail views for CPU, Memory, Network and Disk: a large live or historical (1h, 24h, 7d) chart above the heaviest processes, each with a live sparkline.
+- Add a pin button next to the traffic lights that keeps the panel in front and ignores mouse-away and outside-click dismissal until unpinned or closed.
+- Add a Storage Usage card in Settings measured from SQLite page accounting, with per-hour estimates on each collection row.
+- Add collection settings for process history on or off, top-N processes, per-minute process retention, and a background network sampling interval.
+- Add Clear Results to the storage explorer.
+- Report history save and maintenance failures per operation in a persistent banner; live monitoring continues.
+- Document Homebrew installation (`brew tap alvagante/tap` and `brew install --cask smack`) and update the tap cask version and checksum automatically on release when `HOMEBREW_TAP_TOKEN` is set.
+
+### Changed
+
+- History schema moves to version 4 (additive, migrated in place): an `events` table, a `metadata` table, and wakeup, GPU, pressure and swap columns. Process history vectors grow from four to eight lanes. Older builds ignore the new tables.
+- Events are pruned by retention and capped at 100,000 rows, in batches.
+- Bump the bundle version to 0.6.0 (build 6).
+- Process collection and snapshotting run in actors; stale, duplicate and cancelled snapshots are dropped before they touch rate counters.
+- The storage scanner uses a compact index tree and a descriptor-based walker instead of per-path dictionaries, cutting memory on large scans.
+- Hide native menu-bar items without a usable capture instead of showing duplicates or raw bundle identifiers.
+
+### Fixed
+
+- Fix IPv4 remote addresses in process inventory, which were read from the wrong bytes of the socket address union.
+- Restore idle-run state when a history transaction rolls back.
+- Prune cached inventories of exited processes.
+
+### Security
+
+- Neutralize spreadsheet formulas in CSV exports.
+- Hash files through the opened descriptor (non-blocking, regular files only) so a swapped path or FIFO cannot hang or redirect the hash.
+
+## [0.5.0] - 2026-10-29
+
+### Fixed
+
+- Show zero byte values as "0 bytes" instead of "Zero bytes" in memory, disk, and rate readouts.
+- Fix a storage-page rendering feedback loop that blocked the main thread, grew memory without bound, and prevented normal quit. Observe helper availability once in the model, and exercise the real event loop in regression tests.
+
+### Changed
+
+- Size the panel to its content: the Summary page uses a compact height (380 pt) and every other page the full height, with an animated resize that respects Reduce Motion. The minimum panel height drops from 390 to 340 pt.
+- Bump the bundle version to 0.5.0 (build 5).
+- Replace the System Details summary card with a Startup card; System Details moves to an info button in the header. The power button now matches the size of the other header buttons.
+
+### Added
+
+- Add a Startup page (direct build) listing Open at Login apps, app-registered background items, launch agents and daemons, user cron jobs, and read-only Apple items, with running PIDs, Background Task Management blocks, search, Google lookups, and per-item enable switches. The page opens with items visible without a password; Scan for All Items adds Open at Login apps and app background items from `sfltool dumpbtm`, which asks for an administrator password. Launchd items toggle with `launchctl enable`/`disable` (an administrator password for system daemons), Open at Login apps through System Events, and cron jobs by commenting the line; running processes are not stopped. Direct builds are signed with the Apple Events entitlement.
+- Add a storage explorer with a proportional directory map, folder drilldown, breadcrumbs, allocated sizes and recursive file counts. Scans default to home, run on demand with progress and cancellation, and offer startup-disk scanning with optional signed-helper administrator access and Full Disk Access guidance. The sandboxed build uses a folder picker.
+- Guarantee immediate disk synchronization of panel sound and preference changes across application terminations and restarts, and add prominent Quit application controls in both the main monitor navigation header (with power icon and ⌘Q) and the Settings Panel card.
+- Add configurable panel opening sounds in Settings, allowing users to choose between the default synthesized Smack sound, silence (None), or native macOS system alert sounds (Pop, Tink, Ping, Bottle, Purr, Submarine, etc.) with dynamic preview playback.
 
 ## [0.4.0] - 2026-10-28
 
@@ -53,6 +421,8 @@ Branch: feature/reduce-complexity | Commit: 38bc42f
 
 ### Changed
 
+- Keep a single Settings Quit button at the top of Privacy & Visibility, alongside the Panel card in the first row.
+- Show hover popups for the header History, Settings, and Quit buttons, and omit the system clock from captured menu-bar icons to avoid stale time displays.
 - Replace the `lsof` process with an in-process libproc socket scan for Network Ports, removing an external executable from both builds.
 - Compile the native menu-bar feature out of the App Store build; it needs private window-server APIs and Accessibility event forwarding.
 - Hide Network Ports in the App Store build because App Sandbox denies descriptor inspection, and mark memory, disk, and energy values unavailable where `proc_pid_rusage` is denied.

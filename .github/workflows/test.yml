@@ -13,13 +13,21 @@ concurrency:
 jobs:
   test:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Run tests
-        run: swift test
+        run: swift test --no-parallel
+
+      - name: Verify optimized spec 005 performance budgets
+        env:
+          SMACK_AGENT_BENCHMARK: "1"
+          SMACK_PERFORMANCE_BUDGETS: "1"
+        run: |
+          swift test -c release --filter devServerWarmCollectionMeasurementAndIdentityCache
+          swift test -c release --filter agentSteadyStateBenchmark
 
       - name: Compile the App Store flavor
         run: swift build -Xswiftc -DSMACK_APP_STORE --product Smack

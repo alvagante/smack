@@ -213,38 +213,57 @@ public enum InventorySampling {
     }
 
     private static func inspectThreads(pid: pid_t, budget: inout Budget, payload: inout InventoryPayload) {
-        guard budget.canContinue,
-              let identifiers = listProcessItems(
-                  pid: pid,
-                  flavor: PROC_PIDLISTTHREADS,
-                  maximumCount: maximumThreads,
-                  unavailablePrefix: "Thread inventory is unavailable",
-                  truncationWarning: "Only the first \(maximumThreads) threads were inspected.",
-                  payload: &payload,
-                  defaultValue: UInt64(0)
-              ) else { return }
+        guard budget.canContinue else { return }
+        let identifierSize = MemoryLayout<UInt64>.size
+        // Unlike PROC_PIDLISTFDS, PROC_PIDLISTTHREADS does not report its size for a nil buffer,
+        // so the buffer is sized from the task's thread count, with room for threads started since.
+        var task = proc_taskinfo()
+        let taskSize = Int32(MemoryLayout<proc_taskinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, taskSize) == taskSize else {
+            payload.warnings.append("Thread inventory is unavailable: \(errorDescription()).")
+            return
+        }
+        let reportedCount = Int(task.pti_threadnum)
+        guard reportedCount > 0 else { return }
 
-        payload.threads.reserveCapacity(identifiers.count)
+        let count = min(reportedCount + 16, maximumThreads)
+        var handles = [UInt64](repeating: 0, count: count)
+        let bufferSize = Int32(count * identifierSize)
+        let bytesRead = handles.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(pid, PROC_PIDLISTTHREADS, 0, buffer.baseAddress, bufferSize)
+        }
+        guard bytesRead > 0 else {
+            payload.warnings.append("Thread inventory is unavailable: \(errorDescription()).")
+            return
+        }
+        if reportedCount > maximumThreads {
+            payload.warnings.append("Only the first \(maximumThreads) threads were inspected.")
+        }
+
+        let actualCount = min(handles.count, Int(bytesRead) / identifierSize)
+        payload.threads.reserveCapacity(actualCount)
         var detailFailures = 0
-        for identifier in identifiers {
+        // PROC_PIDLISTTHREADS returns thread handles, which PROC_PIDTHREADINFO takes; PROC_PIDTHREADID64INFO wants thread IDs.
+        for identifier in handles.prefix(actualCount) {
             guard budget.canContinue else { return }
-            let result = readThreadRecord(pid: pid, identifier: identifier)
-            payload.threads.append(result.record)
-            if result.failed { detailFailures += 1 }
+            var information = proc_threadinfo()
+            let size = Int32(MemoryLayout<proc_threadinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTHREADINFO, identifier, &information, size) == size else {
+                payload.threads.append(ThreadRecord(id: identifier, name: nil))
+                detailFailures += 1
+                continue
+            }
+            let name = string(from: information.pth_name)
+            payload.threads.append(ThreadRecord(
+                id: identifier, name: name.isEmpty ? nil : name,
+                runState: information.pth_run_state,
+                userTime: information.pth_user_time, systemTime: information.pth_system_time,
+                cpuUsage: information.pth_cpu_usage, priority: information.pth_curpri, policy: information.pth_policy
+            ))
         }
         if detailFailures > 0 {
             payload.warnings.append("Names are unavailable for \(detailFailures) thread(s).")
         }
-    }
-
-    private static func readThreadRecord(pid: pid_t, identifier: UInt64) -> (record: ThreadRecord, failed: Bool) {
-        var information = proc_threadinfo()
-        let size = Int32(MemoryLayout<proc_threadinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTHREADID64INFO, identifier, &information, size) == size else {
-            return (ThreadRecord(id: identifier, name: nil), true)
-        }
-        let name = string(from: information.pth_name)
-        return (ThreadRecord(id: identifier, name: name.isEmpty ? nil : name), false)
     }
 
     private static func inspectMappedImages(pid: pid_t, budget: inout Budget, payload: inout InventoryPayload) {
@@ -369,11 +388,9 @@ public enum InventorySampling {
 
     private static func addressBytes<T>(from address: T, isIPv6: Bool) -> [UInt8] {
         withUnsafeBytes(of: address) { bytes in
-            if isIPv6 {
-                return Array(bytes.prefix(16))
-            }
+            // The address is a union; IPv4 lives in the last 4 bytes (after `i46a_pad32[3]`).
             guard bytes.count >= 16 else { return [] }
-            return Array(bytes[12..<16])
+            return Array(isIPv6 ? bytes.prefix(16) : bytes[12..<16])
         }
     }
 

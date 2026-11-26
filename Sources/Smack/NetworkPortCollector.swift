@@ -11,9 +11,9 @@ private struct ListenerClientKey: Hashable {
     let port: UInt16
 }
 
-/// Builds listening-port inventory without spawning `lsof`. The app uses the unprivileged
-/// path; the root helper supplies all-users records when superuser sampling is enabled.
-final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
+/// Builds TCP socket and listening-port inventory without spawning `lsof`. The app uses the
+/// unprivileged path; the root helper supplies all-users records when superuser sampling is enabled.
+final class NetworkPortCollector: NetworkPortCollecting {
     private let privileged: PrivilegedSamplingProviding?
 
     init(privileged: PrivilegedSamplingProviding? = nil) {
@@ -50,27 +50,41 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
                 return listeningPort(for: listener, clients: clientsByKey[key] ?? [])
             }
             .sorted(by: portOrder)
-        let warning = warningMessage(deniedProcessCount: deniedProcessCount, hasPorts: !ports.isEmpty)
-        return NetworkPortSnapshot(timestamp: timestamp, ports: ports, warning: warning)
+        let warning = warningMessage(deniedProcessCount: deniedProcessCount, hasPorts: !partitioned.connections.isEmpty)
+        return NetworkPortSnapshot(timestamp: timestamp, ports: ports, connections: partitioned.connections, warning: warning)
     }
 
     private static func partitionRecords(
         _ records: [SocketRecord]
     ) -> (
         listeners: [(record: SocketRecord, local: NetworkEndpoint)],
-        clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)]
+        clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)],
+        connections: [NetworkConnectionDetail]
     ) {
         var listeners: [(record: SocketRecord, local: NetworkEndpoint)] = []
         var clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)] = []
+        var connections: [NetworkConnectionDetail] = []
+
         for record in records {
             guard let local = endpoint(record.localAddress) else { continue }
+            connections.append(NetworkConnectionDetail(
+                id: "\(record.owner.pid)-\(record.descriptor)",
+                pid: record.owner.pid,
+                descriptor: record.descriptor,
+                processName: record.owner.name,
+                userName: record.owner.userName,
+                protocolName: "TCP",
+                localAddress: record.localAddress,
+                remoteAddress: record.remoteAddress,
+                state: record.state
+            ))
             if record.state == "LISTEN" {
                 listeners.append((record, local))
             } else if record.state == "ESTABLISHED", let remote = endpoint(record.remoteAddress) {
                 clients.append((record, local, remote))
             }
         }
-        return (listeners, clients)
+        return (listeners, clients, connections)
     }
 
     private static func portOrder(_ lhs: ListeningPort, _ rhs: ListeningPort) -> Bool {
@@ -89,9 +103,9 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
     ) -> String? {
         guard deniedProcessCount > 0, !hasPorts else { return nil }
         if isSandboxed {
-            return "Port inspection is limited by the App Sandbox; processes owned by other users are unavailable."
+            return "Network inspection is limited by the App Sandbox; processes owned by other users are unavailable."
         }
-        return "Port inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
+        return "Network inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
     }
 
     private static func listeningPort(

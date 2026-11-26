@@ -6,13 +6,16 @@ final class FormattingAndSoundTests: XCTestCase {
         let zeroExpected = "\(0.0.formatted(.number.precision(.fractionLength(2))))%"
         let lowExpected = "\(3.456.formatted(.number.precision(.fractionLength(2))))%"
         let highExpected = "\(12.34.formatted(.number.precision(.fractionLength(1))))%"
+        let byteFormatter = ByteCountFormatter()
+        byteFormatter.countStyle = .memory
+        byteFormatter.allowsNonnumericFormatting = false
         XCTAssertEqual(Formatting.percent(-5), zeroExpected)
         XCTAssertEqual(Formatting.percent(3.456), lowExpected)
         XCTAssertEqual(Formatting.percent(12.34), highExpected)
-        XCTAssertEqual(Formatting.bytes(0), ByteCountFormatter.string(fromByteCount: 0, countStyle: .memory))
-        XCTAssertEqual(Formatting.bytes(1_048_576), ByteCountFormatter.string(fromByteCount: 1_048_576, countStyle: .memory))
-        XCTAssertEqual(Formatting.rate(-10), ByteCountFormatter.string(fromByteCount: 0, countStyle: .memory) + "/s")
-        XCTAssertEqual(Formatting.rate(2_048), ByteCountFormatter.string(fromByteCount: 2_048, countStyle: .memory) + "/s")
+        XCTAssertEqual(Formatting.bytes(0), byteFormatter.string(fromByteCount: 0))
+        XCTAssertEqual(Formatting.bytes(1_048_576), byteFormatter.string(fromByteCount: 1_048_576))
+        XCTAssertEqual(Formatting.rate(-10), byteFormatter.string(fromByteCount: 0) + "/s")
+        XCTAssertEqual(Formatting.rate(2_048), byteFormatter.string(fromByteCount: 2_048) + "/s")
     }
 
     func testFormattingDurationBoundaries_N1() {

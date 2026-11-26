@@ -32,7 +32,7 @@ import Testing
 
     let localhost = snapshot.ports[1]
     #expect(localhost.scope == .localhost)
-    #expect(localhost.browserURL?.absoluteString == "http://[::1]:8443")
+    #expect(localhost.browserURL?.absoluteString == "https://[::1]:8443")
     #expect(localhost.clients[0].remoteAddress == "[::1]:5555")
 
     let external = snapshot.ports[2]
@@ -106,4 +106,95 @@ import Testing
     ])
     #expect(snapshot.ports.count == 1)
     #expect(snapshot.ports[0].clients.map(\.remotePort) == [41000])
+}
+
+@Test func capturesAllConnectionsAndGroupsThemByApplication() {
+    let browser = SocketOwnerRecord(pid: 100, name: "Browser", userName: "al")
+    let helper = SocketOwnerRecord(pid: 101, name: "Browser Helper", userName: "al")
+    let other = SocketOwnerRecord(pid: 200, name: "Other", userName: "al")
+    let snapshot = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: browser, descriptor: 3, localAddress: "127.0.0.1:8080", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: helper, descriptor: 4, localAddress: "192.0.2.10:53000", remoteAddress: "203.0.113.8:443", state: "ESTABLISHED"),
+        SocketRecord(owner: other, descriptor: 5, localAddress: "192.0.2.10:53001", remoteAddress: "203.0.113.9:443", state: "SYN_SENT"),
+        SocketRecord(owner: other, descriptor: 6, localAddress: "not-an-endpoint", remoteAddress: "—", state: "LISTEN")
+    ])
+
+    #expect(snapshot.totalConnectionCount == 3)
+    #expect(snapshot.connections.map(\.state) == ["LISTEN", "ESTABLISHED", "SYN_SENT"])
+
+    func process(pid: Int32, name: String) -> ProcessMetrics {
+        ProcessMetrics(
+            identity: ProcessIdentity(pid: pid, startTime: Date(timeIntervalSince1970: 1)),
+            name: name,
+            parentPID: nil,
+            bundleIdentifier: "example.browser",
+            executablePath: "/Applications/Browser.app/Contents/MacOS/\(name)",
+            userName: "al",
+            cpuUsage: 0,
+            memoryBytes: 0,
+            diskReadRate: 0,
+            diskWriteRate: 0,
+            energyImpact: nil,
+            threadCount: 1,
+            isApplication: true
+        )
+    }
+    let application = ApplicationMetrics(
+        id: "example.browser",
+        name: "Browser",
+        bundleIdentifier: "example.browser",
+        executablePath: "/Applications/Browser.app/Contents/MacOS/Browser",
+        processes: [process(pid: 100, name: "Browser"), process(pid: 101, name: "Browser Helper")]
+    )
+
+    let groups = snapshot.connectionGroups(applications: [application])
+    #expect(groups.map(\.name) == ["Browser", "Other"])
+    #expect(groups[0].id == "application-example.browser")
+    #expect(groups[0].connections.count == 2)
+    #expect(groups[1].connections.map(\.state) == ["SYN_SENT"])
+}
+
+@Test @MainActor func networkViewDefaultsToAllConnectionsExpanded() {
+    let model = NetworkPortsViewModel()
+    #expect(model.mode == .allConnections)
+    #expect(model.collapsedConnectionGroups.isEmpty)
+}
+
+@Test func listenersMayServeHTTPExceptWellKnownOtherProtocols() {
+    var listener = ListeningPort(id: "web", pid: 42, descriptor: 1, processName: "node",
+        protocolName: "TCP", localAddress: "*:3000", host: "*", port: 3000, clients: [])
+    #expect(listener.probeHost == "127.0.0.1")
+    #expect(listener.webURL(.http)?.absoluteString == "http://127.0.0.1:3000")
+    #expect(listener.webURL(.https)?.absoluteString == "https://127.0.0.1:3000")
+    // Tool-chosen ports may serve HTTP; only a probe tells, so they are candidates.
+    for port: UInt16 in [3000, 4182, 6006, 35729, 49374, 54323] {
+        listener.port = port
+        #expect(listener.mayServeHTTP)
+    }
+    for port: UInt16 in [22, 3306, 4317, 5432, 6379, 27017] {
+        listener.port = port
+        #expect(!listener.mayServeHTTP)
+    }
+    listener.host = "::1"
+    listener.port = 8443
+    #expect(listener.probeHost == "::1")
+    #expect(listener.webURL(.https)?.absoluteString == "https://[::1]:8443")
+    #expect(listener.probeKey != ListeningPort(id: "web", pid: 43, descriptor: 1, processName: "node", protocolName: "TCP",
+        localAddress: "[::1]:8443", host: "::1", port: 8443, clients: []).probeKey)
+    listener.port = 8080
+    listener.protocolName = "UDP"
+    #expect(!listener.mayServeHTTP)
+}
+
+@Test func connectionFiltersDistinguishEstablishedAndNetworkFacingListeners() {
+    let owner = SocketOwnerRecord(pid: 42, name: "server", userName: nil)
+    let snapshot = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: owner, descriptor: 1, localAddress: "127.0.0.1:80", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: owner, descriptor: 2, localAddress: "0.0.0.0:81", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: owner, descriptor: 3, localAddress: "192.0.2.1:1234", remoteAddress: "203.0.113.1:443", state: "ESTABLISHED"),
+        SocketRecord(owner: owner, descriptor: 4, localAddress: "192.0.2.1:1235", remoteAddress: "203.0.113.1:443", state: "SYN_SENT")
+    ])
+    #expect(snapshot.connections.filter { NetworkViewMode.active.matches($0) }.map(\.descriptor) == [3])
+    #expect(snapshot.ports.filter { NetworkViewMode.publicListening.matches($0) }.map(\.port) == [81])
+    #expect(snapshot.ports.filter { NetworkViewMode.listening.matches($0) }.count == 2)
 }

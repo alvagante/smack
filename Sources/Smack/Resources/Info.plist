@@ -13,10 +13,17 @@
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.3.1</string>
     <key>CFBundleVersion</key><string>16</string>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>it.lab42.smack.navigation</string>
+        <key>CFBundleURLSchemes</key><array><string>smack</string></array>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+    </dict></array>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>Smack asks System Events to add or remove apps that open at login, only when you change one in Startup.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSScreenCaptureUsageDescription</key><string>Smack shows your native Mac menu-bar icons, including items hidden by limited menu-bar space, only when you enable this feature.</string>
 </dict>

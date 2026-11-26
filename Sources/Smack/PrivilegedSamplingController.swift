@@ -160,6 +160,16 @@ final class PrivilegedSamplingController: ObservableObject {
         state = .legacy(installed: installed, current: LegacyHelperInstaller.isCurrent, responding: responding)
     }
 
+    func captureFileActivity(identity: ProcessIdentity) async -> FileActivityPayload? {
+        guard Capabilities.supportsPrivilegedSampling, case .running = state else { return nil }
+        return await client.captureFileActivity(pid: identity.pid, startTime: identity.startTime)
+    }
+
+    func queryUnifiedLog(window: DateInterval) async -> UnifiedLogPayload? {
+        guard case .running = state, let client = client as? any PrivilegedLogQuerying else { return nil }
+        return await client.queryUnifiedLog(start: window.start, end: window.end)
+    }
+
     static func terminalCommand(for action: HelperScriptAction) -> String {
         LegacyHelperInstaller.terminalCommand(for: action)
     }

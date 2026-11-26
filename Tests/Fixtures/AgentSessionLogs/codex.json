@@ -1,0 +1,3017 @@
+{
+  "agent": "codex",
+  "available": true,
+  "capturedAt": "2026-11-01T18:12:27.830213+00:00",
+  "entries": [
+    {
+      "kind": "directory",
+      "path": "2026"
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05"
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/13"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.704925+00:00",
+      "path": "2026/05/13/rollout-0001.jsonl",
+      "size": 341245
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.704925+00:00",
+      "path": "2026/05/13/rollout-0002.jsonl.zst",
+      "size": 53399
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.747267+00:00",
+      "path": "2026/05/13/rollout-0003.jsonl",
+      "size": 99552
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.747267+00:00",
+      "path": "2026/05/13/rollout-0004.jsonl.zst",
+      "size": 20506
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.800137+00:00",
+      "path": "2026/05/13/rollout-0005.jsonl",
+      "size": 158571
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.800137+00:00",
+      "path": "2026/05/13/rollout-0006.jsonl.zst",
+      "size": 29833
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.852191+00:00",
+      "path": "2026/05/13/rollout-0007.jsonl",
+      "size": 309744
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.852191+00:00",
+      "path": "2026/05/13/rollout-0008.jsonl.zst",
+      "size": 51564
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.905844+00:00",
+      "path": "2026/05/13/rollout-0009.jsonl",
+      "size": 123407
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.905844+00:00",
+      "path": "2026/05/13/rollout-0010.jsonl.zst",
+      "size": 25430
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.956451+00:00",
+      "path": "2026/05/13/rollout-0011.jsonl",
+      "size": 251600
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:48.956451+00:00",
+      "path": "2026/05/13/rollout-0012.jsonl.zst",
+      "size": 34755
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.008619+00:00",
+      "path": "2026/05/13/rollout-0013.jsonl",
+      "size": 24290
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.008619+00:00",
+      "path": "2026/05/13/rollout-0014.jsonl.zst",
+      "size": 9922
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.048000+00:00",
+      "path": "2026/05/13/rollout-0015.jsonl",
+      "size": 117440
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.048000+00:00",
+      "path": "2026/05/13/rollout-0016.jsonl.zst",
+      "size": 24152
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.103174+00:00",
+      "path": "2026/05/13/rollout-0017.jsonl",
+      "size": 273080
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.103174+00:00",
+      "path": "2026/05/13/rollout-0018.jsonl.zst",
+      "size": 41837
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.158697+00:00",
+      "path": "2026/05/13/rollout-0019.jsonl",
+      "size": 120233
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.158697+00:00",
+      "path": "2026/05/13/rollout-0020.jsonl.zst",
+      "size": 21124
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.212156+00:00",
+      "path": "2026/05/13/rollout-0021.jsonl",
+      "size": 25561
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.212156+00:00",
+      "path": "2026/05/13/rollout-0022.jsonl.zst",
+      "size": 10112
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.265759+00:00",
+      "path": "2026/05/13/rollout-0023.jsonl",
+      "size": 28135
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.265759+00:00",
+      "path": "2026/05/13/rollout-0024.jsonl.zst",
+      "size": 10389
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.324508+00:00",
+      "path": "2026/05/13/rollout-0025.jsonl",
+      "size": 25220
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.324508+00:00",
+      "path": "2026/05/13/rollout-0026.jsonl.zst",
+      "size": 10038
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.386070+00:00",
+      "path": "2026/05/13/rollout-0027.jsonl",
+      "size": 23404
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.386070+00:00",
+      "path": "2026/05/13/rollout-0028.jsonl.zst",
+      "size": 9820
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.449790+00:00",
+      "path": "2026/05/13/rollout-0029.jsonl",
+      "size": 56882
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.449790+00:00",
+      "path": "2026/05/13/rollout-0030.jsonl.zst",
+      "size": 13921
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.513655+00:00",
+      "path": "2026/05/13/rollout-0031.jsonl",
+      "size": 39181
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.513655+00:00",
+      "path": "2026/05/13/rollout-0032.jsonl.zst",
+      "size": 11881
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.566406+00:00",
+      "path": "2026/05/13/rollout-0033.jsonl",
+      "size": 80401
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.566406+00:00",
+      "path": "2026/05/13/rollout-0034.jsonl.zst",
+      "size": 15853
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.625694+00:00",
+      "path": "2026/05/13/rollout-0035.jsonl",
+      "size": 35960
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.625694+00:00",
+      "path": "2026/05/13/rollout-0036.jsonl.zst",
+      "size": 11669
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.681486+00:00",
+      "path": "2026/05/13/rollout-0037.jsonl",
+      "size": 67212
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.681486+00:00",
+      "path": "2026/05/13/rollout-0038.jsonl.zst",
+      "size": 14938
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.736330+00:00",
+      "path": "2026/05/13/rollout-0039.jsonl",
+      "size": 24160
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.736330+00:00",
+      "path": "2026/05/13/rollout-0040.jsonl.zst",
+      "size": 9844
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.784920+00:00",
+      "path": "2026/05/13/rollout-0041.jsonl",
+      "size": 25218
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.784920+00:00",
+      "path": "2026/05/13/rollout-0042.jsonl.zst",
+      "size": 9961
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.834466+00:00",
+      "path": "2026/05/13/rollout-0043.jsonl",
+      "size": 25976
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.834466+00:00",
+      "path": "2026/05/13/rollout-0044.jsonl.zst",
+      "size": 10109
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.926448+00:00",
+      "path": "2026/05/13/rollout-0045.jsonl",
+      "size": 25494
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.926448+00:00",
+      "path": "2026/05/13/rollout-0046.jsonl.zst",
+      "size": 10019
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.975796+00:00",
+      "path": "2026/05/13/rollout-0047.jsonl",
+      "size": 25502
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:49.975796+00:00",
+      "path": "2026/05/13/rollout-0048.jsonl.zst",
+      "size": 10024
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.037255+00:00",
+      "path": "2026/05/13/rollout-0049.jsonl",
+      "size": 24976
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.037255+00:00",
+      "path": "2026/05/13/rollout-0050.jsonl.zst",
+      "size": 9919
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.080225+00:00",
+      "path": "2026/05/13/rollout-0051.jsonl",
+      "size": 24826
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.080225+00:00",
+      "path": "2026/05/13/rollout-0052.jsonl.zst",
+      "size": 9883
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.124609+00:00",
+      "path": "2026/05/13/rollout-0053.jsonl",
+      "size": 25946
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.124609+00:00",
+      "path": "2026/05/13/rollout-0054.jsonl.zst",
+      "size": 9992
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.168898+00:00",
+      "path": "2026/05/13/rollout-0055.jsonl",
+      "size": 24158
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.168898+00:00",
+      "path": "2026/05/13/rollout-0056.jsonl.zst",
+      "size": 9819
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.218961+00:00",
+      "path": "2026/05/13/rollout-0057.jsonl",
+      "size": 378868
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.218961+00:00",
+      "path": "2026/05/13/rollout-0058.jsonl.zst",
+      "size": 53977
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:41:03.361491+00:00",
+      "path": "2026/05/13/rollout-0059.jsonl",
+      "size": 1009771
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:41:03.361491+00:00",
+      "path": "2026/05/13/rollout-0060.jsonl.zst",
+      "size": 210886
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.345496+00:00",
+      "path": "2026/05/13/rollout-0061.jsonl",
+      "size": 164079
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.345496+00:00",
+      "path": "2026/05/13/rollout-0062.jsonl.zst",
+      "size": 28119
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.404698+00:00",
+      "path": "2026/05/13/rollout-0063.jsonl",
+      "size": 40551
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.404698+00:00",
+      "path": "2026/05/13/rollout-0064.jsonl.zst",
+      "size": 12855
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.466583+00:00",
+      "path": "2026/05/13/rollout-0065.jsonl",
+      "size": 108706
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T06:46:50.466583+00:00",
+      "path": "2026/05/13/rollout-0066.jsonl.zst",
+      "size": 19981
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T08:57:38.231788+00:00",
+      "path": "2026/05/13/rollout-0067.jsonl",
+      "size": 586885
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T08:57:38.231788+00:00",
+      "path": "2026/05/13/rollout-0068.jsonl.zst",
+      "size": 153707
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T10:18:26.581576+00:00",
+      "path": "2026/05/13/rollout-0069.jsonl",
+      "size": 18282780
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T10:18:26.581576+00:00",
+      "path": "2026/05/13/rollout-0070.jsonl.zst",
+      "size": 8733898
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T07:03:40.723376+00:00",
+      "path": "2026/05/13/rollout-0071.jsonl",
+      "size": 22828
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T07:03:40.723376+00:00",
+      "path": "2026/05/13/rollout-0072.jsonl.zst",
+      "size": 9684
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T10:31:59.239456+00:00",
+      "path": "2026/05/13/rollout-0073.jsonl",
+      "size": 104309
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T10:31:59.239456+00:00",
+      "path": "2026/05/13/rollout-0074.jsonl.zst",
+      "size": 23881
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T21:39:08.228112+00:00",
+      "path": "2026/05/13/rollout-0075.jsonl",
+      "size": 51057
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-13T21:39:08.228112+00:00",
+      "path": "2026/05/13/rollout-0076.jsonl.zst",
+      "size": 18451
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/15"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-15T10:44:27.606730+00:00",
+      "path": "2026/05/15/rollout-0077.jsonl",
+      "size": 1727290
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-15T10:44:27.606730+00:00",
+      "path": "2026/05/15/rollout-0078.jsonl.zst",
+      "size": 317917
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T11:04:11.641292+00:00",
+      "path": "2026/05/15/rollout-0079.jsonl",
+      "size": 1348131
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T11:04:11.641292+00:00",
+      "path": "2026/05/15/rollout-0080.jsonl.zst",
+      "size": 255758
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-15T19:40:11.421582+00:00",
+      "path": "2026/05/15/rollout-0081.jsonl",
+      "size": 480123
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-15T19:40:11.421582+00:00",
+      "path": "2026/05/15/rollout-0082.jsonl.zst",
+      "size": 102028
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/16"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T19:30:00.813727+00:00",
+      "path": "2026/05/16/rollout-0083.jsonl",
+      "size": 124952
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T19:30:00.813727+00:00",
+      "path": "2026/05/16/rollout-0084.jsonl.zst",
+      "size": 30241
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T19:48:12.719343+00:00",
+      "path": "2026/05/16/rollout-0085.jsonl",
+      "size": 110881
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-16T19:48:12.719343+00:00",
+      "path": "2026/05/16/rollout-0086.jsonl.zst",
+      "size": 25584
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/19"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-19T06:48:33.443080+00:00",
+      "path": "2026/05/19/rollout-0087.jsonl",
+      "size": 196485
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-19T06:48:33.443080+00:00",
+      "path": "2026/05/19/rollout-0088.jsonl.zst",
+      "size": 59583
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/20"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-20T06:07:48.290816+00:00",
+      "path": "2026/05/20/rollout-0089.jsonl",
+      "size": 3462857
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-20T06:07:48.290816+00:00",
+      "path": "2026/05/20/rollout-0090.jsonl.zst",
+      "size": 836958
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-20T19:04:08.508943+00:00",
+      "path": "2026/05/20/rollout-0091.jsonl",
+      "size": 4129615
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-20T19:04:08.508943+00:00",
+      "path": "2026/05/20/rollout-0092.jsonl.zst",
+      "size": 819151
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/22"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T22:44:39.493411+00:00",
+      "path": "2026/05/22/rollout-0093.jsonl",
+      "size": 1082351
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T22:44:39.493411+00:00",
+      "path": "2026/05/22/rollout-0094.jsonl.zst",
+      "size": 175664
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T20:32:01.514955+00:00",
+      "path": "2026/05/22/rollout-0095.jsonl",
+      "size": 627084
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T20:32:01.514955+00:00",
+      "path": "2026/05/22/rollout-0096.jsonl.zst",
+      "size": 141501
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T20:40:23.992664+00:00",
+      "path": "2026/05/22/rollout-0097.jsonl",
+      "size": 68589
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T20:40:23.992664+00:00",
+      "path": "2026/05/22/rollout-0098.jsonl.zst",
+      "size": 25534
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T21:10:23.804205+00:00",
+      "path": "2026/05/22/rollout-0099.jsonl",
+      "size": 527274
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-22T21:10:23.804205+00:00",
+      "path": "2026/05/22/rollout-0100.jsonl.zst",
+      "size": 126437
+    },
+    {
+      "kind": "directory",
+      "path": "2026/05/31"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-31T06:47:01.121176+00:00",
+      "path": "2026/05/31/rollout-0101.jsonl",
+      "size": 108379
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-31T06:47:01.121176+00:00",
+      "path": "2026/05/31/rollout-0102.jsonl.zst",
+      "size": 28229
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-31T07:02:21.676116+00:00",
+      "path": "2026/05/31/rollout-0103.jsonl",
+      "size": 658576
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-05-31T07:02:21.676116+00:00",
+      "path": "2026/05/31/rollout-0104.jsonl.zst",
+      "size": 168170
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06"
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/07"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-08T09:07:07.182825+00:00",
+      "path": "2026/06/07/rollout-0105.jsonl",
+      "size": 1456365
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-08T09:07:07.182825+00:00",
+      "path": "2026/06/07/rollout-0106.jsonl.zst",
+      "size": 305440
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-08T09:07:01.383927+00:00",
+      "path": "2026/06/07/rollout-0107.jsonl",
+      "size": 802729
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-08T09:07:01.383927+00:00",
+      "path": "2026/06/07/rollout-0108.jsonl.zst",
+      "size": 96606
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/10"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T16:27:08.501030+00:00",
+      "path": "2026/06/10/rollout-0109.jsonl",
+      "size": 482033
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T16:27:08.501030+00:00",
+      "path": "2026/06/10/rollout-0110.jsonl.zst",
+      "size": 100652
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/11"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T22:42:02.092247+00:00",
+      "path": "2026/06/11/rollout-0111.jsonl",
+      "size": 118498
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T22:42:02.092247+00:00",
+      "path": "2026/06/11/rollout-0112.jsonl.zst",
+      "size": 37361
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T22:41:55.196419+00:00",
+      "path": "2026/06/11/rollout-0113.jsonl",
+      "size": 46784
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-10T22:41:55.196419+00:00",
+      "path": "2026/06/11/rollout-0114.jsonl.zst",
+      "size": 16656
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-11T10:14:41.032075+00:00",
+      "path": "2026/06/11/rollout-0115.jsonl",
+      "size": 359406
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-11T10:14:41.032075+00:00",
+      "path": "2026/06/11/rollout-0116.jsonl.zst",
+      "size": 111643
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/12"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-12T20:27:05.027993+00:00",
+      "path": "2026/06/12/rollout-0117.jsonl",
+      "size": 364720
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-12T20:27:05.027993+00:00",
+      "path": "2026/06/12/rollout-0118.jsonl.zst",
+      "size": 108201
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/16"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-16T14:30:10.595124+00:00",
+      "path": "2026/06/16/rollout-0119.jsonl",
+      "size": 49956
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-16T14:30:10.595124+00:00",
+      "path": "2026/06/16/rollout-0120.jsonl.zst",
+      "size": 19859
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-16T15:57:04.797270+00:00",
+      "path": "2026/06/16/rollout-0121.jsonl",
+      "size": 311426
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-16T15:57:04.797270+00:00",
+      "path": "2026/06/16/rollout-0122.jsonl.zst",
+      "size": 93576
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T06:34:42.407523+00:00",
+      "path": "2026/06/16/rollout-0123.jsonl",
+      "size": 3607129
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T06:34:42.407523+00:00",
+      "path": "2026/06/16/rollout-0124.jsonl.zst",
+      "size": 726128
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/17"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T07:51:37.704614+00:00",
+      "path": "2026/06/17/rollout-0125.jsonl",
+      "size": 1524829
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T07:51:37.704614+00:00",
+      "path": "2026/06/17/rollout-0126.jsonl.zst",
+      "size": 341691
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T07:51:26.391606+00:00",
+      "path": "2026/06/17/rollout-0127.jsonl",
+      "size": 61717
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T07:51:26.391606+00:00",
+      "path": "2026/06/17/rollout-0128.jsonl.zst",
+      "size": 16573
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T08:19:15.987851+00:00",
+      "path": "2026/06/17/rollout-0129.jsonl",
+      "size": 745091
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T08:19:15.987851+00:00",
+      "path": "2026/06/17/rollout-0130.jsonl.zst",
+      "size": 140535
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T09:10:47.960681+00:00",
+      "path": "2026/06/17/rollout-0131.jsonl",
+      "size": 672266
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T09:10:47.960681+00:00",
+      "path": "2026/06/17/rollout-0132.jsonl.zst",
+      "size": 154462
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T19:57:07.344059+00:00",
+      "path": "2026/06/17/rollout-0133.jsonl",
+      "size": 1281771
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T19:57:07.344059+00:00",
+      "path": "2026/06/17/rollout-0134.jsonl.zst",
+      "size": 214371
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:59:53.454841+00:00",
+      "path": "2026/06/17/rollout-0135.jsonl",
+      "size": 1428527
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:59:53.454841+00:00",
+      "path": "2026/06/17/rollout-0136.jsonl.zst",
+      "size": 260094
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T21:00:53.759712+00:00",
+      "path": "2026/06/17/rollout-0137.jsonl",
+      "size": 1844972
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T21:00:53.759712+00:00",
+      "path": "2026/06/17/rollout-0138.jsonl.zst",
+      "size": 299119
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:59:33.912917+00:00",
+      "path": "2026/06/17/rollout-0139.jsonl",
+      "size": 164771
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:59:33.912917+00:00",
+      "path": "2026/06/17/rollout-0140.jsonl.zst",
+      "size": 25170
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:27:22.836122+00:00",
+      "path": "2026/06/17/rollout-0141.jsonl",
+      "size": 254000
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T20:27:22.836122+00:00",
+      "path": "2026/06/17/rollout-0142.jsonl.zst",
+      "size": 38425
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T22:02:09.412874+00:00",
+      "path": "2026/06/17/rollout-0143.jsonl",
+      "size": 887416
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T22:02:09.412874+00:00",
+      "path": "2026/06/17/rollout-0144.jsonl.zst",
+      "size": 183252
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T22:02:03.117387+00:00",
+      "path": "2026/06/17/rollout-0145.jsonl",
+      "size": 161781
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-17T22:02:03.117387+00:00",
+      "path": "2026/06/17/rollout-0146.jsonl.zst",
+      "size": 29414
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/19"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-19T09:33:00.907103+00:00",
+      "path": "2026/06/19/rollout-0147.jsonl",
+      "size": 1218689
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-19T09:33:00.907103+00:00",
+      "path": "2026/06/19/rollout-0148.jsonl.zst",
+      "size": 276556
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-19T09:32:44.214006+00:00",
+      "path": "2026/06/19/rollout-0149.jsonl",
+      "size": 308898
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-19T09:32:44.214006+00:00",
+      "path": "2026/06/19/rollout-0150.jsonl.zst",
+      "size": 46533
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/21"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T16:05:14.072999+00:00",
+      "path": "2026/06/21/rollout-0151.jsonl",
+      "size": 606969
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T16:05:14.072999+00:00",
+      "path": "2026/06/21/rollout-0152.jsonl.zst",
+      "size": 155647
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T16:05:03.720632+00:00",
+      "path": "2026/06/21/rollout-0153.jsonl",
+      "size": 74237
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T16:05:03.720632+00:00",
+      "path": "2026/06/21/rollout-0154.jsonl.zst",
+      "size": 17256
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T19:10:11.632962+00:00",
+      "path": "2026/06/21/rollout-0155.jsonl",
+      "size": 793499
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T19:10:11.632962+00:00",
+      "path": "2026/06/21/rollout-0156.jsonl.zst",
+      "size": 186837
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T19:10:01.033957+00:00",
+      "path": "2026/06/21/rollout-0157.jsonl",
+      "size": 83585
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T19:10:01.033957+00:00",
+      "path": "2026/06/21/rollout-0158.jsonl.zst",
+      "size": 16411
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T20:48:43.689853+00:00",
+      "path": "2026/06/21/rollout-0159.jsonl",
+      "size": 1299915
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-21T20:48:43.689853+00:00",
+      "path": "2026/06/21/rollout-0160.jsonl.zst",
+      "size": 182942
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/22"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T05:46:01.986864+00:00",
+      "path": "2026/06/22/rollout-0161.jsonl",
+      "size": 149047
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T05:46:01.986864+00:00",
+      "path": "2026/06/22/rollout-0162.jsonl.zst",
+      "size": 49090
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T06:55:00.116807+00:00",
+      "path": "2026/06/22/rollout-0163.jsonl",
+      "size": 401694
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T06:55:00.116807+00:00",
+      "path": "2026/06/22/rollout-0164.jsonl.zst",
+      "size": 126003
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T06:54:31.438186+00:00",
+      "path": "2026/06/22/rollout-0165.jsonl",
+      "size": 496144
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T06:54:31.438186+00:00",
+      "path": "2026/06/22/rollout-0166.jsonl.zst",
+      "size": 46673
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:35:54.656710+00:00",
+      "path": "2026/06/22/rollout-0167.jsonl",
+      "size": 914628
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:35:54.656710+00:00",
+      "path": "2026/06/22/rollout-0168.jsonl.zst",
+      "size": 174939
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:35:51.495597+00:00",
+      "path": "2026/06/22/rollout-0169.jsonl",
+      "size": 213352
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:35:51.495597+00:00",
+      "path": "2026/06/22/rollout-0170.jsonl.zst",
+      "size": 36906
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T06:24:36.281497+00:00",
+      "path": "2026/06/22/rollout-0171.jsonl",
+      "size": 996063
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T06:24:36.281497+00:00",
+      "path": "2026/06/22/rollout-0172.jsonl.zst",
+      "size": 207865
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:00:29.701979+00:00",
+      "path": "2026/06/22/rollout-0173.jsonl",
+      "size": 472998
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T20:00:29.701979+00:00",
+      "path": "2026/06/22/rollout-0174.jsonl.zst",
+      "size": 67932
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:12:52.326638+00:00",
+      "path": "2026/06/22/rollout-0175.jsonl",
+      "size": 442207
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:12:52.326638+00:00",
+      "path": "2026/06/22/rollout-0176.jsonl.zst",
+      "size": 102455
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:12:45.992785+00:00",
+      "path": "2026/06/22/rollout-0177.jsonl",
+      "size": 359742
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:12:45.992785+00:00",
+      "path": "2026/06/22/rollout-0178.jsonl.zst",
+      "size": 44975
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:44:10.313324+00:00",
+      "path": "2026/06/22/rollout-0179.jsonl",
+      "size": 1521560
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-22T21:44:10.313324+00:00",
+      "path": "2026/06/22/rollout-0180.jsonl.zst",
+      "size": 538561
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/23"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T06:24:09.871956+00:00",
+      "path": "2026/06/23/rollout-0181.jsonl",
+      "size": 151642
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T06:24:09.871956+00:00",
+      "path": "2026/06/23/rollout-0182.jsonl.zst",
+      "size": 28416
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T15:58:41.389179+00:00",
+      "path": "2026/06/23/rollout-0183.jsonl",
+      "size": 791640
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T15:58:41.389179+00:00",
+      "path": "2026/06/23/rollout-0184.jsonl.zst",
+      "size": 152501
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T15:58:08.869295+00:00",
+      "path": "2026/06/23/rollout-0185.jsonl",
+      "size": 273867
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T15:58:08.869295+00:00",
+      "path": "2026/06/23/rollout-0186.jsonl.zst",
+      "size": 34407
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T16:37:38.197145+00:00",
+      "path": "2026/06/23/rollout-0187.jsonl",
+      "size": 954143
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T16:37:38.197145+00:00",
+      "path": "2026/06/23/rollout-0188.jsonl.zst",
+      "size": 201999
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T16:37:03.992964+00:00",
+      "path": "2026/06/23/rollout-0189.jsonl",
+      "size": 905351
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-23T16:37:03.992964+00:00",
+      "path": "2026/06/23/rollout-0190.jsonl.zst",
+      "size": 83495
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:48:28.596071+00:00",
+      "path": "2026/06/23/rollout-0191.jsonl",
+      "size": 10309480
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:48:28.596071+00:00",
+      "path": "2026/06/23/rollout-0192.jsonl.zst",
+      "size": 6345218
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:46:49.338351+00:00",
+      "path": "2026/06/23/rollout-0193.jsonl",
+      "size": 725614
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:46:49.338351+00:00",
+      "path": "2026/06/23/rollout-0194.jsonl.zst",
+      "size": 85245
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/24"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T05:39:17.773194+00:00",
+      "path": "2026/06/24/rollout-0195.jsonl",
+      "size": 676652
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T05:39:17.773194+00:00",
+      "path": "2026/06/24/rollout-0196.jsonl.zst",
+      "size": 170255
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:18:09.642123+00:00",
+      "path": "2026/06/24/rollout-0197.jsonl",
+      "size": 710033
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:18:09.642123+00:00",
+      "path": "2026/06/24/rollout-0198.jsonl.zst",
+      "size": 161471
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:16:06.339181+00:00",
+      "path": "2026/06/24/rollout-0199.jsonl",
+      "size": 97797
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T06:16:06.339181+00:00",
+      "path": "2026/06/24/rollout-0200.jsonl.zst",
+      "size": 22588
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T10:29:10.280366+00:00",
+      "path": "2026/06/24/rollout-0201.jsonl",
+      "size": 238192
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T10:29:10.280366+00:00",
+      "path": "2026/06/24/rollout-0202.jsonl.zst",
+      "size": 67294
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T17:12:49.335441+00:00",
+      "path": "2026/06/24/rollout-0203.jsonl",
+      "size": 9601089
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T17:12:49.335441+00:00",
+      "path": "2026/06/24/rollout-0204.jsonl.zst",
+      "size": 6707658
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T13:01:21.652745+00:00",
+      "path": "2026/06/24/rollout-0205.jsonl",
+      "size": 241828
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-24T13:01:21.652745+00:00",
+      "path": "2026/06/24/rollout-0206.jsonl.zst",
+      "size": 40283
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/25"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T06:09:56.189968+00:00",
+      "path": "2026/06/25/rollout-0207.jsonl",
+      "size": 570666
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T06:09:56.189968+00:00",
+      "path": "2026/06/25/rollout-0208.jsonl.zst",
+      "size": 155457
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T06:09:38.896232+00:00",
+      "path": "2026/06/25/rollout-0209.jsonl",
+      "size": 297262
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T06:09:38.896232+00:00",
+      "path": "2026/06/25/rollout-0210.jsonl.zst",
+      "size": 42931
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T13:17:28.537979+00:00",
+      "path": "2026/06/25/rollout-0211.jsonl",
+      "size": 370689
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T13:17:28.537979+00:00",
+      "path": "2026/06/25/rollout-0212.jsonl.zst",
+      "size": 91513
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T13:14:08.157826+00:00",
+      "path": "2026/06/25/rollout-0213.jsonl",
+      "size": 39016
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-25T13:14:08.157826+00:00",
+      "path": "2026/06/25/rollout-0214.jsonl.zst",
+      "size": 13336
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/26"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-29T22:30:08.626569+00:00",
+      "path": "2026/06/26/rollout-0215.jsonl",
+      "size": 620122
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-06-29T22:30:08.626569+00:00",
+      "path": "2026/06/26/rollout-0216.jsonl.zst",
+      "size": 370899
+    },
+    {
+      "kind": "directory",
+      "path": "2026/06/30"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T08:41:48.435577+00:00",
+      "path": "2026/06/30/rollout-0217.jsonl",
+      "size": 3664840
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T08:41:48.435577+00:00",
+      "path": "2026/06/30/rollout-0218.jsonl.zst",
+      "size": 602588
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07"
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/01"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T16:59:15.304545+00:00",
+      "path": "2026/07/01/rollout-0219.jsonl",
+      "size": 850584
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T16:59:15.304545+00:00",
+      "path": "2026/07/01/rollout-0220.jsonl.zst",
+      "size": 191074
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T16:44:30.964473+00:00",
+      "path": "2026/07/01/rollout-0221.jsonl",
+      "size": 306414
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-01T16:44:30.964473+00:00",
+      "path": "2026/07/01/rollout-0222.jsonl.zst",
+      "size": 43929
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/06"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:38:56.423345+00:00",
+      "path": "2026/07/06/rollout-0223.jsonl",
+      "size": 656865
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:38:56.423345+00:00",
+      "path": "2026/07/06/rollout-0224.jsonl.zst",
+      "size": 92768
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:35:50.146351+00:00",
+      "path": "2026/07/06/rollout-0225.jsonl",
+      "size": 382207
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T08:35:50.146351+00:00",
+      "path": "2026/07/06/rollout-0226.jsonl.zst",
+      "size": 111280
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T20:21:38.325771+00:00",
+      "path": "2026/07/06/rollout-0227.jsonl",
+      "size": 1531679
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T20:21:38.325771+00:00",
+      "path": "2026/07/06/rollout-0228.jsonl.zst",
+      "size": 429802
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T21:35:25.461095+00:00",
+      "path": "2026/07/06/rollout-0229.jsonl",
+      "size": 95152
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-06T21:35:25.461095+00:00",
+      "path": "2026/07/06/rollout-0230.jsonl.zst",
+      "size": 31869
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/09"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T10:23:40.484582+00:00",
+      "path": "2026/07/09/rollout-0231.jsonl",
+      "size": 568354
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T10:23:40.484582+00:00",
+      "path": "2026/07/09/rollout-0232.jsonl.zst",
+      "size": 129087
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T10:42:49.535507+00:00",
+      "path": "2026/07/09/rollout-0233.jsonl",
+      "size": 325502
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T10:42:49.535507+00:00",
+      "path": "2026/07/09/rollout-0234.jsonl.zst",
+      "size": 78073
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T17:26:42.768733+00:00",
+      "path": "2026/07/09/rollout-0235.jsonl",
+      "size": 739331
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-09T17:26:42.768733+00:00",
+      "path": "2026/07/09/rollout-0236.jsonl.zst",
+      "size": 134618
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/10"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:16:47.021087+00:00",
+      "path": "2026/07/10/rollout-0237.jsonl",
+      "size": 19135836
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:16:47.021087+00:00",
+      "path": "2026/07/10/rollout-0238.jsonl.zst",
+      "size": 6824796
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T04:52:37.237953+00:00",
+      "path": "2026/07/10/rollout-0239.jsonl",
+      "size": 393439
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T04:52:37.237953+00:00",
+      "path": "2026/07/10/rollout-0240.jsonl.zst",
+      "size": 55455
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:15:25.964879+00:00",
+      "path": "2026/07/10/rollout-0241.jsonl",
+      "size": 893762
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:15:25.964879+00:00",
+      "path": "2026/07/10/rollout-0242.jsonl.zst",
+      "size": 115513
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:15:22.984992+00:00",
+      "path": "2026/07/10/rollout-0243.jsonl",
+      "size": 504552
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T06:15:22.984992+00:00",
+      "path": "2026/07/10/rollout-0244.jsonl.zst",
+      "size": 282358
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T13:18:56.076006+00:00",
+      "path": "2026/07/10/rollout-0245.jsonl",
+      "size": 3415221
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T13:18:56.076006+00:00",
+      "path": "2026/07/10/rollout-0246.jsonl.zst",
+      "size": 2137570
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T13:18:02.510280+00:00",
+      "path": "2026/07/10/rollout-0247.jsonl",
+      "size": 420521
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-10T13:18:02.510280+00:00",
+      "path": "2026/07/10/rollout-0248.jsonl.zst",
+      "size": 57363
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/11"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:39:00.269067+00:00",
+      "path": "2026/07/11/rollout-0249.jsonl",
+      "size": 1078867
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:39:00.269067+00:00",
+      "path": "2026/07/11/rollout-0250.jsonl.zst",
+      "size": 274410
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:37:32.008753+00:00",
+      "path": "2026/07/11/rollout-0251.jsonl",
+      "size": 106866
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:37:32.008753+00:00",
+      "path": "2026/07/11/rollout-0252.jsonl.zst",
+      "size": 25451
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:47:46.567430+00:00",
+      "path": "2026/07/11/rollout-0253.jsonl",
+      "size": 1530058
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:47:46.567430+00:00",
+      "path": "2026/07/11/rollout-0254.jsonl.zst",
+      "size": 418542
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:46:03.620652+00:00",
+      "path": "2026/07/11/rollout-0255.jsonl",
+      "size": 222616
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T05:46:03.620652+00:00",
+      "path": "2026/07/11/rollout-0256.jsonl.zst",
+      "size": 42083
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T06:58:17.860204+00:00",
+      "path": "2026/07/11/rollout-0257.jsonl",
+      "size": 2189994
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T06:58:17.860204+00:00",
+      "path": "2026/07/11/rollout-0258.jsonl.zst",
+      "size": 1155051
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T06:29:18.700428+00:00",
+      "path": "2026/07/11/rollout-0259.jsonl",
+      "size": 139067
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-11T06:29:18.700428+00:00",
+      "path": "2026/07/11/rollout-0260.jsonl.zst",
+      "size": 28330
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/12"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T08:46:47.109816+00:00",
+      "path": "2026/07/12/rollout-0261.jsonl",
+      "size": 1060508
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T08:46:47.109816+00:00",
+      "path": "2026/07/12/rollout-0262.jsonl.zst",
+      "size": 179044
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T08:21:21.053331+00:00",
+      "path": "2026/07/12/rollout-0263.jsonl",
+      "size": 146233
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T08:21:21.053331+00:00",
+      "path": "2026/07/12/rollout-0264.jsonl.zst",
+      "size": 28335
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:02:39.237096+00:00",
+      "path": "2026/07/12/rollout-0265.jsonl",
+      "size": 2128291
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:02:39.237096+00:00",
+      "path": "2026/07/12/rollout-0266.jsonl.zst",
+      "size": 310345
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:02:27.144688+00:00",
+      "path": "2026/07/12/rollout-0267.jsonl",
+      "size": 745504
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:02:27.144688+00:00",
+      "path": "2026/07/12/rollout-0268.jsonl.zst",
+      "size": 90713
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:30:32.403480+00:00",
+      "path": "2026/07/12/rollout-0269.jsonl",
+      "size": 652788
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:30:32.403480+00:00",
+      "path": "2026/07/12/rollout-0270.jsonl.zst",
+      "size": 110391
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:21:16.619604+00:00",
+      "path": "2026/07/12/rollout-0271.jsonl",
+      "size": 123280
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:21:16.619604+00:00",
+      "path": "2026/07/12/rollout-0272.jsonl.zst",
+      "size": 23763
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:41:45.096820+00:00",
+      "path": "2026/07/12/rollout-0273.jsonl",
+      "size": 644821
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:41:45.096820+00:00",
+      "path": "2026/07/12/rollout-0274.jsonl.zst",
+      "size": 154517
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:41:03.707189+00:00",
+      "path": "2026/07/12/rollout-0275.jsonl",
+      "size": 402486
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:41:03.707189+00:00",
+      "path": "2026/07/12/rollout-0276.jsonl.zst",
+      "size": 55526
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:43:41.377475+00:00",
+      "path": "2026/07/12/rollout-0277.jsonl",
+      "size": 168573
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T10:43:41.377475+00:00",
+      "path": "2026/07/12/rollout-0278.jsonl.zst",
+      "size": 46900
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T14:18:47.639213+00:00",
+      "path": "2026/07/12/rollout-0279.jsonl",
+      "size": 755941
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T14:18:47.639213+00:00",
+      "path": "2026/07/12/rollout-0280.jsonl.zst",
+      "size": 60951
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T17:15:06.011252+00:00",
+      "path": "2026/07/12/rollout-0281.jsonl",
+      "size": 1269107
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T17:15:06.011252+00:00",
+      "path": "2026/07/12/rollout-0282.jsonl.zst",
+      "size": 367174
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T16:56:29.839294+00:00",
+      "path": "2026/07/12/rollout-0283.jsonl",
+      "size": 287433
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T16:56:29.839294+00:00",
+      "path": "2026/07/12/rollout-0284.jsonl.zst",
+      "size": 52495
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T20:48:30.700280+00:00",
+      "path": "2026/07/12/rollout-0285.jsonl",
+      "size": 638395
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T20:48:30.700280+00:00",
+      "path": "2026/07/12/rollout-0286.jsonl.zst",
+      "size": 168899
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T20:48:10.297637+00:00",
+      "path": "2026/07/12/rollout-0287.jsonl",
+      "size": 132869
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-12T20:48:10.297637+00:00",
+      "path": "2026/07/12/rollout-0288.jsonl.zst",
+      "size": 26238
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/13"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T08:02:38.449369+00:00",
+      "path": "2026/07/13/rollout-0289.jsonl",
+      "size": 387024
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T08:02:38.449369+00:00",
+      "path": "2026/07/13/rollout-0290.jsonl.zst",
+      "size": 78268
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T08:02:10.595475+00:00",
+      "path": "2026/07/13/rollout-0291.jsonl",
+      "size": 102230
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T08:02:10.595475+00:00",
+      "path": "2026/07/13/rollout-0292.jsonl.zst",
+      "size": 22038
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:38:02.551031+00:00",
+      "path": "2026/07/13/rollout-0293.jsonl",
+      "size": 3954024
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:38:02.551031+00:00",
+      "path": "2026/07/13/rollout-0294.jsonl.zst",
+      "size": 786485
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:19:46.879105+00:00",
+      "path": "2026/07/13/rollout-0295.jsonl",
+      "size": 521931
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:19:46.879105+00:00",
+      "path": "2026/07/13/rollout-0296.jsonl.zst",
+      "size": 73657
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:37:24.379708+00:00",
+      "path": "2026/07/13/rollout-0297.jsonl",
+      "size": 133604
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T13:37:24.379708+00:00",
+      "path": "2026/07/13/rollout-0298.jsonl.zst",
+      "size": 25877
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:25:48.427242+00:00",
+      "path": "2026/07/13/rollout-0299.jsonl",
+      "size": 723088
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:25:48.427242+00:00",
+      "path": "2026/07/13/rollout-0300.jsonl.zst",
+      "size": 130872
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:07:45.850964+00:00",
+      "path": "2026/07/13/rollout-0301.jsonl",
+      "size": 84107
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:07:45.850964+00:00",
+      "path": "2026/07/13/rollout-0302.jsonl.zst",
+      "size": 19758
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:21:13.309248+00:00",
+      "path": "2026/07/13/rollout-0303.jsonl",
+      "size": 253342
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T14:21:13.309248+00:00",
+      "path": "2026/07/13/rollout-0304.jsonl.zst",
+      "size": 28894
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:32:40.473317+00:00",
+      "path": "2026/07/13/rollout-0305.jsonl",
+      "size": 3101066
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:32:40.473317+00:00",
+      "path": "2026/07/13/rollout-0306.jsonl.zst",
+      "size": 714852
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:30:39.912619+00:00",
+      "path": "2026/07/13/rollout-0307.jsonl",
+      "size": 184452
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:30:39.912619+00:00",
+      "path": "2026/07/13/rollout-0308.jsonl.zst",
+      "size": 31672
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:34:58.624398+00:00",
+      "path": "2026/07/13/rollout-0309.jsonl",
+      "size": 26174274
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:34:58.624398+00:00",
+      "path": "2026/07/13/rollout-0310.jsonl.zst",
+      "size": 13837301
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:42:24.238720+00:00",
+      "path": "2026/07/13/rollout-0311.jsonl",
+      "size": 181714
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T17:42:24.238720+00:00",
+      "path": "2026/07/13/rollout-0312.jsonl.zst",
+      "size": 33066
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:29:33.775885+00:00",
+      "path": "2026/07/13/rollout-0313.jsonl",
+      "size": 1120128
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:29:33.775885+00:00",
+      "path": "2026/07/13/rollout-0314.jsonl.zst",
+      "size": 139943
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T18:22:08.642378+00:00",
+      "path": "2026/07/13/rollout-0315.jsonl",
+      "size": 218796
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T18:22:08.642378+00:00",
+      "path": "2026/07/13/rollout-0316.jsonl.zst",
+      "size": 66616
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T18:20:57.939713+00:00",
+      "path": "2026/07/13/rollout-0317.jsonl",
+      "size": 193190
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T18:20:57.939713+00:00",
+      "path": "2026/07/13/rollout-0318.jsonl.zst",
+      "size": 57612
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:19:51.799458+00:00",
+      "path": "2026/07/13/rollout-0319.jsonl",
+      "size": 3963307
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:19:51.799458+00:00",
+      "path": "2026/07/13/rollout-0320.jsonl.zst",
+      "size": 749171
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:43:34.689700+00:00",
+      "path": "2026/07/13/rollout-0321.jsonl",
+      "size": 177751
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T19:43:34.689700+00:00",
+      "path": "2026/07/13/rollout-0322.jsonl.zst",
+      "size": 31692
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:19:11.468087+00:00",
+      "path": "2026/07/13/rollout-0323.jsonl",
+      "size": 846459
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:19:11.468087+00:00",
+      "path": "2026/07/13/rollout-0324.jsonl.zst",
+      "size": 100384
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T22:20:24.907720+00:00",
+      "path": "2026/07/13/rollout-0325.jsonl",
+      "size": 14283357
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T22:20:24.907720+00:00",
+      "path": "2026/07/13/rollout-0326.jsonl.zst",
+      "size": 6966303
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:33:30.602866+00:00",
+      "path": "2026/07/13/rollout-0327.jsonl",
+      "size": 298012
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T21:33:30.602866+00:00",
+      "path": "2026/07/13/rollout-0328.jsonl.zst",
+      "size": 42734
+    },
+    {
+      "kind": "directory",
+      "path": "2026/07/14"
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T22:10:44.580599+00:00",
+      "path": "2026/07/14/rollout-0329.jsonl",
+      "size": 158105
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-13T22:10:44.580599+00:00",
+      "path": "2026/07/14/rollout-0330.jsonl.zst",
+      "size": 28937
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T05:42:08.271409+00:00",
+      "path": "2026/07/14/rollout-0331.jsonl",
+      "size": 4517305
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T05:42:08.271409+00:00",
+      "path": "2026/07/14/rollout-0332.jsonl.zst",
+      "size": 2725723
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T05:40:58.326530+00:00",
+      "path": "2026/07/14/rollout-0333.jsonl",
+      "size": 269817
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T05:40:58.326530+00:00",
+      "path": "2026/07/14/rollout-0334.jsonl.zst",
+      "size": 38503
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T06:42:09.126189+00:00",
+      "path": "2026/07/14/rollout-0335.jsonl",
+      "size": 377809
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T06:42:09.126189+00:00",
+      "path": "2026/07/14/rollout-0336.jsonl.zst",
+      "size": 106766
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:39:04.556324+00:00",
+      "path": "2026/07/14/rollout-0337.jsonl",
+      "size": 1037628
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:39:04.556324+00:00",
+      "path": "2026/07/14/rollout-0338.jsonl.zst",
+      "size": 281510
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:11:07.912642+00:00",
+      "path": "2026/07/14/rollout-0339.jsonl",
+      "size": 133775
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:11:07.912642+00:00",
+      "path": "2026/07/14/rollout-0340.jsonl.zst",
+      "size": 24408
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:38:45.002002+00:00",
+      "path": "2026/07/14/rollout-0341.jsonl",
+      "size": 140051
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T09:38:45.002002+00:00",
+      "path": "2026/07/14/rollout-0342.jsonl.zst",
+      "size": 24984
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T11:46:07.456518+00:00",
+      "path": "2026/07/14/rollout-0343.jsonl",
+      "size": 676898
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T11:46:07.456518+00:00",
+      "path": "2026/07/14/rollout-0344.jsonl.zst",
+      "size": 174607
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:28:11.534609+00:00",
+      "path": "2026/07/14/rollout-0345.jsonl",
+      "size": 725887
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:28:11.534609+00:00",
+      "path": "2026/07/14/rollout-0346.jsonl.zst",
+      "size": 182127
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:39:19.809490+00:00",
+      "path": "2026/07/14/rollout-0347.jsonl",
+      "size": 619673
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:39:19.809490+00:00",
+      "path": "2026/07/14/rollout-0348.jsonl.zst",
+      "size": 169766
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:47:50.751247+00:00",
+      "path": "2026/07/14/rollout-0349.jsonl",
+      "size": 848145
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:47:50.751247+00:00",
+      "path": "2026/07/14/rollout-0350.jsonl.zst",
+      "size": 229127
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:47:23.023554+00:00",
+      "path": "2026/07/14/rollout-0351.jsonl",
+      "size": 718996
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:47:23.023554+00:00",
+      "path": "2026/07/14/rollout-0352.jsonl.zst",
+      "size": 205725
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:55:49.698508+00:00",
+      "path": "2026/07/14/rollout-0353.jsonl",
+      "size": 750576
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T12:55:49.698508+00:00",
+      "path": "2026/07/14/rollout-0354.jsonl.zst",
+      "size": 199971
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:12:44.177678+00:00",
+      "path": "2026/07/14/rollout-0355.jsonl",
+      "size": 66131
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:12:44.177678+00:00",
+      "path": "2026/07/14/rollout-0356.jsonl.zst",
+      "size": 19780
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:14:36.895852+00:00",
+      "path": "2026/07/14/rollout-0357.jsonl",
+      "size": 66107
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:14:36.895852+00:00",
+      "path": "2026/07/14/rollout-0358.jsonl.zst",
+      "size": 19776
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:14:56.812073+00:00",
+      "path": "2026/07/14/rollout-0359.jsonl",
+      "size": 66107
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:14:56.812073+00:00",
+      "path": "2026/07/14/rollout-0360.jsonl.zst",
+      "size": 19775
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:30:36.902854+00:00",
+      "path": "2026/07/14/rollout-0361.jsonl",
+      "size": 902921
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:30:36.902854+00:00",
+      "path": "2026/07/14/rollout-0362.jsonl.zst",
+      "size": 165197
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:19:18.128228+00:00",
+      "path": "2026/07/14/rollout-0363.jsonl",
+      "size": 175490
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:19:18.128228+00:00",
+      "path": "2026/07/14/rollout-0364.jsonl.zst",
+      "size": 33188
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:16:56.989201+00:00",
+      "path": "2026/07/14/rollout-0365.jsonl",
+      "size": 66134
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:16:56.989201+00:00",
+      "path": "2026/07/14/rollout-0366.jsonl.zst",
+      "size": 19775
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:17:59.742582+00:00",
+      "path": "2026/07/14/rollout-0367.jsonl",
+      "size": 66115
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:17:59.742582+00:00",
+      "path": "2026/07/14/rollout-0368.jsonl.zst",
+      "size": 19788
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:18:42.622889+00:00",
+      "path": "2026/07/14/rollout-0369.jsonl",
+      "size": 66118
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:18:42.622889+00:00",
+      "path": "2026/07/14/rollout-0370.jsonl.zst",
+      "size": 19784
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:30:23.649246+00:00",
+      "path": "2026/07/14/rollout-0371.jsonl",
+      "size": 1015913
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:30:23.649246+00:00",
+      "path": "2026/07/14/rollout-0372.jsonl.zst",
+      "size": 249802
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:28:43.910360+00:00",
+      "path": "2026/07/14/rollout-0373.jsonl",
+      "size": 513220
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:28:43.910360+00:00",
+      "path": "2026/07/14/rollout-0374.jsonl.zst",
+      "size": 143907
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:43:08.717592+00:00",
+      "path": "2026/07/14/rollout-0375.jsonl",
+      "size": 582102
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:43:08.717592+00:00",
+      "path": "2026/07/14/rollout-0376.jsonl.zst",
+      "size": 149154
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:54:00.255267+00:00",
+      "path": "2026/07/14/rollout-0377.jsonl",
+      "size": 631990
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T14:54:00.255267+00:00",
+      "path": "2026/07/14/rollout-0378.jsonl.zst",
+      "size": 170528
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:17:55.056602+00:00",
+      "path": "2026/07/14/rollout-0379.jsonl",
+      "size": 506220
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:17:55.056602+00:00",
+      "path": "2026/07/14/rollout-0380.jsonl.zst",
+      "size": 130117
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:25:16.955952+00:00",
+      "path": "2026/07/14/rollout-0381.jsonl",
+      "size": 520810
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:25:16.955952+00:00",
+      "path": "2026/07/14/rollout-0382.jsonl.zst",
+      "size": 154935
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:47:59.940176+00:00",
+      "path": "2026/07/14/rollout-0383.jsonl",
+      "size": 887458
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:47:59.940176+00:00",
+      "path": "2026/07/14/rollout-0384.jsonl.zst",
+      "size": 212593
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:35:48.973436+00:00",
+      "path": "2026/07/14/rollout-0385.jsonl",
+      "size": 202718
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T15:35:48.973436+00:00",
+      "path": "2026/07/14/rollout-0386.jsonl.zst",
+      "size": 33368
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:33:54.007000+00:00",
+      "path": "2026/07/14/rollout-0387.jsonl",
+      "size": 944991
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:33:54.007000+00:00",
+      "path": "2026/07/14/rollout-0388.jsonl.zst",
+      "size": 240374
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:37:24.372386+00:00",
+      "path": "2026/07/14/rollout-0389.jsonl",
+      "size": 725486
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:37:24.372386+00:00",
+      "path": "2026/07/14/rollout-0390.jsonl.zst",
+      "size": 185716
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:42:06.618022+00:00",
+      "path": "2026/07/14/rollout-0391.jsonl",
+      "size": 588960
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:42:06.618022+00:00",
+      "path": "2026/07/14/rollout-0392.jsonl.zst",
+      "size": 150916
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:47:56.342019+00:00",
+      "path": "2026/07/14/rollout-0393.jsonl",
+      "size": 821579
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:47:56.342019+00:00",
+      "path": "2026/07/14/rollout-0394.jsonl.zst",
+      "size": 230602
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:49:03.351331+00:00",
+      "path": "2026/07/14/rollout-0395.jsonl",
+      "size": 668897
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T16:49:03.351331+00:00",
+      "path": "2026/07/14/rollout-0396.jsonl.zst",
+      "size": 178386
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:11:56.412518+00:00",
+      "path": "2026/07/14/rollout-0397.jsonl",
+      "size": 760305
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:11:56.412518+00:00",
+      "path": "2026/07/14/rollout-0398.jsonl.zst",
+      "size": 218055
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:20:16.963263+00:00",
+      "path": "2026/07/14/rollout-0399.jsonl",
+      "size": 741394
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:20:16.963263+00:00",
+      "path": "2026/07/14/rollout-0400.jsonl.zst",
+      "size": 192481
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:28:32.139020+00:00",
+      "path": "2026/07/14/rollout-0401.jsonl",
+      "size": 672295
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:28:32.139020+00:00",
+      "path": "2026/07/14/rollout-0402.jsonl.zst",
+      "size": 184995
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:36:04.450776+00:00",
+      "path": "2026/07/14/rollout-0403.jsonl",
+      "size": 680277
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:36:04.450776+00:00",
+      "path": "2026/07/14/rollout-0404.jsonl.zst",
+      "size": 174699
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:44:23.674305+00:00",
+      "path": "2026/07/14/rollout-0405.jsonl",
+      "size": 812029
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:44:23.674305+00:00",
+      "path": "2026/07/14/rollout-0406.jsonl.zst",
+      "size": 203544
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:55:49.643398+00:00",
+      "path": "2026/07/14/rollout-0407.jsonl",
+      "size": 700921
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T17:55:49.643398+00:00",
+      "path": "2026/07/14/rollout-0408.jsonl.zst",
+      "size": 197326
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:02:51.183694+00:00",
+      "path": "2026/07/14/rollout-0409.jsonl",
+      "size": 597810
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:02:51.183694+00:00",
+      "path": "2026/07/14/rollout-0410.jsonl.zst",
+      "size": 169002
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:20:10.146671+00:00",
+      "path": "2026/07/14/rollout-0411.jsonl",
+      "size": 861136
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:20:10.146671+00:00",
+      "path": "2026/07/14/rollout-0412.jsonl.zst",
+      "size": 231498
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:29:23.230157+00:00",
+      "path": "2026/07/14/rollout-0413.jsonl",
+      "size": 756333
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:29:23.230157+00:00",
+      "path": "2026/07/14/rollout-0414.jsonl.zst",
+      "size": 187989
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:29:32.156844+00:00",
+      "path": "2026/07/14/rollout-0415.jsonl",
+      "size": 68149
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:29:32.156844+00:00",
+      "path": "2026/07/14/rollout-0416.jsonl.zst",
+      "size": 21147
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:46:55.422294+00:00",
+      "path": "2026/07/14/rollout-0417.jsonl",
+      "size": 803596
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:46:55.422294+00:00",
+      "path": "2026/07/14/rollout-0418.jsonl.zst",
+      "size": 217445
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:55:52.250809+00:00",
+      "path": "2026/07/14/rollout-0419.jsonl",
+      "size": 684306
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T18:55:52.250809+00:00",
+      "path": "2026/07/14/rollout-0420.jsonl.zst",
+      "size": 166732
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:05:19.643752+00:00",
+      "path": "2026/07/14/rollout-0421.jsonl",
+      "size": 768839
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:05:19.643752+00:00",
+      "path": "2026/07/14/rollout-0422.jsonl.zst",
+      "size": 217664
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:20:22.465498+00:00",
+      "path": "2026/07/14/rollout-0423.jsonl",
+      "size": 709460
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:20:22.465498+00:00",
+      "path": "2026/07/14/rollout-0424.jsonl.zst",
+      "size": 187380
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:34:30.467363+00:00",
+      "path": "2026/07/14/rollout-0425.jsonl",
+      "size": 701177
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:34:30.467363+00:00",
+      "path": "2026/07/14/rollout-0426.jsonl.zst",
+      "size": 179753
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:44:01.775347+00:00",
+      "path": "2026/07/14/rollout-0427.jsonl",
+      "size": 865122
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:44:01.775347+00:00",
+      "path": "2026/07/14/rollout-0428.jsonl.zst",
+      "size": 209853
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:53:25.918235+00:00",
+      "path": "2026/07/14/rollout-0429.jsonl",
+      "size": 708558
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T19:53:25.918235+00:00",
+      "path": "2026/07/14/rollout-0430.jsonl.zst",
+      "size": 184643
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:04:02.734913+00:00",
+      "path": "2026/07/14/rollout-0431.jsonl",
+      "size": 856177
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:04:02.734913+00:00",
+      "path": "2026/07/14/rollout-0432.jsonl.zst",
+      "size": 218765
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:12:43.880616+00:00",
+      "path": "2026/07/14/rollout-0433.jsonl",
+      "size": 719634
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:12:43.880616+00:00",
+      "path": "2026/07/14/rollout-0434.jsonl.zst",
+      "size": 198934
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:23:14.365139+00:00",
+      "path": "2026/07/14/rollout-0435.jsonl",
+      "size": 711725
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:23:14.365139+00:00",
+      "path": "2026/07/14/rollout-0436.jsonl.zst",
+      "size": 195679
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:31:29.556846+00:00",
+      "path": "2026/07/14/rollout-0437.jsonl",
+      "size": 618859
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:31:29.556846+00:00",
+      "path": "2026/07/14/rollout-0438.jsonl.zst",
+      "size": 165906
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:32:40.490095+00:00",
+      "path": "2026/07/14/rollout-0439.jsonl",
+      "size": 734265
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:32:40.490095+00:00",
+      "path": "2026/07/14/rollout-0440.jsonl.zst",
+      "size": 201465
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:42:46.583848+00:00",
+      "path": "2026/07/14/rollout-0441.jsonl",
+      "size": 783241
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:42:46.583848+00:00",
+      "path": "2026/07/14/rollout-0442.jsonl.zst",
+      "size": 208267
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:41:17.977646+00:00",
+      "path": "2026/07/14/rollout-0443.jsonl",
+      "size": 718013
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:41:17.977646+00:00",
+      "path": "2026/07/14/rollout-0444.jsonl.zst",
+      "size": 179661
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:49:14.656452+00:00",
+      "path": "2026/07/14/rollout-0445.jsonl",
+      "size": 757783
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:49:14.656452+00:00",
+      "path": "2026/07/14/rollout-0446.jsonl.zst",
+      "size": 203058
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:51:42.567663+00:00",
+      "path": "2026/07/14/rollout-0447.jsonl",
+      "size": 795518
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T20:51:42.567663+00:00",
+      "path": "2026/07/14/rollout-0448.jsonl.zst",
+      "size": 213028
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:02:28.915262+00:00",
+      "path": "2026/07/14/rollout-0449.jsonl",
+      "size": 703990
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:02:28.915262+00:00",
+      "path": "2026/07/14/rollout-0450.jsonl.zst",
+      "size": 181344
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:02:56.245222+00:00",
+      "path": "2026/07/14/rollout-0451.jsonl",
+      "size": 748918
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:02:56.245222+00:00",
+      "path": "2026/07/14/rollout-0452.jsonl.zst",
+      "size": 176592
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:11:07.830720+00:00",
+      "path": "2026/07/14/rollout-0453.jsonl",
+      "size": 775243
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:11:07.830720+00:00",
+      "path": "2026/07/14/rollout-0454.jsonl.zst",
+      "size": 197120
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:11:18.300194+00:00",
+      "path": "2026/07/14/rollout-0455.jsonl",
+      "size": 741934
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:11:18.300194+00:00",
+      "path": "2026/07/14/rollout-0456.jsonl.zst",
+      "size": 189087
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:19:15.507737+00:00",
+      "path": "2026/07/14/rollout-0457.jsonl",
+      "size": 720872
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:19:15.507737+00:00",
+      "path": "2026/07/14/rollout-0458.jsonl.zst",
+      "size": 182931
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:25:34.599963+00:00",
+      "path": "2026/07/14/rollout-0459.jsonl",
+      "size": 773806
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:25:34.599963+00:00",
+      "path": "2026/07/14/rollout-0460.jsonl.zst",
+      "size": 189013
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:29:58.056670+00:00",
+      "path": "2026/07/14/rollout-0461.jsonl",
+      "size": 957573
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:29:58.056670+00:00",
+      "path": "2026/07/14/rollout-0462.jsonl.zst",
+      "size": 252784
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:37:33.800753+00:00",
+      "path": "2026/07/14/rollout-0463.jsonl",
+      "size": 769292
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:37:33.800753+00:00",
+      "path": "2026/07/14/rollout-0464.jsonl.zst",
+      "size": 194132
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:39:10.302341+00:00",
+      "path": "2026/07/14/rollout-0465.jsonl",
+      "size": 858213
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:39:10.302341+00:00",
+      "path": "2026/07/14/rollout-0466.jsonl.zst",
+      "size": 218863
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:13.821278+00:00",
+      "path": "2026/07/14/rollout-0467.jsonl",
+      "size": 847480
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:13.821278+00:00",
+      "path": "2026/07/14/rollout-0468.jsonl.zst",
+      "size": 219997
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:49:03.096309+00:00",
+      "path": "2026/07/14/rollout-0469.jsonl",
+      "size": 880324
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:49:03.096309+00:00",
+      "path": "2026/07/14/rollout-0470.jsonl.zst",
+      "size": 228874
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:19.490661+00:00",
+      "path": "2026/07/14/rollout-0471.jsonl",
+      "size": 65077
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:19.490661+00:00",
+      "path": "2026/07/14/rollout-0472.jsonl.zst",
+      "size": 19028
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:24.920925+00:00",
+      "path": "2026/07/14/rollout-0473.jsonl",
+      "size": 65315
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:24.920925+00:00",
+      "path": "2026/07/14/rollout-0474.jsonl.zst",
+      "size": 19025
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:30.584229+00:00",
+      "path": "2026/07/14/rollout-0475.jsonl",
+      "size": 65063
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:30.584229+00:00",
+      "path": "2026/07/14/rollout-0476.jsonl.zst",
+      "size": 19012
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:36.005211+00:00",
+      "path": "2026/07/14/rollout-0477.jsonl",
+      "size": 65357
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:36.005211+00:00",
+      "path": "2026/07/14/rollout-0478.jsonl.zst",
+      "size": 19031
+    },
+    {
+      "kind": "file",
+      "modifiedAt": "2026-07-14T21:46:40.245410+00:00",
+      "path": "2026/07/14/rollout-0479.jsonl",
+      "size": 65427
+    }
+  ],
+  "root": "~/.codex/sessions",
+  "sanitization": "Project and session names replaced; dates, suffixes, sizes and mtimes retained; no file contents or symlink targets read",
+  "schemaVersion": 1,
+  "truncated": true
+}

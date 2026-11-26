@@ -1,139 +1,915 @@
 import SwiftUI
 import AppKit
 
-@MainActor
-final class SettingsViewModel: ObservableObject {
-    @Published var confirmDelete = false
-    @Published var exportError: String?
+/// One sidebar entry of Settings. Order here is sidebar order; `groups` adds the visual gaps.
+/// One pane per feature, mirroring the Summary tiles, so everything that drives one feature's cost sits together.
+enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
+    case general = "General"
+    case appearance = "Appearance"
+    case performance = "Performance"
+    case system = "System"
+    case processes = "Processes"
+    case network = "Network"
+    case security = "Security"
+    case development = "Development"
+    case docker = "Docker"
+    case agents = "AI Agents"
+    case otherPages = "Other Pages"
+    case alerts = "Alerts"
+    case activity = "Activity Timeline"
+    case history = "Historical Data"
+    case automation = "Automation"
+    case helper = "Privileged Helper"
+    case about = "About"
+
+    var id: String { rawValue }
+
+    /// The main sidebar page this pane configures. Its name, icon and color are used so the two sidebars match.
+    var route: AppRoute? {
+        switch self {
+        case .processes: .applications
+        case .network: .resource(.network)
+        case .security: .security
+        case .docker: .docker
+        case .agents: .agents
+        case .activity: .timeline
+        case .history: .history
+        default: nil
+        }
+    }
+
+    var title: String { route?.title ?? rawValue }
+
+    var systemImage: String {
+        if let route { return route.systemImage }
+        switch self {
+        case .general: return "gearshape.fill"
+        case .appearance: return "circle.lefthalf.filled"
+        case .performance: return "gauge.with.dots.needle.67percent"
+        case .system: return "cpu"
+        case .development: return "hammer.fill"
+        case .otherPages: return "square.grid.2x2.fill"
+        case .alerts: return "bell.badge.fill"
+        case .automation: return "terminal.fill"
+        case .helper: return "lock.shield.fill"
+        case .about: return "info.circle.fill"
+        default: return "circle"
+        }
+    }
+
+    var tint: Color {
+        if let route { return route.tint }
+        switch self {
+        case .general, .about, .otherPages: return .gray
+        case .appearance: return Color(white: 0.2)
+        case .performance: return .orange
+        case .system: return .blue
+        case .development: return .brown
+        case .alerts: return .purple
+        case .automation, .helper: return .indigo
+        default: return .blue
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .security: Capabilities.supportsPostureChecks || Capabilities.supportsPersistenceWatching || Capabilities.supportsStartupItems
+        case .development, .docker, .agents, .otherPages: !Capabilities.isSandboxed
+        case .helper: Capabilities.supportsPrivilegedSampling
+        default: true
+        }
+    }
+
+    /// Sidebar groups, separated by a gap as in System Settings; unavailable panes are dropped.
+    /// Panel, monitored resources, local environment pages, stored data, integrations.
+    static var groups: [[SettingsPane]] {
+        [[.general, .appearance, .performance], [.system, .processes, .network, .security],
+         [.development, .docker, .agents, .otherPages], [.alerts, .activity, .history], [.automation, .helper], [.about]]
+            .map { $0.filter(\.isAvailable) }
+            .filter { !$0.isEmpty }
+    }
 }
 
+@MainActor
+final class SettingsViewModel: ObservableObject {
+    /// Kept here, not in view state, so returning to Settings reopens the last pane.
+    @Published var pane: SettingsPane = .general
+    @Published var confirmDelete = false
+    @Published var exportError: String?
+    @Published var includeEvents = false
+    @Published var usage: StorageUsage?
+    @Published var isMeasuring = false
+    @Published var usageError: String?
+    @Published var confirmCompact = false
+    @Published var isCompacting = false
+    @Published var lastCompacted: Date?
+    @Published var compactError: String?
+}
+
+/// Grouped preferences with a settings navigation column alongside the shared application sidebar.
+///
+/// Adding a setting: store it in `CollectionSettings` (default, clamp in `validate()`, decode with a default),
+/// then add one row to the pane of the feature it serves (see "Where a Setting goes" in CONTEXT.md) using the building
+/// blocks at the end of this file:
+/// `Toggle` with a `SettingsLabel` for switches, `Picker` for choices, `StepperRow` for counts and durations,
+/// `IntervalRow` for optional intervals, `FolderListRows` for folder lists. Put explanations in `help:` (shown on
+/// the ⓘ) and consequences in a section footer. Gate rows with `Capabilities`, never show a control that does
+/// nothing in this build. Bind with `binding(_:)` only for settings the scheduler reads (it restarts sampling);
+/// everything else uses `localBinding(_:)`, and `MonitorStore` pushes it to the page monitors. Event switches go in the
+/// pane's `timelineSection`, environment page master switches are `summaryToggle(_:)`.
 struct SettingsView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject private var settings: SettingsStore
     @ObservedObject private var model: SettingsViewModel
+    /// Action invoked when requesting full application shutdown from settings.
+    var onQuit: () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }
 
-    init(store: MonitorStore) {
+    /// Initializes the settings view.
+    /// - Parameters:
+    ///   - store: Primary monitor store providing settings and view model references.
+    ///   - onQuit: Callback invoked upon clicking a Quit control.
+    init(store: MonitorStore, onQuit: @escaping () -> Void = { _ = NSApplication.shared.sendAction(#selector(AppDelegate.requestQuit(_:)), to: nil, from: nil) }) {
         self.store = store
         settings = store.settingsStore
-        model = store.viewModels.settings
+        model = store.settingsViewModel
+        self.onQuit = onQuit
     }
 
     var body: some View {
+        HStack(spacing: 0) {
+            paneSidebar
+            Divider()
+            VStack(spacing: 0) {
+                ResourceTitle(title: model.pane.title, systemImage: model.pane.systemImage, color: model.pane.tint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(MonitorStyle.inset)
+                Divider()
+                Form { pane(model.pane) }
+                    .formStyle(.grouped)
+                    .toggleStyle(.switch)
+                    .id(model.pane)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(MonitorStyle.page)
+        .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
+            Button("Delete History", role: .destructive) { Task { try? await store.historicalData.deleteAll() } }
+        }
+        .confirmationDialog("Compact the history database now?", isPresented: $model.confirmCompact) {
+            Button("Compact") { compact() }
+        } message: {
+            Text("History writes wait until it finishes, and it temporarily needs free disk space about the size of the database.")
+        }
+    }
+
+    private var paneSidebar: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 560), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                panelCard
-                appearanceCard
-                collectionCard
-                historyCard
-                if Capabilities.supportsPrivilegedSampling, let controller = store.privilegedSampling {
-                    SettingsCard(title: "Superuser Sampling", systemImage: "lock.shield") {
-                        PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
+            VStack(alignment: .leading, spacing: SidebarStyle.groupSpacing) {
+                ForEach(Array(SettingsPane.groups.enumerated()), id: \.offset) { _, group in
+                    VStack(spacing: SidebarStyle.rowSpacing) {
+                        ForEach(group) { pane in
+                            Button { model.pane = pane } label: {
+                                HStack(spacing: SidebarStyle.iconSpacing) {
+                                    SettingsIcon(systemImage: pane.systemImage, tint: pane.tint)
+                                        .accessibilityHidden(true)
+                                    Text(pane.title)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .buttonStyle(DetailNavigationStyle(selected: model.pane == pane))
+                        }
                     }
                 }
-                Self.aboutCard
-            }
-            .padding()
+            }.padding(SidebarStyle.padding)
         }
-        .confirmationDialog("Delete all Historical Data?", isPresented: $model.confirmDelete) {
-            Button("Delete History", role: .destructive) { Task { try? await store.history.deleteAll() } }
+        .frame(minWidth: 184, idealWidth: 208, maxWidth: 224)
+        .background(MonitorStyle.sidebar)
+        .accessibilityLabel("Settings panes")
+    }
+
+    @ViewBuilder private func pane(_ pane: SettingsPane) -> some View {
+        switch pane {
+        case .general: generalPane
+        case .appearance: appearancePane
+        case .performance: performancePane
+        case .system: systemPane
+        case .processes: processesPane
+        case .network: networkPane
+        case .security: securityPane
+        case .development: developmentPane
+        case .docker: dockerPane
+        case .agents: agentsPane
+        case .otherPages: otherPagesPane
+        case .alerts:
+            Section {
+                Toggle(isOn: localBinding(\.automation.alertsEnabled)) {
+                    SettingsLabel("Enable alerts", help: "Stops rule evaluation and new alert delivery when off. Saved rules are kept. Pause and snooze only suppress delivery.",
+                        subtitle: "CPU grows with enabled rules and matching processes; no extra sampling. Production CPU budget remains unverified.")
+                }
+            }
+            AlertsSettingsView(store: store, rules: store.alertRules).disabled(!settings.settings.automation.alertsEnabled)
+            timelineSection {
+                Toggle(isOn: binding(\.activity.recordAlertEvents)) {
+                    SettingsLabel("Alerts", help: "Fired alerts, including suppressed notifications.")
+                }
+            }
+        case .activity: activityPane
+        case .history: historyPane
+        case .automation: automationPane
+        case .helper:
+            if let controller = store.privilegedSampling {
+                Section { PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() }) }
+            }
+        case .about: aboutPane
         }
     }
 
-    // MARK: Cards
+    // MARK: Panes
 
-    private var panelCard: some View {
-        SettingsCard(title: "Panel", systemImage: "macwindow") {
-            SettingsRow("Open with", help: "How the camera hot zone opens the panel.") {
-                Picker("Open with", selection: binding(\.trigger)) {
+    @ViewBuilder private var generalPane: some View {
+        Section {
+            Picker(selection: appearanceBinding(\.panel.windowStyle)) {
+                ForEach(WindowStyle.allCases) { Text($0.rawValue).tag($0) }
+            } label: {
+                SettingsLabel("Window style",
+                    help: "Menu-bar Panel opens under the menu bar and closes when you click elsewhere. Standard Window adds a Dock icon, opens at launch, and can be minimized, resized and made full screen. Live Data runs only while the window is on screen, so neither costs more than the other.")
+            }
+            if settings.settings.panel.windowStyle == .panel {
+                Picker(selection: binding(\.panel.trigger)) {
                     ForEach(PanelTrigger.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                } label: { SettingsLabel("Open the panel with", help: "How the camera hot zone opens the panel.") }
+                if settings.settings.panel.trigger == .hover {
+                    LabeledContent("Hover delay") { NumberField(value: binding(\.panel.hoverDelay), unit: "s") }
+                }
             }
-            if settings.settings.trigger == .hover {
-                SettingsRow("Hover delay") { NumberField(value: binding(\.hoverDelay), unit: "s") }
+            Picker(selection: soundSelectionBinding) {
+                ForEach(PanelSound.allCases) { Text($0.displayName).tag($0) }
+            } label: { SettingsLabel("Sound", help: "Played when the panel opens. Choosing one plays a preview.") }
+        }
+        Section {
+            Toggle("Launch at Login", isOn: binding(\.panel.launchAtLogin))
+        }
+        Section {
+            LabeledContent {
+                Button("Show Onboarding") {
+                    _ = NSApplication.shared.sendAction(#selector(AppDelegate.showOnboarding(_:)), to: nil, from: nil)
+                }
+            } label: {
+                SettingsLabel("Onboarding", subtitle: "Review the welcome choices using your current Settings.")
             }
-            SettingsRow("Show background processes") { SettingsSwitch(isOn: binding(\.showBackgroundProcesses)) }
-            SettingsRow("Launch at Login") { SettingsSwitch(isOn: binding(\.launchAtLogin)) }
+        }
+        Section {
+            LabeledContent {
+                Button("Quit Smack", role: .destructive, action: onQuit)
+            } label: {
+                SettingsLabel("Quit", subtitle: "Stops all collection until Smack is opened again. Saved history is kept.")
+            }
         }
     }
 
-    private var appearanceCard: some View {
-        SettingsCard(title: "Appearance", systemImage: "paintpalette") {
-            SettingsRow("Glass mode", help: "Translucent panel background that shows the desktop through it.") {
-                SettingsSwitch(isOn: appearanceBinding(\.glassMode))
+    @ViewBuilder private var appearancePane: some View {
+        Section("Appearance") {
+            Picker("Color scheme", selection: appearanceBinding(\.panel.appearance)) {
+                ForEach(PanelAppearance.allCases) { Text($0.rawValue).tag($0) }
             }
-            if settings.settings.glassMode {
-                SettingsRow("Opacity", help: "Lower shows more of the desktop; higher is more frosted and easier to read.") {
-                    Slider(value: appearanceBinding(\.glassOpacity), in: CollectionSettings.glassOpacityRange).frame(width: 140)
-                    Text(settings.settings.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
-                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+        }
+        if Capabilities.supportsNativeMenuBarIcons {
+            Section("Menu-bar icons") {
+                Toggle("Show top bar icons row", isOn: appearanceBinding(\.panel.showTopBarIcons))
+            }
+        }
+        Section {
+            Toggle(isOn: appearanceBinding(\.panel.glassMode)) {
+                SettingsLabel("Glass mode", help: "Translucent panel background that shows the desktop through it.")
+            }
+            if settings.settings.panel.glassMode {
+                LabeledContent {
+                    HStack {
+                        Slider(value: appearanceBinding(\.panel.glassOpacity), in: CollectionSettings.glassOpacityRange).frame(width: 160)
+                        Text(settings.settings.panel.glassOpacity.formatted(.percent.precision(.fractionLength(0))))
+                            .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                    }
+                } label: {
+                    SettingsLabel("Opacity", subtitle: "Lower shows more of the desktop; higher is easier to read.")
+                }
+            }
+        }
+        titleBarSection
+        Section("Charts") {
+            Toggle(isOn: binding(\.activity.showEventsOnCharts)) {
+                SettingsLabel("Show events on history charts", help: "Draws event markers on the history graphs. Display only; does not change what is recorded.")
+            }
+        }
+        Section("Session Timeline") {
+            Toggle(isOn: localBinding(\.devTools.sessionDetailsUnderTimeline)) {
+                SettingsLabel("Event details under the timeline",
+                              help: "Puts the Session Timeline's Event Details box under the chart, full-width, instead of beside it. Display only; does not change what is collected.",
+                              subtitle: "Also switched on the Session Timeline's toolbar")
+            }
+        }
+    }
+
+    @ViewBuilder private var titleBarSection: some View {
+        let options = settings.settings.panel.titleBar
+        Section {
+            if Capabilities.flavor == .direct {
+                Toggle(isOn: appearanceBinding(\.panel.titleBar.showSponsor)) {
+                    SettingsLabel("Sponsor link", subtitle: "Opens GitHub Sponsors for Smack.")
+                }
+            }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showHostname)) {
+                SettingsLabel("Hostname", help: "Click it in the title bar to copy it.")
+            }
+            if options.showHostname {
+                Picker(selection: appearanceBinding(\.panel.titleBar.hostnameStyle)) {
+                    ForEach(TitleBarSettings.HostnameStyle.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    SettingsLabel("Show as", subtitle: store.hostIdentity.hostname(options.hostnameStyle) ?? "Unavailable")
+                }
+            }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showNetwork)) {
+                SettingsLabel("Network address", help: "IPv4 address and prefix of the primary interface. Click it in the title bar to copy it.",
+                              subtitle: store.hostIdentity.cidr.map { cidr in
+                                  store.hostIdentity.primaryInterface.map { "\(cidr) on \($0)" } ?? cidr
+                              } ?? "No IPv4 network")
+            }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showClock)) {
+                SettingsLabel("Clock")
+            }
+            if options.showClock {
+                Picker(selection: appearanceBinding(\.panel.titleBar.clockStyle)) {
+                    ForEach(TitleBarSettings.ClockStyle.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    SettingsLabel("Format", subtitle: options.clockText(Date()))
+                }
+                if options.clockStyle == .custom {
+                    LabeledContent {
+                        TextField("Pattern", text: appearanceBinding(\.panel.titleBar.clockPattern),
+                                  prompt: Text(TitleBarSettings.defaultClockPattern))
+                            .font(.body.monospaced()).frame(width: 180)
+                    } label: {
+                        SettingsLabel("Pattern", help: "Unicode date pattern, for example yyyy-MM-dd HH:mm:ss, EEE d MMM HH:mm or 'week' w. Letters in single quotes are shown literally.")
+                    }
+                }
+            }
+        } header: {
+            Text("Title bar")
+        }
+        Section {
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showUptime)) { SettingsLabel("Uptime") }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showLoadAverage)) {
+                SettingsLabel("Load average", subtitle: "One-minute value; all three on hover.")
+            }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showBattery)) {
+                SettingsLabel("Battery", subtitle: "Hidden on Macs without a battery.")
+            }
+            Toggle(isOn: appearanceBinding(\.panel.titleBar.showThermal)) {
+                SettingsLabel("Thermal warning", subtitle: "Shown only while the Mac is thermally constrained.")
+            }
+        } header: {
+            Text("Title bar extras")
+        } footer: {
+            SettingsFooter("Title bar items reuse data Smack already collects and never start extra sampling. Items shorten when the panel is narrow.")
+        }
+    }
+
+    @ViewBuilder private var performancePane: some View {
+        let preset = PerformancePreset.matching(settings.settings)
+        Section {
+            Picker(selection: presetBinding) {
+                ForEach(PerformancePreset.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                if preset == nil { Text("Custom").tag(nil as PerformancePreset?) }
+            } label: {
+                SettingsLabel("Performance preset", help: "Sets the Settings listed in the footer at once. Choose Standard to return to the defaults.",
+                              subtitle: preset?.summary ?? "Custom: settings changed by hand in this or the feature panes.")
+            }
+        } footer: {
+            SettingsFooter("A preset sets live refresh, Network Rate, background System, Process and listening-port intervals, the battery slowdown, process history, the Memory Budget and Docker statistics. Each also appears in its own pane; changing one there shows Custom. Security and Activity Timeline settings are never changed by a preset.")
+        }
+        Section {
+            Picker(selection: binding(\.sampling.liveRefreshSeconds)) {
+                ForEach(CollectionSettings.liveRefreshChoices, id: \.self) { Text("Every \(Int($0)) s").tag($0) }
+            } label: {
+                SettingsLabel("Refresh", help: "How often system and process metrics update while the panel is visible. Slower refresh uses less CPU, especially with the panel pinned.")
+            }
+        } header: {
+            Text("While the panel is open")
+        } footer: {
+            SettingsFooter("Faster refresh increases CPU use. Hardware sensors are read only on relevant pages. CPU cost depends on process count.")
+        }
+        Section {
+            Picker(selection: binding(\.sampling.constrainedPowerMultiplier)) {
+                ForEach(CollectionSettings.constrainedPowerChoices, id: \.self) { Text($0 == 1 ? "Off" : "\($0)× slower").tag($0) }
+            } label: {
+                SettingsLabel("On battery or Low Power Mode", help: "Stretches every background interval (System, Processes, Network) while the Mac runs on battery or in Low Power Mode, to save energy. History becomes coarser during that time.")
+            }
+        } header: {
+            Text("While the panel is closed")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                if let warning = settings.settings.warning {
+                    Label(warning, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                }
+                SettingsFooter("System/process/port sampling costs grow with frequency and process count. Off stops the corresponding background loop; visible pages still collect live data.")
+            }
+        }
+        Section {
+            Picker(selection: localBinding(\.sampling.memoryBudget)) {
+                ForEach(MemoryBudget.allCases) { Text($0.rawValue).tag($0) }
+            } label: {
+                SettingsLabel("Memory budget", help: "Caps memory held by caches and on-demand reports: profiling output, development runtime inspections, application icons and process signature facts.",
+                              subtitle: memoryBudgetSummary)
+            }
+        } header: {
+            Text("Memory")
+        } footer: {
+            SettingsFooter("Lower budgets evict cached results sooner, so pages may reload them. Changes apply to new results.")
+        }
+        if !Capabilities.isSandboxed {
+            Section {
+                Picker(selection: localBinding(\.devTools.inventoryCache)) {
+                    ForEach(InventoryCachePreset.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    SettingsLabel("Reuse inventories", help: "How long Docker, Homebrew, development runtime and AI agent results are reused before they are collected again. Refresh buttons always collect immediately.")
+                }
+            } header: {
+                Text("Caching")
+            }
+        }
+    }
+
+    private var memoryBudgetSummary: String {
+        let budget = settings.settings.sampling.memoryBudget
+        return "Profiling \(Formatting.bytes(UInt64(budget.profileOutputBytes))) · \(budget.iconCount) icons · \(budget.fileFactsEntries) signatures"
+    }
+
+    @ViewBuilder private var systemPane: some View {
+        Section {
+            IntervalRow(title: "System metrics", help: "CPU, memory, disk and network samples taken while the panel is closed. They feed the history graphs and system events. Approximate storage per hour at full resolution; compacted to about a tenth after the full-resolution window.", estimate: StorageEstimate.system, seconds: optionalBinding(\.sampling.backgroundSystemInterval), minimum: 1)
+        } header: {
+            Text("While the panel is closed")
+        } footer: {
+            SettingsFooter("While the panel is open, metrics follow Refresh in Performance. Temperatures, fans and per-process GPU time are read only while a page showing them is open.")
+        }
+        timelineSection {
+            Toggle(isOn: binding(\.activity.recordSystemEvents)) {
+                SettingsLabel("System", help: "Volumes, sleep/wake, power source, thermal and memory pressure.", subtitle: "<1 KB/h")
+            }
+        }
+    }
+
+    @ViewBuilder private var processesPane: some View {
+        Section {
+            Toggle(isOn: binding(\.panel.showBackgroundProcesses)) {
+                SettingsLabel("Show background processes", help: "Lists processes that are not user-facing applications next to applications.")
+            }
+        }
+        Section {
+            IntervalRow(title: "Process metrics", help: "Per-process samples taken while the panel is closed. They feed process history and process start/exit events. Also the process history resolution while the panel is open: faster refreshes are averaged into one stored sample per interval. Approximate storage per hour on a Mac with about 500 processes; idle processes are stored sparsely.", estimate: StorageEstimate.processes, seconds: optionalBinding(\.sampling.backgroundProcessInterval), minimum: 1)
+            if !Capabilities.isSandboxed {
+                IntervalRow(title: "Process inventories", help: "Collects open files, ports and memory maps for every process on a schedule, so the process detail views are already populated. Expensive; unrelated to history graphs and the timeline. Kept in memory only, never stored on disk.", estimate: { _ in "no storage" }, seconds: optionalBinding(\.sampling.backgroundInventoryInterval), minimum: 10)
+            }
+        } header: {
+            Text("While the panel is closed")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                SettingsFooter(Capabilities.isSandboxed
+                    ? "Scheduled inventories are unavailable in the App Sandbox; use the on-demand inventory button on a process."
+                    : "Process inventories are on demand unless scheduled.")
+                SettingsFooter("Scheduled inventories can be expensive: they inspect each process and retain results in memory. Process metrics off also stops background agent sessions, process events and process alerts while the panel is closed.")
+            }
+        }
+        Section("Process history") {
+            Toggle(isOn: binding(\.history.recordProcessHistory)) {
+                SettingsLabel("Record process history", help: "Per-process CPU, memory and disk history. The largest storage consumer. Turn off to keep only system history and timeline events.")
+            }
+            if settings.settings.history.recordProcessHistory {
+                StepperRow(
+                    title: "Busiest processes only",
+                    help: "Store only the N busiest processes (by CPU or memory) in each snapshot. 0 stores every process. Lower values shrink process history and its disk writes substantially; a process that drops out of the top N looks like it exited until it returns.",
+                    text: settings.settings.history.processHistoryTopCount == 0 ? "All" : "\(settings.settings.history.processHistoryTopCount)",
+                    value: binding(\.history.processHistoryTopCount), range: CollectionSettings.processTopCountRange, step: 10
+                )
+                StepperRow(title: "Per-minute process data", help: "How long one-minute process rows are kept. Never longer than Retention. This is usually the biggest part of the database.", text: "\(settings.settings.history.processMinuteRetentionDays) days", value: binding(\.history.processMinuteRetentionDays), range: CollectionSettings.processMinuteRetentionRange)
+            }
+        }
+        timelineSection {
+            Toggle(isOn: binding(\.activity.recordProcessEvents)) {
+                SettingsLabel("Processes", help: "Process started and exited. About 300 bytes per event; a build-heavy Mac can reach 1 MB per hour, a quiet one a few tens of KB.", subtitle: "~30 KB-1 MB/h")
+            }
+        }
+        if Capabilities.supportsProfiling {
+            Section {
+                Picker(selection: localBinding(\.sampling.fileActivitySeconds)) {
+                    ForEach(CollectionSettings.fileActivityChoices, id: \.self) { Text("\($0) seconds").tag($0) }
+                } label: {
+                    SettingsLabel("File Activity trace", help: "Length of a File Activity capture on application and process pages, taken through the Privileged Helper. Longer traces are taken as consecutive five-second segments, with short gaps between them.")
+                }
+            } header: {
+                Text("Inspection")
+            }
+        }
+    }
+
+    @ViewBuilder private var networkPane: some View {
+        if !Capabilities.isSandboxed {
+            Section {
+                Toggle(isOn: binding(\.sampling.processNetworkRateEnabled)) {
+                    SettingsLabel("Per-process network rates", help: "Receive and send rates for each process and application, from a separate sampler that runs only while the panel is visible. Off shows Off instead of a rate.")
+                }
+                if settings.settings.sampling.processNetworkRateEnabled {
+                    StepperRow(title: "Network rate interval", text: "\(Int(settings.settings.sampling.processNetworkRateSeconds)) s",
+                               value: Binding(get: { Int(settings.settings.sampling.processNetworkRateSeconds) }, set: { value in binding(\.sampling.processNetworkRateSeconds).wrappedValue = TimeInterval(value) }),
+                               range: Int(CollectionSettings.processNetworkRateRange.lowerBound)...Int(CollectionSettings.processNetworkRateRange.upperBound))
+                }
+            } header: {
+                Text("While the panel is open")
+            } footer: {
+                SettingsFooter("Per-process network rates run an additional sampler while visible; disabling rates stops it.")
+            }
+        }
+        if Capabilities.supportsNetworkPortInspection {
+            Section {
+                IntervalRow(title: "Listening ports", help: "Samples listening ports (and connections, if enabled) while the panel is closed. Feeds network timeline events; only the resulting events are stored.", estimate: { _ in "<10 KB/h" }, seconds: optionalBinding(\.sampling.backgroundNetworkInterval), minimum: 5)
+            } header: {
+                Text("While the panel is closed")
+            } footer: {
+                SettingsFooter("Dev servers can also keep port sampling running in the background; see Development.")
+            }
+        }
+        timelineSection {
+            Toggle(isOn: binding(\.activity.recordNetworkEvents)) {
+                SettingsLabel("Network", help: "Listening ports opened or closed, interface and address changes.", subtitle: "<10 KB/h")
+            }
+            if settings.settings.activity.recordNetworkEvents {
+                Toggle(isOn: binding(\.activity.recordConnectionEvents)) {
+                    SettingsLabel("Include connections", help: "Adds opened/closed events for every non-listening socket, outbound or inbound. Can be noisy and grows the event store faster.", subtitle: "~0.1-1 MB/h")
+                }
+            }
+        } warning: {
+            if settings.settings.activity.recordNetworkEvents && settings.settings.activity.recordConnectionEvents {
+                Label("Connection events can be very frequent on busy machines. Event rows are capped, so older events drop sooner.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder private var securityPane: some View {
+        if Capabilities.supportsPostureChecks {
+            Section {
+                IntervalRow(title: "Posture checks", help: "Offline checks of security settings. First check runs after 60 seconds. Off cancels collection; the last cached result is kept.",
+                    estimate: { _ in "Brief CPU and file/tool activity per run; serial probes capped at 5 s each and 20 s combined. Total resource budget unverified." },
+                    seconds: localBinding(\.security.postureCheckInterval), minimum: 60, defaultSeconds: 21_600)
+            } header: { Text("Scheduled checks") }
+            footer: { SettingsFooter("Expected brief CPU and disk activity per check cycle. Actual total CPU, wall time and energy are unmeasured; command deadlines are limits, not measured resource usage.") }
+        }
+        if Capabilities.supportsPersistenceWatching {
+            Section {
+                Toggle(isOn: localBinding(\.security.watchPersistence)) {
+                    SettingsLabel("Watch persistence", help: "Launch agents, daemons and selected SSH, shell and system files. Off stops the watcher, pending rescans and scheduled persistence polls.",
+                        subtitle: "Expected low idle CPU; file changes trigger hashing and rescans after a 2 s debounce. File reads capped at 1 MiB each. Production CPU/energy impact unmeasured.")
+                }
+                Toggle(isOn: localBinding(\.security.persistenceEnrichmentEnabled)) {
+                    SettingsLabel("Enrich changed items", help: "Offline signature verification, quarantine and location details. Off keeps file hashes and change detection.",
+                        subtitle: "Extra CPU and file reads during changes; at most 20 items per scan, 3 s per item within the scan deadline.")
+                }.disabled(!settings.settings.security.watchPersistence)
+                IntervalRow(title: "Scheduled persistence scans", help: "Polls crontab and, with an enabled v2 helper, background tasks and configuration profiles. No password prompts. Off leaves file watching active.",
+                    estimate: { _ in "Periodic tool/helper CPU and I/O; commands have 5 s deadlines. CPU/energy impact unmeasured." },
+                    seconds: localBinding(\.security.persistencePollInterval), minimum: 3600, defaultSeconds: 3600)
+                    .disabled(!settings.settings.security.watchPersistence)
+            } header: { Text("Persistence monitoring") }
+            footer: { SettingsFooter("Scheduled scans add periodic tool/helper work. File changes can cause CPU and disk bursts, especially with enrichment enabled; production impact is unmeasured. Collection switches stop work. Activity Timeline recording switches only control stored events. Cached results remain available when collection is off.") }
+        }
+        timelineSection {
+            if Capabilities.supportsPostureChecks || Capabilities.supportsPersistenceWatching {
+                Toggle(isOn: binding(\.activity.recordSecurityEvents)) {
+                    SettingsLabel("Security", help: "Security posture and persistence file changes.")
+                }
+            }
+            if Capabilities.supportsStartupItems {
+                Toggle(isOn: binding(\.activity.recordStartupEvents)) {
+                    SettingsLabel("Startup items", help: "Login items, launch agents and daemons added, removed or changed.", subtitle: "<1 KB/h")
                 }
             }
         }
     }
 
-    private var collectionCard: some View {
-        SettingsCard(title: "Background Collection", systemImage: "timer") {
-            OptionalIntervalRow(title: "System metrics", seconds: optionalBinding(\.backgroundSystemInterval), minimum: 1)
-            OptionalIntervalRow(title: "Process metrics", seconds: optionalBinding(\.backgroundProcessInterval), minimum: 1)
-            if Capabilities.isSandboxed {
-                SettingsCaption("Scheduled inventories are unavailable in the App Sandbox. Use the on-demand inventory button on a process.")
-            } else {
-                OptionalIntervalRow(title: "Expensive inventories", seconds: optionalBinding(\.backgroundInventoryInterval), minimum: 10)
+    @ViewBuilder private var developmentPane: some View {
+        if Capabilities.supportsNetworkPortInspection {
+            Section("Dev servers") {
+                summaryToggle(.devServers)
+                Toggle(isOn: binding(\.devTools.backgroundDevServersEnabled)) {
+                    SettingsLabel("Collect dev servers in background", help: "Keeps listening-port sampling and dev server detection running while the panel is closed, even with Listening ports off in Network.")
+                }
+                Picker("Terminal", selection: binding(\.devTools.terminalApp)) {
+                    ForEach(ProjectApplications.installed(ProjectApplications.terminals), id: \.id) { app in
+                        Text(app.name).tag(app.id)
+                    }
+                }
+                Picker("Editor", selection: binding(\.devTools.editorApp)) {
+                    Text("None").tag(nil as String?)
+                    ForEach(ProjectApplications.installed(ProjectApplications.editors), id: \.id) { app in
+                        Text(app.name).tag(Optional(app.id))
+                    }
+                }
             }
-            SettingsCaption("While the panel is open, metrics update every second. Expensive inventories are on demand unless scheduled.")
-            if let warning = settings.settings.warning {
-                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+        }
+        Section {
+            summaryToggle(.devEnvironments)
+            summaryToggle(.projects)
+            StepperRow(title: "Project scan depth", help: "Directory levels searched below each project folder for virtual environments, project-local runtimes and Git repositories.",
+                       text: "\(settings.settings.devTools.devScanDepth) levels", value: localBinding(\.devTools.devScanDepth), range: CollectionSettings.devScanDepthRange)
+            FolderListRows(folders: localBinding(\.devTools.devProjectFolders), addTitle: "Add Project Folder…", empty: "No project folders")
+        } header: {
+            Text("Development environments and projects")
+        } footer: {
+            SettingsFooter("Directory entries and .git files only, while Projects or its Summary tile is visible. Git status and the last commit run only for the repository you open. A selected folder is scanned to the project scan depth, never the whole home directory.")
+        }
+        Section {
+            summaryToggle(.homebrew)
+        } header: {
+            Text("Homebrew")
+        } footer: {
+            SettingsFooter("How long Development environment and Homebrew results are reused is set by Reuse inventories in Performance.")
+        }
+    }
+
+    @ViewBuilder private var dockerPane: some View {
+        Section {
+            summaryToggle(.docker)
+            Picker(selection: localBinding(\.devTools.dockerRefreshSeconds)) {
+                ForEach(CollectionSettings.dockerRefreshChoices, id: \.self) { Text($0 == 0 ? "Only on request" : "Every \($0) s").tag($0) }
+            } label: {
+                SettingsLabel("Auto-refresh", help: "How often container state updates while the panel is open.")
+            }
+            Toggle(isOn: localBinding(\.devTools.dockerLiveStats)) {
+                SettingsLabel("Live container statistics", help: "CPU, memory, network and block I/O per container. The most expensive Docker query; off shows container state only.")
+            }
+        } footer: {
+            SettingsFooter("Expected CPU and daemon work on each refresh; live statistics add per-container queries. Only on request stops automatic refresh. Hiding Docker from Summary stops its discovery, unless Dev servers need container names. Production CPU/energy costs vary with container count.")
+        }
+    }
+
+    @ViewBuilder private var agentsPane: some View {
+        Section {
+            summaryToggle(.agents)
+        }
+        Section {
+            ForEach(AgentDefinition.catalog, id: \.id) { agent in
+                Toggle(agent.name, isOn: agentBinding(agent.id))
+            }
+        } header: {
+            Text("Agents to look for")
+        } footer: {
+            SettingsFooter("Turned-off agents are not looked for. Agents are listed only when they are installed.")
+        }
+        Section {
+            FolderListRows(folders: localBinding(\.devTools.customAgentFolders), addTitle: "Add Agent Folder…", empty: "No custom agent folders")
+        } header: {
+            Text("Custom agent folders")
+        } footer: {
+            SettingsFooter("Each folder appears as its own agent, browsed for the configuration, skills, memory, logs and sessions files known agents use.")
+        }
+        Section {
+            Toggle(isOn: binding(\.devTools.showAgentCommandLines)) {
+                SettingsLabel("Allow per-session command line reveal", help: "Shows a button that reveals a running session's command line, which can contain secrets.")
+            }
+            Toggle(isOn: binding(\.devTools.readSessionTranscripts)) {
+                SettingsLabel("Read session transcripts",
+                              help: "The Session Timeline and History read prompts, answers, commands, MCP and tool calls from Claude Code, Codex and OpenCode transcripts on this Mac. Read only while they are on screen; only new lines are read while a session runs, and nothing is copied or written. Off shows each session's processes only.",
+                              subtitle: "While open · no disk writes")
+            }
+        } header: {
+            Text("Sessions")
+        } footer: {
+            SettingsFooter("Running sessions are tracked on every process sample only while AI Agents or Projects is on Summary, session events are recorded, or an enabled alert rule uses agent sessions. Otherwise tracking stops, and the sessions list, the CLI, dev server links, project pages and listener event attribution show none.")
+        }
+        timelineSection {
+            Toggle(isOn: binding(\.activity.recordAgentEvents)) {
+                SettingsLabel("Agent sessions", help: "Agent session started and ended. Also keeps session tracking running while AI Agents is hidden from Summary.")
             }
         }
     }
 
-    private var historyCard: some View {
-        SettingsCard(title: "Historical Data", systemImage: "clock.arrow.circlepath") {
-            SettingsRow("Retention") {
-                StepperValue(text: "\(settings.settings.retentionDays) days", value: binding(\.retentionDays), range: 1...365)
+    @ViewBuilder private var otherPagesPane: some View {
+        Section {
+            FolderListRows(folders: localBinding(\.devTools.documentFolders), addTitle: "Add Documents Folder…", empty: "No saved folders")
+        } header: {
+            Text("Documents")
+        } footer: {
+            SettingsFooter("Saved locations are available in Documents. Search or browse one folder at a time; adding folders does not start a scan.")
+        }
+        Section {
+            summaryToggle(.installedApps)
+        } header: {
+            Text("Installed Apps")
+        } footer: {
+            SettingsFooter("Lists application bundles in /Applications and ~/Applications.")
+        }
+        Section {
+            summaryToggle(.userHome)
+        } header: {
+            Text("User Home")
+        } footer: {
+            SettingsFooter("Browses dotfiles, configuration, preferences, launch agents and containers. Configure Dev servers, Development Environments and Homebrew in Development. Docker and AI Agents have their own settings panes.")
+        }
+    }
+
+    @ViewBuilder private var activityPane: some View {
+        Section {
+            Toggle(isOn: binding(\.activity.recordActivity)) {
+                SettingsLabel("Record activity", help: "Master switch. When off, no timeline events are stored or shown. Metric history is unaffected.")
             }
-            SettingsRow("Full resolution", help: "Older samples are kept as one-minute averages and peaks.") {
-                StepperValue(text: "\(settings.settings.fullResolutionHours) hours", value: binding(\.fullResolutionHours), range: 1...168)
+        } footer: {
+            SettingsFooter("Smack records events only while it is running. Recording adds disk writes, roughly 335 bytes per event before retention/compaction. Off stops event storage, while collectors and enabled alert rules keep running. Which events are recorded is chosen in each feature's pane: System, Processes, Network, Security, AI Agents and Alerts.")
+        }
+        if settings.settings.activity.recordActivity {
+            Section {
+                StepperRow(title: "Event retention", help: "How long timeline events are kept. Events are also capped in number.", text: "\(settings.settings.activity.eventRetentionDays) days", value: binding(\.activity.eventRetentionDays), range: CollectionSettings.eventRetentionRange)
+                StepperRow(title: "Maximum events", help: "The newest events kept regardless of retention; older ones are deleted first. About 335 bytes each on disk.",
+                           text: settings.settings.activity.maximumEventRows.formatted(), value: binding(\.activity.maximumEventRows), range: CollectionSettings.maximumEventRowsRange, step: 10_000)
+                StepperRow(title: "Timeline read limit", help: "Newest events the Timeline loads for the selected window. Filters and search work on these; older events in the window are shaded as not loaded. Higher values use more memory and slow the page.",
+                           text: settings.settings.activity.timelineReadLimit.formatted(), value: binding(\.activity.timelineReadLimit), range: CollectionSettings.timelineReadLimitRange, step: 500)
             }
-            SettingsRow("Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort.") {
-                StepperValue(text: "\(settings.settings.historyStorageLimitMB) MB", value: binding(\.historyStorageLimitMB), range: 25...10_000, step: 25)
-            }
-            HStack {
-                Button("Export JSON") { export(.json) }
-                Button("Export CSV") { export(.csv) }
-                Spacer()
-                Button(role: .destructive) { model.confirmDelete = true } label: {
-                    Label("Delete…", systemImage: "trash").foregroundStyle(.red)
+        }
+        Section {
+            Picker(selection: binding(\.activity.unifiedLogRangeHours)) {
+                ForEach(CollectionSettings.unifiedLogRangeChoices, id: \.self) { hours in
+                    Text(hours < 24 ? "\(hours) hour\(hours == 1 ? "" : "s")" : "\(hours / 24) day\(hours == 24 ? "" : "s")").tag(hours)
                 }
-                .help("Delete all Historical Data")
+            } label: {
+                SettingsLabel("Unified log range", help: "The widest stretch of unified log the Timeline reads when Unified logs is on. Longer Timeline ranges keep their most recent part. Each read runs log show for up to 10 seconds and 1 MB of output; wider ranges cost more CPU and memory while it runs. Nothing is stored.",
+                    subtitle: "Read only on request, never in the background")
             }
-            .controlSize(.small)
-            .padding(.top, 2)
+        } footer: {
+            SettingsFooter("The Privileged Helper never reads more than 30 days, whatever this is set to.")
+        }
+    }
+
+    @ViewBuilder private var automationPane: some View {
+        if Capabilities.supportsControlSocket {
+            Section {
+                Toggle(isOn: localBinding(\.automation.controlSocketEnabled)) {
+                    SettingsLabel("CLI and local control socket", help: "Accepts same-user cached queries and delivery-only alert controls. Off closes the listener and connected followers immediately.",
+                        subtitle: "Expected low idle overhead; requests use cached data/history. Follow adds per-client buffering and 2 s heartbeats. Production budget unverified.")
+                }
+            }
+        }
+        Section {
+            Toggle(isOn: localBinding(\.automation.appIntentsEnabled)) {
+                SettingsLabel("Shortcuts and App Intents", help: "Off rejects intent execution and entity queries. Packaged intents may remain listed in Shortcuts.",
+                    subtitle: "No periodic collection; CPU and bounded cached/history reads on invocation. Cold invocation may launch Smack.")
+            }
+            Toggle(isOn: localBinding(\.automation.urlNavigationEnabled)) {
+                SettingsLabel("URL navigation", help: "Allows smack:// navigation from launchers, CLI, Shortcuts and notification Open actions. Off ignores URL opens.",
+                    subtitle: "No idle polling. Opening a page starts its normal visible-page work.")
+            }
+        }
+    }
+
+    @ViewBuilder private var historyPane: some View {
+        Section {
+            StepperRow(title: "Retention", text: "\(settings.settings.history.retentionDays) days", value: binding(\.history.retentionDays), range: 1...365)
+            StepperRow(title: "Full resolution", help: "Older samples are kept as one-minute averages and peaks.", text: "\(settings.settings.history.fullResolutionHours) hours", value: binding(\.history.fullResolutionHours), range: 1...168)
+            StepperRow(title: "Storage limit", help: "When reached, process history older than an hour is compacted to one-minute points, then the oldest process history is deleted; system history is deleted only as a last resort. Freed space is reused by new history; the file itself is shrunk only once it grows a quarter past the limit.", text: "\(settings.settings.history.historyStorageLimitMB) MB", value: binding(\.history.historyStorageLimitMB), range: 25...10_000, step: 25)
+        } footer: {
+            SettingsFooter("Process history, usually the largest part, is set in Processes. History is written to disk in batches every 30 seconds and before sleep or quit; a crash loses at most the last batch.")
+        }
+        Section {
+            Toggle(isOn: binding(\.history.showInsightsDigest)) {
+                SettingsLabel("Last 24 hours card on Summary", help: "Peaks, top consumers, disk writes and notable events from stored history. Reads take about a second, at most every five minutes while Summary is shown; nothing is written. Minimal performance turns it off.",
+                              subtitle: "Reads only")
+            }
+        } header: {
+            Text("Insights")
+        } footer: {
+            SettingsFooter("Insights use what is already recorded: process history for disk writes and spike attribution, process events for churn, and connection events (Network) for new destinations.")
+        }
+        Section {
+            if let usage = model.usage {
+                ForEach(usage.categories) { category in
+                    LabeledContent {
+                        Text(Formatting.bytes(UInt64(category.bytes))).monospacedDigit()
+                    } label: {
+                        SettingsLabel(
+                            category.kind.rawValue, help: "\(category.rows.formatted()) rows, including indexes.",
+                            subtitle: category.bytesPerHour(now: usage.measuredAt).map { "~\(Formatting.bytes(UInt64($0)))/h" } ?? "Rate needs at least an hour of data"
+                        )
+                    }
+                }
+                LabeledContent("Database file") { Text(Formatting.bytes(UInt64(usage.fileBytes))).monospacedDigit() }
+            }
+            LabeledContent {
+                HStack {
+                    if model.isMeasuring { ProgressView().controlSize(.small) }
+                    Button(model.usage == nil ? "Calculate" : "Recalculate") { measureUsage() }.disabled(model.isMeasuring)
+                }
+            } label: {
+                SettingsLabel("History database", subtitle: model.usage.map { "Measured \(Formatting.dated($0.measuredAt.formatted(date: .omitted, time: .shortened), $0.measuredAt))" } ?? "Not measured yet")
+            }
+            LabeledContent {
+                HStack {
+                    if model.isCompacting { ProgressView().controlSize(.small) }
+                    Button("Compact…") { model.confirmCompact = true }.disabled(model.isCompacting)
+                }
+            } label: {
+                SettingsLabel("Compact database", help: "Rewrites the database file to give space left by deleted history back to the disk. Smack also compacts automatically when the storage limit is reached.",
+                              subtitle: model.lastCompacted.map { "Last compacted \(Formatting.dated($0.formatted(date: .abbreviated, time: .shortened), $0))" } ?? "Not compacted manually yet")
+            }
+        } header: {
+            Text("Storage Usage")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                if let error = model.usageError ?? model.compactError { Text(error).foregroundStyle(.red) }
+                SettingsFooter("Measures what each collection occupies in the local history database. Rates are averages over the stored span, so they reflect real usage including compaction.")
+            }
+        }
+        .task { model.lastCompacted = try? await store.historicalData.lastCompacted() }
+        Section {
+            Toggle(isOn: $model.includeEvents) {
+                SettingsLabel("Include activity events", help: "Adds events to the JSON export, or an extra -events.csv file. Default exports contain metrics only.")
+            }
+            LabeledContent("Export") {
+                HStack {
+                    Button("JSON…") { export(.json) }
+                    Button("CSV…") { export(.csv) }
+                }
+            }
+            LabeledContent {
+                Button("Delete…", role: .destructive) { model.confirmDelete = true }
+            } label: {
+                SettingsLabel("Delete all Historical Data", subtitle: "Metric samples and timeline events. Cannot be undone.")
+            }
+        } header: {
+            Text("Export and delete")
+        } footer: {
             if let error = settings.errorMessage ?? model.exportError {
-                Text(error).foregroundStyle(.red).font(.caption)
+                Text(error).font(.caption).foregroundStyle(.red)
             }
         }
     }
 
-    private static var aboutCard: some View {
-        SettingsCard(title: "Privacy & Visibility", systemImage: "hand.raised") {
-            Label {
-                SettingsCaption("All metrics and settings stay on this Mac; no analytics. Exports contain metrics only, never file paths or connection inventories.")
-            } icon: { Image(systemName: "lock").foregroundStyle(.secondary).frame(width: 18) }
-            Label {
-                SettingsCaption(Capabilities.isSandboxed
-                    ? "Smack runs in the App Sandbox. Network Ports, native menu-bar icons, and click forwarding are unavailable, and memory, disk, and energy details are limited for other processes."
-                    : "Standard sampling limits open-file and port inspection to your own processes. Superuser sampling extends metrics, inventory, and ports to other users; some Apple system processes remain hidden.")
-            } icon: { Image(systemName: "eye").foregroundStyle(.secondary).frame(width: 18) }
-            HStack {
-                SettingsCaption("Closing the panel only hides it; quit to stop all collection.")
-                Spacer()
-                Button("Quit Smack") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-                    .controlSize(.small)
+    /// The Activity Timeline switches a feature owns, under one header in every feature pane. They depend on the
+    /// Record activity master switch, so they are hidden (keeping their values) while it is off.
+    @ViewBuilder private func timelineSection<Rows: View, Warning: View>(@ViewBuilder _ rows: () -> Rows,
+                                                                         @ViewBuilder warning: () -> Warning = { EmptyView() }) -> some View {
+        if settings.settings.activity.recordActivity {
+            Section {
+                rows()
+            } header: {
+                Text("Record on the Activity Timeline")
+            } footer: {
+                warning()
             }
-            .padding(.top, 2)
+        } else {
+            Section {
+                LabeledContent("Record activity is off") {
+                    Button(SettingsPane.activity.title) { model.pane = .activity }
+                }
+            } header: {
+                Text("Record on the Activity Timeline")
+            }
         }
+    }
+
+    /// The master switch of an environment page: off hides its navigation and stops its discovery and refresh.
+    private func summaryToggle(_ page: SummaryPage) -> some View {
+        Toggle(isOn: pageBinding(page)) {
+            SettingsLabel("Show page", help: "Off hides \(page.rawValue) from the sidebar and Summary, and skips its discovery and background refresh, saving the commands and file scans it would run.")
+        }
+    }
+
+    private var presetBinding: Binding<PerformancePreset?> {
+        Binding(get: { PerformancePreset.matching(settings.settings) }, set: { preset in
+            guard let preset else { return }
+            settings.update { preset.apply(to: &$0) }
+            store.settingsChanged()
+        })
+    }
+
+    @ViewBuilder private var aboutPane: some View {
+        Section {
+            LabeledContent("Version", value: Self.appVersion)
+            LabeledContent("AI engineering") {
+                Text("Alessandro Franceschi ([Alvagante](https://www.alvagante.com)) / [Lab42](https://www.lab42.it)")
+            }
+            LabeledContent("Source code") {
+                Link("github.com/alvagante/smack", destination: URL(string: "https://github.com/alvagante/smack")!)
+            }
+            LabeledContent("Sponsor") {
+                Link("GitHub Sponsors", destination: TitleBarSettings.sponsorURL)
+            }
+            LabeledContent("License", value: "MIT")
+        }
+    }
+
+    /// Read from the bundle's Info.plist so it always matches the shipped build; unbundled debug runs have none.
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        guard let version = info?["CFBundleShortVersionString"] as? String else { return "development build" }
+        guard let build = info?["CFBundleVersion"] as? String else { return version }
+        return "\(version) (\(build))"
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<CollectionSettings, Value>) -> Binding<Value> {
@@ -141,6 +917,18 @@ struct SettingsView: View {
             settings.update { $0[keyPath: keyPath] = value }
             store.settingsChanged()
         })
+    }
+
+    /// Two-way binding for panel sound selection that persists user choices and triggers preview playback.
+    var soundSelectionBinding: Binding<PanelSound> {
+        Binding(
+            get: { settings.settings.panel.panelSound },
+            set: { sound in
+                settings.update { $0.panel.panelSound = sound }
+                store.settingsChanged()
+                SmackSound().play(sound: sound)
+            }
+        )
     }
 
     /// Appearance changes only need saving; `settingsChanged()` would restart sampling on every slider tick.
@@ -154,28 +942,75 @@ struct SettingsView: View {
         binding(keyPath)
     }
 
+    private func measureUsage() {
+        model.isMeasuring = true
+        model.usageError = nil
+        Task {
+            do { model.usage = try await store.historicalData.storageUsage() }
+            catch { model.usageError = error.localizedDescription }
+            model.isMeasuring = false
+        }
+    }
+
+    private func compact() {
+        model.isCompacting = true
+        model.compactError = nil
+        Task {
+            do {
+                model.lastCompacted = try await store.historicalData.compactNow()
+                if model.usage != nil { measureUsage() }
+            } catch { model.compactError = error.localizedDescription }
+            model.isCompacting = false
+        }
+    }
+
+    /// For settings only page monitors read: saved without restarting sampling.
+    private func localBinding<Value>(_ keyPath: WritableKeyPath<CollectionSettings, Value>) -> Binding<Value> {
+        appearanceBinding(keyPath)
+    }
+
+    private func pageBinding(_ page: SummaryPage) -> Binding<Bool> {
+        Binding(get: { settings.settings.shows(page) }, set: { show in
+            settings.update { settings in
+                settings.hiddenPages.removeAll { $0 == page }
+                if !show { settings.hiddenPages.append(page) }
+            }
+        })
+    }
+
+    private func agentBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { !settings.settings.devTools.excludedAgents.contains(id) }, set: { include in
+            settings.update { settings in
+                settings.devTools.excludedAgents.removeAll { $0 == id }
+                if !include { settings.devTools.excludedAgents.append(id) }
+            }
+        })
+    }
+
     private func export(_ format: HistoryExportFormat) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "Smack-history.\(format == .json ? "json" : "csv")"
         panel.allowedContentTypes = []
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let includeEvents = model.includeEvents
         Task {
-            do { try await store.history.export(to: url, format: format) }
+            do { try await store.historicalData.export(to: url, format: format, includeEvents: includeEvents) }
             catch { model.exportError = error.localizedDescription }
         }
     }
 }
 
-private struct PrivilegedSamplingSection: View {
+struct PrivilegedSamplingSection: View {
     @ObservedObject var controller: PrivilegedSamplingController
     @ObservedObject var settings: SettingsStore
     let onChange: () -> Void
+    var toggleTitle = "Sample other users' processes"
 
     private var isEnabled: Binding<Bool> {
         Binding(
-            get: { settings.settings.privilegedSampling },
+            get: { settings.settings.sampling.privilegedSampling },
             set: { enabled in
-                settings.update { $0.privilegedSampling = enabled }
+                settings.update { $0.sampling.privilegedSampling = enabled }
                 onChange()
                 controller.setEnabled(enabled)
             }
@@ -184,11 +1019,13 @@ private struct PrivilegedSamplingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsRow("Sample other users' processes") {
-                SettingsSwitch(isOn: isEnabled).disabled(controller.isWorking)
+            HStack {
+                Text(toggleTitle)
+                Spacer(minLength: 8)
+                Toggle(toggleTitle, isOn: isEnabled).labelsHidden().toggleStyle(.switch).disabled(controller.isWorking)
             }
-            SettingsCaption("Uses a root helper for process metrics, open-file and connection inventory, and listening ports. It cannot read file contents or run commands. \(setupHint)")
-            if settings.settings.privilegedSampling {
+            SettingsFooter("Uses a root helper for process metrics, open-file and connection inventory, listening ports, optional full-disk size scans, and scheduled BTM/profile inventory. Those inventory commands are fixed and bounded. Expected CPU/I/O grows with sampling frequency and scan size; helper energy cost is not yet measured. Off stops app requests; removing the helper also removes the installed daemon. \(setupHint)")
+            if settings.settings.sampling.privilegedSampling {
                 HStack(spacing: 8) {
                     Image(systemName: statusImage)
                         .foregroundStyle(statusColor)
@@ -197,7 +1034,7 @@ private struct PrivilegedSamplingSection: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     if controller.isWorking { ProgressView().controlSize(.small) }
-                    Button("Check Again") { Task { await controller.refresh() } }
+                    RefreshButton { Task { await controller.refresh() } }
                 }
                 HStack(spacing: 8) {
                     if controller.mode == .legacyInstall {
@@ -282,53 +1119,53 @@ private struct PrivilegedSamplingSection: View {
 
 // MARK: Building blocks
 
-/// A titled card in the Summary style; the grid gives every card in a row the same height.
-private struct SettingsCard<Content: View>: View {
-    let title: String
+/// White symbol on a rounded colored square, as in the System Settings sidebar.
+private struct SettingsIcon: View {
     let systemImage: String
-    @ViewBuilder let content: Content
+    let tint: Color
 
     var body: some View {
-        MetricCard(title: title, systemImage: systemImage) {
-            VStack(alignment: .leading, spacing: 10) { content }
-        }
+        Image(systemName: systemImage)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 20, height: 20)
+            .background(tint, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 
-/// Title on the left, control on the right.
-private struct SettingsRow<Control: View>: View {
+/// Row title with an optional ⓘ tooltip and an optional secondary line below it.
+struct SettingsLabel: View {
     let title: String
     var help: String?
-    @ViewBuilder let control: Control
+    var subtitle: String?
 
-    init(_ title: String, help: String? = nil, @ViewBuilder control: () -> Control) {
+    init(_ title: String, help: String? = nil, subtitle: String? = nil) {
         self.title = title
         self.help = help
-        self.control = control()
+        self.subtitle = subtitle
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-            if help != nil {
-                Image(systemName: "questionmark.circle").font(.caption).foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Text(title)
+                if let help {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                        .hoverHint(help)
+                        .accessibilityLabel(help)
+                }
             }
-            Spacer(minLength: 8)
-            control
+            if let subtitle {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
         }
-        .font(.callout)
-        .help(help ?? "")
     }
 }
 
-private struct SettingsSwitch: View {
-    @Binding var isOn: Bool
-    var body: some View {
-        Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
-    }
-}
-
-private struct SettingsCaption: View {
+/// Section footer text: small, secondary, wrapping.
+struct SettingsFooter: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -336,7 +1173,7 @@ private struct SettingsCaption: View {
     }
 }
 
-private struct NumberField: View {
+struct NumberField: View {
     @Binding var value: Double
     let unit: String
     var body: some View {
@@ -348,32 +1185,77 @@ private struct NumberField: View {
     }
 }
 
-private struct StepperValue: View {
+/// A count or duration: current value on the right of the label, then a stepper.
+private struct StepperRow: View {
+    let title: String
+    var help: String?
     let text: String
     @Binding var value: Int
     let range: ClosedRange<Int>
     var step = 1
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(text).monospacedDigit()
-            Stepper("", value: $value, in: range, step: step).labelsHidden()
+        LabeledContent {
+            HStack(spacing: 6) {
+                Text(text).monospacedDigit()
+                Stepper(title, value: $value, in: range, step: step).labelsHidden()
+            }
+        } label: { SettingsLabel(title, help: help) }
+    }
+}
+
+/// A switch that enables an interval, with the interval field and its storage estimate shown only while enabled.
+private struct IntervalRow: View {
+    let title: String
+    var help: String?
+    var estimate: ((TimeInterval) -> String)?
+    @Binding var seconds: TimeInterval?
+    let minimum: Double
+    var defaultSeconds: TimeInterval = 5
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                if seconds != nil {
+                    NumberField(value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), unit: "s")
+                }
+                Toggle(title, isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, defaultSeconds) : nil }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+        } label: {
+            SettingsLabel(title, help: help, subtitle: seconds.flatMap { estimate?($0) } ?? "Off")
         }
     }
 }
 
-/// A switch that enables an interval, with the interval field shown only while enabled.
-private struct OptionalIntervalRow: View {
-    let title: String
-    @Binding var seconds: TimeInterval?
-    let minimum: Double
+/// One row per folder with a remove button, then an add button that opens a folder picker.
+struct FolderListRows: View {
+    @Binding var folders: [String]
+    let addTitle: String
+    let empty: String
 
     var body: some View {
-        SettingsRow(title) {
-            if seconds != nil {
-                NumberField(value: Binding(get: { seconds ?? minimum }, set: { seconds = $0 }), unit: "s")
+        if folders.isEmpty {
+            Text(empty).foregroundStyle(.secondary)
+        }
+        ForEach(folders, id: \.self) { folder in
+            LabeledContent {
+                Button(role: .destructive) { folders.removeAll { $0 == folder } } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless)
+                    .help("Remove")
+            } label: {
+                Text((folder as NSString).abbreviatingWithTildeInPath).truncationMode(.middle).lineLimit(1)
             }
-            SettingsSwitch(isOn: Binding(get: { seconds != nil }, set: { seconds = $0 ? max(minimum, 5) : nil }))
+        }
+        LabeledContent("") {
+            Button(addTitle) {
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = true
+                guard panel.runModal() == .OK else { return }
+                folders += panel.urls.map(\.path).filter { !folders.contains($0) }
+            }
         }
     }
 }

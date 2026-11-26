@@ -1,0 +1,224 @@
+{
+ "command": "SMACK_PHASE0_BENCHMARK=1 swift test -c release --filter phase0AlertBenchmark (3 sequential runs)",
+ "date": "2026-11-01",
+ "host": "Apple M5 Max, macOS 27.2 build 26B123, arm64",
+ "note": "Additional samples. Do not replace the recorded 23.2638 to 4.4031 ms mean and 6.0106 ms max. Not M1, not allocation profiling.",
+ "runs": [
+  {
+   "log": "/tmp/smack-004-alert-bench-run1.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.0305,
+     "maxrss_end_bytes": 45973504,
+     "maxrss_start_bytes": 45744128,
+     "mean_ms": 0.00814316300000001,
+     "p50_ms": 0.008083,
+     "p95_ms": 0.008709,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.027167,
+     "maxrss_end_bytes": 47972352,
+     "maxrss_start_bytes": 47923200,
+     "mean_ms": 0.011212433999999943,
+     "p50_ms": 0.011125,
+     "p95_ms": 0.011459,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.318625,
+     "maxrss_end_bytes": 49053696,
+     "maxrss_start_bytes": 47988736,
+     "mean_ms": 0.21830075999999995,
+     "p50_ms": 0.211458,
+     "p95_ms": 0.254333,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.524,
+     "maxrss_end_bytes": 49594368,
+     "maxrss_start_bytes": 49070080,
+     "mean_ms": 1.02563251,
+     "p50_ms": 0.993042,
+     "p95_ms": 1.288791,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.891833,
+     "maxrss_end_bytes": 49676288,
+     "maxrss_start_bytes": 49610752,
+     "mean_ms": 1.6521191400000004,
+     "p50_ms": 1.649459,
+     "p95_ms": 1.779333,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 4.959375,
+     "maxrss_end_bytes": 52264960,
+     "maxrss_start_bytes": 49692672,
+     "mean_ms": 4.443691230000001,
+     "p50_ms": 4.426625,
+     "p95_ms": 4.651625,
+     "workload": "process-50-any-1000"
+    }
+   ],
+   "run": 1
+  },
+  {
+   "log": "/tmp/smack-004-alert-bench-run2.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.069583,
+     "maxrss_end_bytes": 46071808,
+     "maxrss_start_bytes": 45858816,
+     "mean_ms": 0.008798797999999984,
+     "p50_ms": 0.00875,
+     "p95_ms": 0.009708,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.098125,
+     "maxrss_end_bytes": 48070656,
+     "maxrss_start_bytes": 48021504,
+     "mean_ms": 0.012091556999999977,
+     "p50_ms": 0.011708,
+     "p95_ms": 0.012834,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.352708,
+     "maxrss_end_bytes": 49102848,
+     "maxrss_start_bytes": 48087040,
+     "mean_ms": 0.2244829399999999,
+     "p50_ms": 0.220417,
+     "p95_ms": 0.265083,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.119083,
+     "maxrss_end_bytes": 49659904,
+     "maxrss_start_bytes": 49135616,
+     "mean_ms": 0.9915790500000001,
+     "p50_ms": 0.982042,
+     "p95_ms": 1.088042,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.750417,
+     "maxrss_end_bytes": 49676288,
+     "maxrss_start_bytes": 49676288,
+     "mean_ms": 1.5658058600000004,
+     "p50_ms": 1.551916,
+     "p95_ms": 1.669542,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 5.628583,
+     "maxrss_end_bytes": 52314112,
+     "maxrss_start_bytes": 49692672,
+     "mean_ms": 4.343723739999999,
+     "p50_ms": 4.2695,
+     "p95_ms": 4.812625,
+     "workload": "process-50-any-1000"
+    }
+   ],
+   "run": 2
+  },
+  {
+   "log": "/tmp/smack-004-alert-bench-run3.log",
+   "results": [
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.024833,
+     "maxrss_end_bytes": 46088192,
+     "maxrss_start_bytes": 45809664,
+     "mean_ms": 0.008147669000000014,
+     "p50_ms": 0.007958,
+     "p95_ms": 0.009,
+     "workload": "system-50-armed"
+    },
+    {
+     "fired": 0,
+     "iterations": 1000,
+     "max_ms": 0.026875,
+     "maxrss_end_bytes": 48119808,
+     "maxrss_start_bytes": 48070656,
+     "mean_ms": 0.011273304999999963,
+     "p50_ms": 0.011041,
+     "p95_ms": 0.01275,
+     "workload": "system-50-pending"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 0.258333,
+     "maxrss_end_bytes": 49233920,
+     "maxrss_start_bytes": 48136192,
+     "mean_ms": 0.21557422000000004,
+     "p50_ms": 0.212375,
+     "p95_ms": 0.236792,
+     "workload": "process-1-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.364125,
+     "maxrss_end_bytes": 49709056,
+     "maxrss_start_bytes": 49250304,
+     "mean_ms": 1.01222922,
+     "p50_ms": 0.991958,
+     "p95_ms": 1.201333,
+     "workload": "process-10-any-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 1.855875,
+     "maxrss_end_bytes": 49741824,
+     "maxrss_start_bytes": 49725440,
+     "mean_ms": 1.58491717,
+     "p50_ms": 1.571708,
+     "p95_ms": 1.773042,
+     "workload": "process-50-exact-1000"
+    },
+    {
+     "fired": 0,
+     "iterations": 100,
+     "max_ms": 4.851375,
+     "maxrss_end_bytes": 52346880,
+     "maxrss_start_bytes": 49741824,
+     "mean_ms": 4.182073729999999,
+     "p50_ms": 4.162542,
+     "p95_ms": 4.342209,
+     "workload": "process-50-any-1000"
+    }
+   ],
+   "run": 3
+  }
+ ]
+}

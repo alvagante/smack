@@ -39,6 +39,17 @@ enum SystemCollectorMath {
         return normalizedPercentage(Double(user + system + nice) * 100 / Double(total))
     }
 
+    /// User (with nice) and system percentages of the tick delta; nil when no ticks elapsed.
+    static func cpuBreakdown(current: SystemCollectorCPUTicks, previous: SystemCollectorCPUTicks) -> (user: Double, system: Double)? {
+        let user = wrappingDifference(current: current.user, previous: previous.user)
+        let system = wrappingDifference(current: current.system, previous: previous.system)
+        let idle = wrappingDifference(current: current.idle, previous: previous.idle)
+        let nice = wrappingDifference(current: current.nice, previous: previous.nice)
+        let total = Double(user + system + idle + nice)
+        guard total > 0 else { return nil }
+        return (normalizedPercentage(Double(user + nice) * 100 / total), normalizedPercentage(Double(system) * 100 / total))
+    }
+
     static func normalizedPercentage(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(100, max(0, value))
@@ -63,6 +74,8 @@ private struct DiskCounters {
 final class SystemCollector: SystemMetricsCollecting {
     private let lock = NSLock()
     private let gpuName: String
+    private let gpuCoreCount: Int?
+    private let gpuProcessReader = GPUProcessReader()
     private var aggregateCPUTicks: SystemCollectorCPUTicks?
     private var coreCPUTicks: [SystemCollectorCPUTicks]?
     private var networkCounters: [String: NetworkCounters] = [:]
@@ -71,12 +84,40 @@ final class SystemCollector: SystemMetricsCollecting {
     private var diskCounters: [UInt64: DiskCounters] = [:]
     private var diskNames: [UInt64: String] = [:]
     private var diskTimestamp: TimeInterval?
+    /// Cached `IOAccelerator` service, so steady-state sampling is one property read and no enumeration.
+    private var acceleratorService: io_service_t = 0
+    /// After a failed lookup (virtual machines expose no statistics) the next attempt waits, so a Mac without
+    /// GPU statistics does not enumerate services on every sample.
+    private var acceleratorRetryAfter: TimeInterval = 0
+    private static let acceleratorRetryInterval: TimeInterval = 60
+#if SMACK_APP_STORE
+    private func readTemperatures() -> [TemperatureSensor] { [] }
+    private func readFans() -> [FanSample] { [] }
+#else
+    /// Created on first use, so the IOHID client exists only once someone opened the thermal page.
+    private var thermalSensors: ThermalSensorReader?
+    private func readTemperatures() -> [TemperatureSensor] {
+        if thermalSensors == nil { thermalSensors = ThermalSensorReader() }
+        return thermalSensors?.read() ?? []
+    }
+    /// Created on first use, like `thermalSensors`.
+    private var fanReader: SMCFanReader?
+    private func readFans() -> [FanSample] {
+        if fanReader == nil { fanReader = SMCFanReader() }
+        return fanReader?.read() ?? []
+    }
+#endif
 
     init() {
         gpuName = SystemHardwareSampler.readGPUName()
+        gpuCoreCount = SystemHardwareSampler.readGPUCoreCount()
     }
 
-    func collectSystemSample() -> SystemSample {
+    deinit {
+        if acceleratorService != 0 { IOObjectRelease(acceleratorService) }
+    }
+
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample {
         lock.lock()
         defer { lock.unlock() }
 
@@ -87,6 +128,16 @@ final class SystemCollector: SystemMetricsCollecting {
         let disks = collectDisks(now: now)
         let volumes = SystemHardwareSampler.collectVolumes()
         let battery = SystemHardwareSampler.collectBattery()
+        let gpu = collectGPU(now: now)
+        let temperatures = includeTemperatures ? readTemperatures() : nil
+        let fans = includeTemperatures ? readFans() : nil
+        let gpuProcesses: [Int32: Double]?
+        if includeGPUProcesses {
+            gpuProcesses = gpuProcessReader.read(accelerator: acceleratorService, now: now)
+        } else {
+            gpuProcessReader.reset()
+            gpuProcesses = nil
+        }
 
         return SystemSample(
             timestamp: Date(),
@@ -97,15 +148,117 @@ final class SystemCollector: SystemMetricsCollecting {
             volumes: volumes,
             battery: battery,
             thermalCondition: SystemHardwareSampler.thermalCondition,
-            gpuName: gpuName
+            gpuName: gpuName,
+            gpu: gpu,
+            gpuCoreCount: gpuCoreCount,
+            gpuProcesses: gpuProcesses,
+            gpuProcessStatus: gpuProcessReader.status,
+            temperatures: temperatures,
+            fans: fans
         )
+    }
+
+    // MARK: GPU
+
+    private func collectGPU(now: TimeInterval) -> GPUSample {
+        guard acceleratorService != 0 || now >= acceleratorRetryAfter else { return GPUSample() }
+        // A cached service can go stale (GPU reset, driver reload): release it and enumerate once more.
+        for _ in 0..<2 {
+            if acceleratorService == 0 { acceleratorService = Self.findAccelerator() }
+            guard acceleratorService != 0 else { break }
+            if let statistics = SystemHardwareSampler.copyDictionaryProperty("PerformanceStatistics", from: acceleratorService) {
+                return Self.parseGPU(statistics)
+            }
+            IOObjectRelease(acceleratorService)
+            acceleratorService = 0
+        }
+        acceleratorRetryAfter = now + Self.acceleratorRetryInterval
+        return GPUSample()
+    }
+
+    /// The first accelerator that publishes `PerformanceStatistics`. `AGXAccelerator` is the Apple silicon class
+    /// the GPU name lookup already uses; `IOAccelerator` matches it too, so it is only a fallback.
+    private static func findAccelerator() -> io_service_t {
+        for className in ["IOAccelerator", "AGXAccelerator"] {
+            guard let matching = IOServiceMatching(className) else { continue }
+            var iterator = io_iterator_t()
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { continue }
+            defer { IOObjectRelease(iterator) }
+            while true {
+                let service = IOIteratorNext(iterator)
+                guard service != 0 else { break }
+                if let value = IORegistryEntryCreateCFProperty(service, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0) {
+                    value.release()
+                    return service
+                }
+                IOObjectRelease(service)
+            }
+        }
+        return 0
+    }
+
+    /// No key is required: a missing or renamed key leaves that field nil without failing the sample.
+    static func parseGPU(_ statistics: [String: Any]) -> GPUSample {
+        func percent(_ key: String) -> Double? {
+            (statistics[key] as? NSNumber).map { SystemCollectorMath.normalizedPercentage($0.doubleValue) }
+        }
+        func bytes(_ key: String) -> UInt64? {
+            (statistics[key] as? NSNumber).flatMap { $0.int64Value >= 0 ? UInt64($0.int64Value) : nil }
+        }
+        let device = percent("Device Utilization %")
+        let renderer = percent("Renderer Utilization %")
+        let tiler = percent("Tiler Utilization %")
+        return GPUSample(
+            utilizationPercent: device ?? renderer ?? tiler,
+            rendererUtilizationPercent: renderer,
+            tilerUtilizationPercent: tiler,
+            inUseMemoryBytes: bytes("In use system memory") ?? bytes("Alloc system memory"),
+            allocatedMemoryBytes: bytes("Alloc system memory"),
+            recoveryCount: (statistics["recoveryCount"] as? NSNumber)?.intValue
+        )
+    }
+
+    // MARK: Memory pressure
+
+    static func pressure(level: Int32) -> MemoryPressure {
+        SystemHardwareSampler.pressure(level: level)
+    }
+
+    /// Numeric host text without the IPv6 scope. The kernel embeds the interface index in link-local addresses
+    /// (`fe80:4::1`), which is noise rather than part of the address.
+    static func addressText(_ address: UnsafePointer<sockaddr>) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        switch Int32(address.pointee.sa_family) {
+        case AF_INET:
+            return address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
+                var host = pointer.pointee.sin_addr
+                return inet_ntop(AF_INET, &host, &buffer, socklen_t(buffer.count)).map { String(cString: $0) }
+            }
+        case AF_INET6:
+            return address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { pointer in
+                var host = pointer.pointee.sin6_addr
+                let isLinkLocal = withUnsafeBytes(of: &host) { $0[0] == 0xfe && ($0[1] & 0xc0) == 0x80 }
+                if isLinkLocal {
+                    withUnsafeMutableBytes(of: &host) { $0[2] = 0; $0[3] = 0 }
+                }
+                return inet_ntop(AF_INET6, &host, &buffer, socklen_t(buffer.count)).map { String(cString: $0) }
+            }
+        default:
+            return nil
+        }
     }
 
     private func collectCPU() -> CPUSample {
         var totalUsage = 0.0
+        var hasUsage = false
+        var breakdown: (user: Double, system: Double)?
         if let current = SystemIOMetricsReader.readAggregateCPUTicks() {
             if let previous = aggregateCPUTicks {
-                totalUsage = SystemCollectorMath.cpuUsage(current: current, previous: previous) ?? 0
+                if let usage = SystemCollectorMath.cpuUsage(current: current, previous: previous) {
+                    totalUsage = usage
+                    hasUsage = true
+                }
+                breakdown = SystemCollectorMath.cpuBreakdown(current: current, previous: previous)
             }
             aggregateCPUTicks = current
         }
@@ -116,7 +269,13 @@ final class SystemCollector: SystemMetricsCollecting {
             coreCPUTicks = current
         }
 
-        return CPUSample(totalUsage: totalUsage, coreUsage: coreUsage)
+        var loads = [Double](repeating: 0, count: 3)
+        let loadAverage = getloadavg(&loads, 3) == 3 ? loads : []
+        return CPUSample(
+            totalUsage: totalUsage, coreUsage: coreUsage,
+            userUsage: breakdown?.user ?? 0, systemUsage: breakdown?.system ?? 0, loadAverage: loadAverage,
+            hasUsage: hasUsage
+        )
     }
 
     private static func coreUsage(
@@ -149,7 +308,8 @@ final class SystemCollector: SystemMetricsCollecting {
                 bytesReceived: counters.received,
                 bytesSent: counters.sent,
                 receiveRate: Self.sampledRate(current: counters.received, previous: previous?.received, elapsed: elapsed),
-                sendRate: Self.sampledRate(current: counters.sent, previous: previous?.sent, elapsed: elapsed)
+                sendRate: Self.sampledRate(current: counters.sent, previous: previous?.sent, elapsed: elapsed),
+                addresses: reading.addresses[name]?.sorted() ?? []
             )
         }
         networkCounters = reading.current
@@ -239,40 +399,43 @@ private enum SystemIOMetricsReader {
     static func readActiveInterfaces(
         previousRaw: [String: RawNetworkCounters],
         previousAccumulated: [String: NetworkCounters]
-    ) -> (current: [String: NetworkCounters], raw: [String: RawNetworkCounters]) {
+    ) -> (current: [String: NetworkCounters], raw: [String: RawNetworkCounters], addresses: [String: Set<String>]) {
         var firstAddress: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&firstAddress) == 0, let firstAddress else { return ([:], [:]) }
+        guard getifaddrs(&firstAddress) == 0, let firstAddress else { return ([:], [:], [:]) }
         defer { freeifaddrs(firstAddress) }
 
         var current: [String: NetworkCounters] = [:]
         current.reserveCapacity(previousAccumulated.count)
         var rawCurrent: [String: RawNetworkCounters] = [:]
         rawCurrent.reserveCapacity(previousRaw.count)
+        var addresses: [String: Set<String>] = [:]
         var address: UnsafeMutablePointer<ifaddrs>? = firstAddress
         while let interface = address {
             defer { address = interface.pointee.ifa_next }
-            guard let link = activeLinkCounters(from: interface.pointee) else { continue }
+            guard let socketAddress = interface.pointee.ifa_addr else { continue }
+            let flags = UInt32(interface.pointee.ifa_flags)
+            let isUsable = flags & UInt32(IFF_UP) != 0
+                && flags & UInt32(IFF_RUNNING) != 0
+                && flags & UInt32(IFF_LOOPBACK) == 0
+            guard isUsable else { continue }
+            let family = Int32(socketAddress.pointee.sa_family)
+            if family == AF_INET || family == AF_INET6 {
+                if let text = SystemCollector.addressText(socketAddress) {
+                    addresses[String(cString: interface.pointee.ifa_name), default: []].insert(text)
+                }
+                continue
+            }
+            guard family == AF_LINK, let data = interface.pointee.ifa_data else { continue }
             mergeInterfaceCounters(
-                link.counters,
-                name: link.name,
+                data.assumingMemoryBound(to: if_data.self).pointee,
+                name: String(cString: interface.pointee.ifa_name),
                 previousRaw: previousRaw,
                 previousAccumulated: previousAccumulated,
                 current: &current,
                 rawCurrent: &rawCurrent
             )
         }
-        return (current, rawCurrent)
-    }
-
-    private static func activeLinkCounters(from interface: ifaddrs) -> (name: String, counters: if_data)? {
-        guard let socketAddress = interface.ifa_addr,
-              UInt32(socketAddress.pointee.sa_family) == UInt32(AF_LINK),
-              let data = interface.ifa_data else { return nil }
-        let flags = UInt32(interface.ifa_flags)
-        guard flags & UInt32(IFF_UP) != 0,
-              flags & UInt32(IFF_RUNNING) != 0,
-              flags & UInt32(IFF_LOOPBACK) == 0 else { return nil }
-        return (String(cString: interface.ifa_name), data.assumingMemoryBound(to: if_data.self).pointee)
+        return (current, rawCurrent, addresses)
     }
 
     private static func mergeInterfaceCounters(
@@ -334,6 +497,18 @@ private enum SystemIOMetricsReader {
     }
 
     private static func diskName(for service: io_registry_entry_t, identifier: UInt64) -> String {
+        // The BSD name and model live on the driver's IOMedia child, for example "disk0" and "APPLE SSD AP4096Z Media".
+        var child = io_registry_entry_t()
+        if IORegistryEntryGetChildEntry(service, kIOServicePlane, &child) == KERN_SUCCESS {
+            defer { IOObjectRelease(child) }
+            if let name = SystemHardwareSampler.copyStringProperty("BSD Name", from: child), !name.isEmpty {
+                var buffer = [CChar](repeating: 0, count: 128)
+                let media = IORegistryEntryGetName(child, &buffer) == KERN_SUCCESS
+                    ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
+                let model = media.hasSuffix(" Media") ? String(media.dropLast(6)) : media
+                return model.isEmpty ? name : "\(name) · \(model)"
+            }
+        }
         var current = service
         IOObjectRetain(current)
         defer { IOObjectRelease(current) }

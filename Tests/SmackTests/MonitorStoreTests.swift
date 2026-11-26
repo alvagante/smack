@@ -3,7 +3,7 @@ import Testing
 @testable import Smack
 
 private final class StubSystemMetricsCollector: SystemMetricsCollecting {
-    func collectSystemSample() -> SystemSample {
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample {
         SystemSample(
             timestamp: Date(),
             cpu: CPUSample(totalUsage: 0, coreUsage: []),
@@ -19,7 +19,7 @@ private final class StubSystemMetricsCollector: SystemMetricsCollecting {
 }
 
 private final class StubProcessSnapshotProvider: ProcessMetricsCollecting, Sendable {
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: [])
     }
 }
@@ -37,7 +37,7 @@ private final class StubNetworkPortProvider: NetworkPortCollecting, Sendable {
 }
 
 @MainActor
-@Test func monitorStoreUpdatesStateAndReadsHistoryViaReader() async throws {
+@Test func monitorStoreUpdatesStateAndReadsHistoricalQueries() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("smack-store-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -102,18 +102,17 @@ private final class StubNetworkPortProvider: NetworkPortCollecting, Sendable {
     #expect(store.process(id: "missing") == nil)
 
     try await history.save(system: sample)
-    let readBack = await MonitorHistoryReader.systemHistory(.cpu, hours: 1, store: store)
+    let readBack = await store.historicalData.systemHistory(.cpu, from: timestamp.addingTimeInterval(-3600), to: timestamp.addingTimeInterval(60))
     #expect(readBack.count == 1)
     #expect(readBack.first?.average == 42.5)
-    let programs = await MonitorHistoryReader.historicalPrograms(hours: 1, store: store)
+    let programs = await store.historicalData.historicalPrograms(hours: 1)
     #expect(programs.isEmpty)
 
-    let emptyInventory = ProcessInventory(files: [], connections: [], threads: [], libraries: [], warnings: [])
+    let emptyInventory = ProcessInventory(files: [], connections: [], threads: [ThreadInfo(id: 1, name: "main")], libraries: [], warnings: [])
     store.receive(emptyInventory, for: worker.id)
     store.receive(emptyInventory, for: "exited-999-1.0")
-    #expect(store.inventoryState.scheduled.count == 2)
-    store.receive(ProcessSnapshot(timestamp: timestamp, applications: [app], backgroundProcesses: []))
-    #expect(store.inventoryState.scheduled.count == 1)
-    #expect(store.inventoryState.scheduled[worker.id] != nil)
-    #expect(store.inventoryState.scheduled["exited-999-1.0"] == nil)
+    store.inspection.loadInventory(for: worker)
+    #expect(store.inspection.inventory?.threads.count == 1)
+    store.receive(ProcessSnapshot(timestamp: timestamp.addingTimeInterval(1), applications: [], backgroundProcesses: []))
+    await scheduler.stop()
 }

@@ -1,0 +1,416 @@
+[
+  {
+    "names": [
+      "kernel_task"
+    ],
+    "title": "macOS kernel",
+    "summary": "The kernel. High CPU often means macOS is throttling to manage heat, not that the kernel is busy.",
+    "category": "System",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "WindowServer"
+    ],
+    "title": "Window server",
+    "summary": "Draws every window and the display. Quitting it logs you out.",
+    "category": "Graphics",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "launchd"
+    ],
+    "title": "Launch daemon manager",
+    "summary": "The first process; starts and supervises every other service.",
+    "category": "System",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "logd"
+    ],
+    "title": "Unified logging",
+    "summary": "Collects system and app log messages. Spikes with chatty apps or debug logging.",
+    "category": "System",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "mds",
+      "mdworker",
+      "mdworker_shared",
+      "mds_stores"
+    ],
+    "bundles": [
+      "com.apple.Spotlight"
+    ],
+    "title": "Spotlight indexing",
+    "summary": "Indexes files for Spotlight search. High disk and CPU during initial indexing or after large file changes.",
+    "category": "Spotlight",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "bird"
+    ],
+    "title": "iCloud Drive sync",
+    "summary": "Syncs iCloud Drive documents. Busy after large changes or on first sign-in.",
+    "category": "iCloud",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "cloudd"
+    ],
+    "title": "CloudKit daemon",
+    "summary": "Syncs app data with iCloud on behalf of apps.",
+    "category": "iCloud",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "nsurlsessiond"
+    ],
+    "title": "Background transfers",
+    "summary": "Runs downloads and uploads for apps, such as App Store and iCloud.",
+    "category": "Network",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "dasd"
+    ],
+    "title": "Duet activity scheduler",
+    "summary": "Decides when background tasks run based on power and usage.",
+    "category": "System",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "powerd"
+    ],
+    "title": "Power management",
+    "summary": "Handles sleep, wake and battery policy.",
+    "category": "Power",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "coreaudiod"
+    ],
+    "title": "Core Audio",
+    "summary": "Audio server. Restarts automatically if stopped, and audio drops briefly.",
+    "category": "Audio",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "bluetoothd"
+    ],
+    "title": "Bluetooth daemon",
+    "summary": "Manages Bluetooth devices and connections.",
+    "category": "Bluetooth",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "sharingd"
+    ],
+    "title": "Sharing services",
+    "summary": "AirDrop, Handoff and other sharing features.",
+    "category": "Sharing",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "rapportd"
+    ],
+    "title": "Device continuity",
+    "summary": "Links nearby Apple devices for Continuity features.",
+    "category": "Sharing",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "identityservicesd"
+    ],
+    "title": "Apple ID messaging",
+    "summary": "Delivers iMessage and FaceTime signalling.",
+    "category": "Apple ID",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "IMDPersistenceAgent"
+    ],
+    "title": "Messages storage",
+    "summary": "Stores Messages history for the current user.",
+    "category": "Apple ID",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "photoanalysisd",
+      "photolibraryd"
+    ],
+    "title": "Photos analysis",
+    "summary": "Scans the Photos library for faces and scenes. Heavy after importing many photos.",
+    "category": "Photos",
+    "safeToQuit": "yes",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "backupd"
+    ],
+    "title": "Time Machine",
+    "summary": "Runs Time Machine backups. Heavy disk use while a backup is running.",
+    "category": "Backup",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "tccd"
+    ],
+    "title": "Privacy permissions",
+    "summary": "Enforces and stores privacy permissions.",
+    "category": "Security",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "secinitd"
+    ],
+    "title": "Security initialization",
+    "summary": "Applies the sandbox and code signing policy when apps launch.",
+    "category": "Security",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "sysmond"
+    ],
+    "title": "System monitor service",
+    "summary": "Provides process statistics to Activity Monitor and similar tools.",
+    "category": "System",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "sysdiagnosed",
+      "spindump"
+    ],
+    "title": "Diagnostics",
+    "summary": "Gathers diagnostic reports after a hang or a manual request.",
+    "category": "Diagnostics",
+    "safeToQuit": "yes",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "Docker",
+      "com.docker.backend",
+      "Docker Desktop",
+      "com.docker.vmnetd"
+    ],
+    "bundles": [
+      "com.docker.docker"
+    ],
+    "title": "Docker Desktop",
+    "summary": "Container engine and its Linux virtual machine. Memory is reserved for the VM.",
+    "category": "Developer",
+    "safeToQuit": "yes",
+    "url": "https://docs.docker.com/desktop/"
+  },
+  {
+    "names": [
+      "OrbStack",
+      "OrbStack Helper"
+    ],
+    "bundles": [
+      "dev.kdrag0n.MacVirt"
+    ],
+    "title": "OrbStack",
+    "summary": "Container and Linux machine runtime.",
+    "category": "Developer",
+    "safeToQuit": "yes",
+    "url": "https://docs.orbstack.dev/"
+  },
+  {
+    "names": [
+      "Xcode",
+      "XCBBuildService",
+      "SWBBuildService"
+    ],
+    "bundles": [
+      "com.apple.dt.Xcode"
+    ],
+    "title": "Xcode",
+    "summary": "Apple's IDE and its build services. Heavy during builds and indexing.",
+    "category": "Developer",
+    "safeToQuit": "withCare",
+    "url": "https://developer.apple.com/xcode/"
+  },
+  {
+    "names": [
+      "SourceKitService",
+      "sourcekit-lsp"
+    ],
+    "title": "Swift language service",
+    "summary": "Code completion and indexing for Swift in Xcode and editors.",
+    "category": "Developer",
+    "safeToQuit": "yes",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "node",
+      "nodejs"
+    ],
+    "title": "Node.js",
+    "summary": "JavaScript runtime. Often runs dev servers, bundlers and tools.",
+    "category": "Developer",
+    "safeToQuit": "withCare",
+    "url": "https://nodejs.org/"
+  },
+  {
+    "names": [
+      "python",
+      "Python"
+    ],
+    "title": "Python",
+    "summary": "Python interpreter running a script or tool.",
+    "category": "Developer",
+    "safeToQuit": "withCare",
+    "url": "https://www.python.org/"
+  },
+  {
+    "names": [
+      "Electron"
+    ],
+    "title": "Electron app",
+    "summary": "Chromium-based app shell. Helpers split rendering, GPU and utility work.",
+    "category": "Developer",
+    "safeToQuit": "yes",
+    "url": "https://www.electronjs.org/"
+  },
+  {
+    "names": [
+      "com.apple.WebKit.WebContent",
+      "com.apple.WebKit.Networking",
+      "com.apple.WebKit.GPU"
+    ],
+    "bundles": [
+      "com.apple.WebKit"
+    ],
+    "title": "Safari web content",
+    "summary": "Web pages and their networking and GPU helpers, one per tab or site.",
+    "category": "Browser",
+    "safeToQuit": "yes",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "Google Chrome",
+      "Google Chrome Helper",
+      "chrome"
+    ],
+    "bundles": [
+      "com.google.Chrome"
+    ],
+    "title": "Google Chrome",
+    "summary": "Chromium browser. Each tab, extension and GPU task runs in its own helper.",
+    "category": "Browser",
+    "safeToQuit": "yes",
+    "url": "https://support.google.com/chrome"
+  },
+  {
+    "names": [
+      "Finder"
+    ],
+    "bundles": [
+      "com.apple.finder"
+    ],
+    "title": "Finder",
+    "summary": "File manager and desktop. Restarts automatically if quit.",
+    "category": "System",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "Dock"
+    ],
+    "bundles": [
+      "com.apple.dock"
+    ],
+    "title": "Dock",
+    "summary": "Dock, Mission Control and Spaces. Restarts automatically if quit.",
+    "category": "System",
+    "safeToQuit": "withCare",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "cfprefsd"
+    ],
+    "title": "Preferences daemon",
+    "summary": "Serves app preferences. Never needs to be quit.",
+    "category": "System",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "trustd"
+    ],
+    "title": "Certificate trust",
+    "summary": "Evaluates certificates and revocation for apps and the system.",
+    "category": "Security",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "syspolicyd"
+    ],
+    "title": "Gatekeeper policy",
+    "summary": "Checks apps against Gatekeeper and notarization rules on first launch.",
+    "category": "Security",
+    "safeToQuit": "never",
+    "url": "https://support.apple.com/guide/mac-help"
+  },
+  {
+    "names": [
+      "XProtect",
+      "XProtectService",
+      "XProtectRemediator"
+    ],
+    "title": "XProtect",
+    "summary": "Apple's built-in malware detection and remediation.",
+    "category": "Security",
+    "safeToQuit": "no",
+    "url": "https://support.apple.com/guide/mac-help"
+  }
+]

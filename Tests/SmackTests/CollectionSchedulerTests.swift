@@ -11,10 +11,12 @@ import Testing
     let inventoryStub = RecordingInventoryCollector()
     let portStub = RecordingNetworkPortCollector()
     var settings = CollectionSettings()
-    settings.privilegedSampling = true
-    settings.backgroundSystemInterval = nil
-    settings.backgroundProcessInterval = nil
-    settings.backgroundInventoryInterval = nil
+    settings.sampling.privilegedSampling = true
+    settings.sampling.backgroundSystemInterval = nil
+    settings.sampling.backgroundProcessInterval = nil
+    settings.sampling.backgroundInventoryInterval = nil
+    settings.security.postureCheckInterval = nil
+    settings.security.watchPersistence = false
 
     let scheduler = CollectionScheduler(
         systemCollector: FixedSystemCollector(),
@@ -39,14 +41,14 @@ import Testing
     #expect(await inventoryStub.lastPrivileged == true)
     #expect(await portStub.lastPrivileged == true)
 
-    settings.privilegedSampling = false
+    settings.sampling.privilegedSampling = false
     await scheduler.update(settings: settings)
     _ = await scheduler.inventory(for: process)
     _ = await scheduler.networkPorts()
     #expect(await inventoryStub.lastPrivileged == false)
     #expect(await portStub.lastPrivileged == false)
 
-    await scheduler.setVisible(false)
+    await scheduler.stop()
 }
 
 @Test func schedulerDeliversSamplesOnVisibleActivation() async throws {
@@ -57,8 +59,10 @@ import Testing
     let history = try HistoryRepository(databaseURL: directory.appendingPathComponent("history.sqlite"))
     let recorder = SampleCallbackRecorder()
     var settings = CollectionSettings()
-    settings.backgroundSystemInterval = nil
-    settings.backgroundProcessInterval = nil
+    settings.sampling.backgroundSystemInterval = nil
+    settings.sampling.backgroundProcessInterval = nil
+    settings.security.postureCheckInterval = nil
+    settings.security.watchPersistence = false
 
     let scheduler = CollectionScheduler(
         systemCollector: FixedSystemCollector(),
@@ -72,18 +76,19 @@ import Testing
     )
 
     await scheduler.setVisible(true)
-    for _ in 0..<20 {
+    for _ in 0..<40 {
         if await recorder.bothReceived { break }
         try? await Task.sleep(for: .milliseconds(25))
     }
     await scheduler.setVisible(false)
+    await scheduler.stop()
 
     #expect(await recorder.systemCount >= 1)
     #expect(await recorder.processCount >= 1)
 }
 
 private final class FixedSystemCollector: SystemMetricsCollecting {
-    func collectSystemSample() -> SystemSample {
+    func collectSystemSample(includeTemperatures: Bool, includeGPUProcesses: Bool) -> SystemSample {
         SystemSample(
             timestamp: Date(),
             cpu: CPUSample(totalUsage: 12, coreUsage: [12]),
@@ -99,7 +104,7 @@ private final class FixedSystemCollector: SystemMetricsCollecting {
 }
 
 private final class FixedProcessCollector: ProcessMetricsCollecting {
-    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+    func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot? {
         ProcessSnapshot(timestamp: Date(), applications: [], backgroundProcesses: [])
     }
 }
