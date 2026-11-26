@@ -8,18 +8,19 @@ private final class FloatingPanel: NSPanel {
 
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
+    private struct EventMonitorToken: @unchecked Sendable {
+        let value: Any
+    }
+
     private let store: MonitorStore
     private let nativeMenuBarStore: NativeMenuBarStore
     private let statusItem: NSStatusItem
-    private let panel: NSPanel
+    let panel: NSPanel
     private let smackSound = SmackSound()
-    private var globalMouseMonitor: Any?
-    private var localMouseMonitor: Any?
-    private var globalClickMonitor: Any?
-    private var localClickMonitor: Any?
-    private var hoverTask: Task<Void, Never>?
-    private var dismissTask: Task<Void, Never>?
-    private var pinned = false
+    nonisolated(unsafe) private var eventMonitorTokens: [EventMonitorToken] = []
+    nonisolated(unsafe) private var hoverTask: Task<Void, Never>?
+    nonisolated(unsafe) private(set) var dismissTask: Task<Void, Never>?
+    private(set) var pinned = false
     /// Forwarded menu-bar clicks land in the menu bar, possibly inside the camera hot zone; ignore them there.
     private var hotZoneSuppressedUntil = Date.distantPast
     private var glassModeSubscription: AnyCancellable?
@@ -57,6 +58,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    deinit {
+        hoverTask?.cancel()
+        dismissTask?.cancel()
+        let tokens = eventMonitorTokens
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                tokens.forEach { NSEvent.removeMonitor($0.value) }
+            }
+        } else {
+            DispatchQueue.main.async {
+                tokens.forEach { NSEvent.removeMonitor($0.value) }
+            }
+        }
+    }
+
     /// Glass needs a transparent window; the SwiftUI root draws the glass itself (`GlassBackground`).
     private func applyGlassMode(_ enabled: Bool) {
         panel.isOpaque = !enabled
@@ -75,6 +91,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func open() {
         dismissTask?.cancel()
+        dismissTask = nil
         guard !panel.isVisible else { return }
         let target = targetFrame()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -135,25 +152,33 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func installMonitors() {
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            Task { @MainActor in self?.mouseMoved() }
-        }
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            Task { @MainActor in self?.mouseMoved() }
-            return event
-        }
-        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            Task { @MainActor in self?.mouseClicked() }
-        }
-        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            Task { @MainActor in self?.mouseClicked() }
-            return event
-        }
+        let monitors: [Any?] = [
+            NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+                Task { @MainActor in self?.mouseMoved() }
+            },
+            NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                Task { @MainActor in self?.mouseMoved() }
+                return event
+            },
+            NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+                Task { @MainActor in self?.mouseClicked() }
+            },
+            NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                Task { @MainActor in self?.mouseClicked() }
+                return event
+            }
+        ]
+        eventMonitorTokens = monitors.compactMap { $0.map(EventMonitorToken.init) }
     }
 
     private func mouseMoved() {
         let location = NSEvent.mouseLocation
         let inHotZone = cameraHotZone()?.contains(location) == true
+        let inPanel = panel.frame.contains(location)
+        updateHoverState(inHotZone: inHotZone, inPanel: inPanel)
+    }
+
+    func updateHoverState(inHotZone: Bool, inPanel: Bool) {
         if inHotZone, store.settingsStore.settings.trigger == .hover, !panel.isVisible {
             hoverTask?.cancel()
             hoverTask = Task { [weak self] in
@@ -166,13 +191,14 @@ final class PanelController: NSObject, NSWindowDelegate {
             hoverTask?.cancel()
         }
         guard panel.isVisible, !pinned else { return }
-        let inPanel = panel.frame.contains(location)
         if inHotZone || inPanel {
             dismissTask?.cancel()
+            dismissTask = nil
         } else if dismissTask == nil {
             dismissTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.hoverGracePeriod ?? 0.5))
                 guard let self, !Task.isCancelled else { return }
+                self.dismissTask = nil
                 if !self.panel.frame.contains(NSEvent.mouseLocation) { self.close() }
             }
         }

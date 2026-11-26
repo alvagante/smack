@@ -302,3 +302,24 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     let single = try await repository.processHistory(program: "worker", processID: "1-1234.0", from: start.addingTimeInterval(-1), limit: 720)
     #expect(single[.cpuUsage]?.first?.average == 10)
 }
+
+@Test func unsupportedFutureSchemaVersionThrowsTypedError() throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("future.sqlite")
+    var database: OpaquePointer?
+    #expect(sqlite3_open(url.path, &database) == SQLITE_OK)
+    #expect(sqlite3_exec(database, "PRAGMA user_version = 99;", nil, nil, nil) == SQLITE_OK)
+    sqlite3_close(database)
+
+    #expect(throws: HistoryRepositoryError.unsupportedSchemaVersion(99)) {
+        _ = try HistoryRepository(databaseURL: url)
+    }
+}
+
+@Test func exporterEscapesCsvFieldsSafely() {
+    #expect(HistoryExporter.csvField("plain") == "plain")
+    #expect(HistoryExporter.csvField("a,b") == "\"a,b\"")
+    #expect(HistoryExporter.csvField("say \"hi\"") == "\"say \"\"hi\"\"\"")
+    #expect(HistoryExporter.csvField("line1\nline2") == "\"line1\nline2\"")
+}

@@ -1,0 +1,11 @@
+# MySpec AI-Oriented Specification Index
+# Order: PREPEND (newest created/implemented at top, oldest at bottom)
+# Planning skills MUST always read documents in `always_read` and consult `specs` first.
+always_read: []
+specs:
+  - id: "000-reduce-complexity"
+    status: "implemented"
+    date: "2026-11-26"
+    capabilities: ["complexity-reduction"]
+    path: "openspec/specs/complexity-reduction/spec.md"
+    summary: "Complexity reduction across PanelController, ProcessViews, InventorySampling, HistoryRepository, SystemCollector, Men..."

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SmackIPC
 import Testing
@@ -87,4 +88,55 @@ private func makeProcess(pid: Int32, path: String) -> ProcessMetrics {
         cpuUsage: 0, memoryBytes: 0, diskReadRate: 0, diskWriteRate: 0, energyImpact: nil,
         threadCount: 1, isApplication: false
     )
+}
+
+@Test func inventorySamplingTcpStateAndSocketEndpointHandleValidAndInvalidInputs() {
+    #expect(InventorySampling.tcpState(TSI_S_CLOSED) == "CLOSED")
+    #expect(InventorySampling.tcpState(TSI_S_LISTEN) == "LISTEN")
+    #expect(InventorySampling.tcpState(TSI_S_ESTABLISHED) == "ESTABLISHED")
+    #expect(InventorySampling.tcpState(TSI_S_TIME_WAIT) == "TIME_WAIT")
+    #expect(InventorySampling.tcpState(999) == "UNKNOWN (999)")
+
+    let ipv4 = InventorySampling.socketEndpoint(addressBytes: [127, 0, 0, 1], networkPort: UInt16(8080).bigEndian, family: AF_INET)
+    #expect(ipv4 == "127.0.0.1:8080")
+
+    var ipv6Bytes = [UInt8](repeating: 0, count: 16)
+    ipv6Bytes[15] = 1
+    let ipv6 = InventorySampling.socketEndpoint(addressBytes: ipv6Bytes, networkPort: UInt16(443).bigEndian, family: AF_INET6)
+    #expect(ipv6 == "[::1]:443")
+
+    #expect(InventorySampling.socketEndpoint(addressBytes: [1, 2], networkPort: 80, family: AF_INET) == "—")
+    #expect(InventorySampling.socketEndpoint(addressBytes: [1, 2, 3, 4], networkPort: 80, family: AF_INET6) == "—")
+}
+
+@Test func inventorySamplingConnectionAndCollectHandleEdgeCases() {
+    var tcpInfo = socket_info()
+    tcpInfo.soi_kind = Int32(SOCKINFO_TCP)
+    tcpInfo.soi_proto.pri_tcp.tcpsi_state = TSI_S_LISTEN
+    tcpInfo.soi_proto.pri_tcp.tcpsi_ini.insi_vflag = UInt8(INI_IPV4)
+    tcpInfo.soi_proto.pri_tcp.tcpsi_ini.insi_lport = Int32(UInt16(8080).bigEndian)
+    tcpInfo.soi_proto.pri_tcp.tcpsi_ini.insi_laddr.ina_46.i46a_addr4.s_addr = UInt32(0x7F000001).bigEndian
+    let tcp = InventorySampling.connection(fd: 7, information: tcpInfo)
+    #expect(tcp?.protocolName == "TCP")
+    #expect(tcp?.state == "LISTEN")
+    #expect(tcp?.localAddress == "127.0.0.1:8080")
+    #expect(tcp?.remoteAddress == "—")
+
+    var udpInfo = socket_info()
+    udpInfo.soi_kind = Int32(SOCKINFO_IN)
+    udpInfo.soi_protocol = IPPROTO_UDP
+    udpInfo.soi_state = Int16(SOI_S_ISCONNECTED)
+    let udp = InventorySampling.connection(fd: 8, information: udpInfo)
+    #expect(udp?.protocolName == "UDP")
+    #expect(udp?.state == "CONNECTED")
+
+    var unknownInfo = socket_info()
+    unknownInfo.soi_kind = 999
+    #expect(InventorySampling.connection(fd: 9, information: unknownInfo) == nil)
+
+    let invalidPidPayload = InventorySampling.collect(pid: -1, startTime: Date())
+    #expect(!invalidPidPayload.warnings.isEmpty)
+
+    let reusedPidPayload = InventorySampling.collect(pid: getpid(), startTime: Date(timeIntervalSince1970: 1))
+    #expect(reusedPidPayload.warnings.contains { $0.contains("PID may have been reused") })
 }

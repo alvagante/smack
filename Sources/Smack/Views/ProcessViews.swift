@@ -10,6 +10,19 @@ enum ProcessSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+protocol SortableProcessItem {
+    var name: String { get }
+    var bundleIdentifier: String? { get }
+    var cpuUsage: Double { get }
+    var memoryBytes: UInt64 { get }
+    var diskReadRate: Double { get }
+    var diskWriteRate: Double { get }
+    var energyImpact: Double? { get }
+}
+
+extension ApplicationMetrics: SortableProcessItem {}
+extension ProcessMetrics: SortableProcessItem {}
+
 @MainActor
 final class ApplicationListViewModel: ObservableObject {
     @Published var query = ""
@@ -24,11 +37,47 @@ final class ApplicationListViewModel: ObservableObject {
             ascending = newSort == .name
         }
     }
+
+    func filtered<Item: SortableProcessItem>(_ items: [Item]) -> [Item] {
+        let matching = query.isEmpty ? items : items.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(query) == true)
+        }
+        return matching.sorted { lhs, rhs in
+            switch sort {
+            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
+            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
+            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
+            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
+            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
+            }
+        }
+    }
+
+    private func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool {
+        ascending ? lhs < rhs : lhs > rhs
+    }
 }
 
 @MainActor
 final class ProcessDetailViewModel: ObservableObject {
     @Published var filter = ""
+
+    func filtered(_ values: [OpenFile]) -> [OpenFile] {
+        filterValues(values) { $0.path }
+    }
+
+    func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] {
+        filterValues(values) { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)" }
+    }
+
+    func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] {
+        filterValues(values) { $0.path }
+    }
+
+    private func filterValues<Item>(_ values: [Item], text: (Item) -> String) -> [Item] {
+        filter.isEmpty ? values : values.filter { text($0).localizedCaseInsensitiveContains(filter) }
+    }
 }
 
 struct ApplicationListView: View {
@@ -68,7 +117,7 @@ struct ApplicationListView: View {
 
             List {
                 Section("Applications") {
-                    ForEach(filtered(store.processes?.applications ?? [])) { application in
+                    ForEach(model.filtered(store.processes?.applications ?? [])) { application in
                         Button { store.route = .application(application.id) } label: {
                             HStack(spacing: 12) {
                                 HStack(spacing: 10) {
@@ -91,7 +140,7 @@ struct ApplicationListView: View {
                 }
                 if store.settingsStore.settings.showBackgroundProcesses {
                     Section("Background Processes") {
-                        ForEach(filtered(store.processes?.backgroundProcesses ?? [])) { process in
+                        ForEach(model.filtered(store.processes?.backgroundProcesses ?? [])) { process in
                             Button { store.route = .process(process.id) } label: {
                                 HStack(spacing: 12) {
                                     HStack(spacing: 10) {
@@ -153,36 +202,6 @@ struct ApplicationListView: View {
     private func disk(_ value: Double) -> String {
         if Capabilities.isSandboxed, value == 0 { return "—" }
         return Formatting.rate(value)
-    }
-
-    private func filtered(_ applications: [ApplicationMetrics]) -> [ApplicationMetrics] {
-        let result = model.query.isEmpty ? applications : applications.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
-        }
-    }
-
-    private func filtered(_ processes: [ProcessMetrics]) -> [ProcessMetrics] {
-        let result = model.query.isEmpty ? processes : processes.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
-        }
-    }
-
-    private func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool {
-        model.ascending ? lhs < rhs : lhs > rhs
     }
 }
 
@@ -275,7 +294,7 @@ struct ProcessDetailView: View {
                         }
                         TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
                         inventorySection("Open Files", count: inventory.files.count) {
-                            ForEach(filtered(inventory.files)) { file in
+                            ForEach(model.filtered(inventory.files)) { file in
                                 HStack {
                                     FileLookupLinks(path: file.path, checksFileOnDisk: false)
                                     Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -283,7 +302,7 @@ struct ProcessDetailView: View {
                             }
                         }
                         inventorySection("Network Connections", count: inventory.connections.count) {
-                            ForEach(filtered(inventory.connections)) { connection in
+                            ForEach(model.filtered(inventory.connections)) { connection in
                                 HStack {
                                     IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
                                     VStack(alignment: .leading) {
@@ -298,7 +317,7 @@ struct ProcessDetailView: View {
                             ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
                         }
                         inventorySection("Loaded Libraries", count: inventory.libraries.count) {
-                            ForEach(filtered(inventory.libraries)) { library in
+                            ForEach(model.filtered(inventory.libraries)) { library in
                                 HStack {
                                     FileLookupLinks(path: library.path)
                                     Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -314,8 +333,4 @@ struct ProcessDetailView: View {
     private func inventorySection<Content: View>(_ title: String, count: Int, @ViewBuilder content: () -> Content) -> some View {
         Section { content() } header: { SectionHeader(title: "\(title) (\(count))") }
     }
-
-    private func filtered(_ values: [OpenFile]) -> [OpenFile] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
-    private func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] { model.filter.isEmpty ? values : values.filter { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)".localizedCaseInsensitiveContains(model.filter) } }
-    private func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
 }
