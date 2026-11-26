@@ -6,6 +6,38 @@ private final class FloatingPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { close() }
 }
 
+private struct EventMonitorToken: @unchecked Sendable {
+    let value: Any
+}
+
+enum PanelPlacement {
+    static func screenContainingPointer() -> NSScreen? {
+        let location = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
+    }
+
+    static func cameraHotZone(suppressedUntil: Date) -> NSRect? {
+        guard Date() >= suppressedUntil else { return nil }
+        guard let screen = screenContainingPointer(),
+              let left = screen.auxiliaryTopLeftArea,
+              let right = screen.auxiliaryTopRightArea else { return nil }
+        return cameraHotZoneRect(
+            screenFrame: screen.frame,
+            safeAreaTop: screen.safeAreaInsets.top,
+            left: left,
+            right: right
+        )
+    }
+
+    static func cameraHotZoneRect(screenFrame: NSRect, safeAreaTop: CGFloat, left: NSRect, right: NSRect) -> NSRect? {
+        let minX = left.maxX - 12
+        let maxX = right.minX + 12
+        guard maxX > minX else { return nil }
+        let height = max(safeAreaTop, 32)
+        return NSRect(x: minX, y: screenFrame.maxY - height - 3, width: maxX - minX, height: height + 6)
+    }
+}
+
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
     private let store: MonitorStore
@@ -26,12 +58,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let deferFrameSave: (@escaping @MainActor () -> Void) -> Void
     private let hostingController: NSHostingController<MonitorRootView>
     private let titleBarControls = NSTitlebarAccessoryViewController()
-    private var globalMouseMonitor: Any?
-    private var localMouseMonitor: Any?
-    private var globalClickMonitor: Any?
-    private var localClickMonitor: Any?
-    private var hoverTask: Task<Void, Never>?
-    private var pinned = false
+    nonisolated(unsafe) private var eventMonitorTokens: [EventMonitorToken] = []
+    nonisolated(unsafe) private var hoverTask: Task<Void, Never>?
+    nonisolated(unsafe) private(set) var dismissTask: Task<Void, Never>?
+    private(set) var pinned = false
     /// True while Smack places or animates the window itself; those frames are not the user's.
     private var isPlacing = false
     private var frameSavePending = false
@@ -48,17 +78,6 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var titleBarView: NSView?
 
     /// Initializes the panel controller with the necessary stores and audio player.
-    ///
-    /// - Parameters:
-    ///   - store: Central state store for metrics and configuration.
-    ///   - nativeMenuBarStore: Store managing forwarded native menu-bar icons.
-    ///   - statusItem: Status item representing Smack in the macOS menu bar.
-    ///   - smackSound: Audio player responsible for playing panel open sounds.
-    ///   - setActivationPolicy: Gives Smack a Dock icon for the Standard Window.
-    ///   - activate: Brings Smack to the front when the Standard Window opens.
-    ///   - frameAutosaveName: Where the Standard Window remembers its frame; nil keeps none.
-    ///   - reduceMotion: Opens the Panel without its animation.
-    ///   - deferFrameSave: Runs a frame save once a move or resize has had time to settle.
     init(
         store: MonitorStore,
         nativeMenuBarStore: NativeMenuBarStore,
@@ -129,6 +148,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    deinit {
+        hoverTask?.cancel()
+        dismissTask?.cancel()
+        let tokens = eventMonitorTokens
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                tokens.forEach { NSEvent.removeMonitor($0.value) }
+            }
+        } else {
+            DispatchQueue.main.async {
+                tokens.forEach { NSEvent.removeMonitor($0.value) }
+            }
+        }
+    }
+
     private static func makeWindow(_ style: WindowStyle) -> NSWindow {
         let rect = NSRect(x: 0, y: 0, width: 1200, height: 430)
         return switch style {
@@ -191,6 +225,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         stickButton = nil
         pinned = false
         stuck = false
+        dismissTask?.cancel()
+        dismissTask = nil
         windowStyle = style
         isPlacing = false
         panel = Self.makeWindow(style)
@@ -263,6 +299,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func open() {
+        dismissTask?.cancel()
+        dismissTask = nil
         if windowStyle == .standardWindow {
             openStandardWindow()
             return
@@ -317,6 +355,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        dismissTask?.cancel()
+        dismissTask = nil
         rememberWindowFrame()
         panel.close()
     }
@@ -344,7 +384,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard visible != showsLiveData else { return }
         showsLiveData = visible
         if visible {
-            nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
+            nativeMenuBarStore.setPanelVisible(true, screen: PanelPlacement.screenContainingPointer() ?? NSScreen.main)
         } else {
             nativeMenuBarStore.setPanelVisible(false)
         }
@@ -369,7 +409,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func defaultTargetFrame() -> NSRect {
-        let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
+        guard let screen = PanelPlacement.screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens.first else {
+            return NSRect(x: 0, y: 0, width: 1_000, height: 430)
+        }
         let frame = screen.visibleFrame
         let width = frame.width * 0.92
         let height = Self.panelHeight(visibleHeight: frame.height)
@@ -390,59 +432,78 @@ final class PanelController: NSObject, NSWindowDelegate {
         return NSRect(x: clamped.origin.x, y: clamped.origin.y, width: clamped.width, height: clamped.height)
     }
 
-    private func screenContainingPointer() -> NSScreen? {
-        let location = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
-    }
-
-    private func cameraHotZone() -> NSRect? {
-        guard Date() >= hotZoneSuppressedUntil else { return nil }
-        guard let screen = screenContainingPointer(), let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
-        let minX = left.maxX - 12
-        let maxX = right.minX + 12
-        guard maxX > minX else { return nil }
-        let height = max(screen.safeAreaInsets.top, 32)
-        return NSRect(x: minX, y: screen.frame.maxY - height - 3, width: maxX - minX, height: height + 6)
-    }
-
     private func installMonitors() {
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            Task { @MainActor in self?.mouseMoved() }
-        }
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            Task { @MainActor in self?.mouseMoved() }
-            return event
-        }
-        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            Task { @MainActor in self?.mouseClicked() }
-        }
-        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            Task { @MainActor in self?.mouseClicked() }
-            return event
-        }
+        let monitors: [Any?] = [
+            NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+                Task { @MainActor in self?.mouseMoved() }
+            },
+            NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                Task { @MainActor in self?.mouseMoved() }
+                return event
+            },
+            NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+                Task { @MainActor in self?.mouseClicked() }
+            },
+            NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                Task { @MainActor in self?.mouseClicked() }
+                return event
+            }
+        ]
+        eventMonitorTokens = monitors.compactMap { $0.map(EventMonitorToken.init) }
     }
 
     private func mouseMoved() {
         guard windowStyle == .panel else { return }
         let location = NSEvent.mouseLocation
-        let inHotZone = cameraHotZone()?.contains(location) == true
-        if inHotZone, store.settingsStore.settings.panel.trigger == .hover, !panel.isVisible {
-            hoverTask?.cancel()
-            hoverTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.panel.hoverDelay ?? 0.3))
-                guard let self, !Task.isCancelled, self.cameraHotZone()?.contains(NSEvent.mouseLocation) == true else { return }
-                self.pinned = false
-                self.open()
-            }
-        } else if !inHotZone {
-            hoverTask?.cancel()
+        let inHotZone = PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(location) == true
+        let inPanel = panel.frame.contains(location)
+        updateHoverState(inHotZone: inHotZone, inPanel: inPanel)
+    }
+
+    func updateHoverState(inHotZone: Bool, inPanel: Bool) {
+        updateHoverOpen(inHotZone: inHotZone)
+        updateHoverDismiss(inHotZone: inHotZone, inPanel: inPanel)
+    }
+
+    private func updateHoverOpen(inHotZone: Bool) {
+        guard inHotZone, store.settingsStore.settings.panel.trigger == .hover, !panel.isVisible else {
+            if !inHotZone { hoverTask?.cancel() }
+            return
         }
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in await self?.scheduleHoverOpen() }
+    }
+
+    private func scheduleHoverOpen() async {
+        try? await Task.sleep(for: .seconds(store.settingsStore.settings.panel.hoverDelay))
+        guard !Task.isCancelled,
+              PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(NSEvent.mouseLocation) == true else { return }
+        pinned = false
+        open()
+    }
+
+    private func updateHoverDismiss(inHotZone: Bool, inPanel: Bool) {
+        guard panel.isVisible, !pinned, !stuck else { return }
+        if inHotZone || inPanel {
+            dismissTask?.cancel()
+            dismissTask = nil
+        } else if dismissTask == nil {
+            dismissTask = Task { [weak self] in await self?.scheduleHoverDismiss() }
+        }
+    }
+
+    private func scheduleHoverDismiss() async {
+        try? await Task.sleep(for: .seconds(store.settingsStore.settings.panel.hoverGracePeriod))
+        guard !Task.isCancelled else { return }
+        dismissTask = nil
+        if !panel.frame.contains(NSEvent.mouseLocation) { close() }
     }
 
     private func mouseClicked() {
         guard windowStyle == .panel else { return }
         let location = NSEvent.mouseLocation
-        if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.panel.trigger == .click {
+        if PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(location) == true,
+           store.settingsStore.settings.panel.trigger == .click {
             pinned = true
             panel.isVisible ? close() : open()
         } else if panel.isVisible, pinned, !stuck, !panel.frame.contains(location), statusItem.button?.window?.frame.contains(location) != true {
@@ -475,6 +536,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         stuck = false
         updateStickButton()
         hoverTask?.cancel()
+        dismissTask?.cancel()
+        dismissTask = nil
         reportVisible(false)
     }
 

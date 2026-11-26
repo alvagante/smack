@@ -48,40 +48,58 @@ enum SmackMain {
     }
 
     private static func diagnose() {
-        let pids = ProcessSampling.allProcessIdentifiers()
+        for line in diagnosticLines() {
+            print(line)
+        }
+    }
+
+    static func diagnosticLines() -> [String] {
+        let pids = ProcessSampling.allProcessIdentifiers(preferSysctl: Capabilities.isSandboxed)
         let records = ProcessSampling.records(
             restrictUsageToCurrentProcess: Capabilities.isSandboxed
         )
         let system = SystemCollector().collectSystemSample()
-        let sockets = ProcessSockets.collect()
-        let ports = NetworkPortCollector.snapshot(
-            from: sockets.records,
-            deniedProcessCount: sockets.deniedProcessCount
-        )
-        print("flavor=\(Capabilities.flavor.rawValue)")
-        print("sandboxed=\(Capabilities.isSandboxed)")
-        print("pids=\(pids.count)")
-        print("records=\(records.count)")
-        print("recordsWithUsage=\(records.count { $0.physicalFootprint > 0 })")
-        print("ownProcess=\(records.contains { $0.pid == getpid() })")
-        print("cpuCores=\(system.cpu.coreUsage.count)")
-        print("interfaces=\(system.interfaces.count)")
-        print("disks=\(system.disks.count)")
-        print("volumes=\(system.volumes.count)")
-        print("gpu=\(system.gpuName)")
-        print("gpuUtilization=\(system.gpu.utilizationPercent.map { String($0) } ?? "unavailable")")
-        print("memoryPressure=\(system.memory.pressure.rawValue)")
-        print("swapUsed=\(system.memory.swapUsedBytes) swapTotal=\(system.memory.swapTotalBytes)")
-        print("battery=\(system.battery != nil)")
-        print("ports=\(ports.ports.count)")
-        if let warning = ports.warning { print("portsWarning=\(warning)") }
+        let ports: NetworkPortSnapshot
+        if Capabilities.supportsNetworkPortInspection {
+            let sockets = ProcessSockets.collect()
+            ports = NetworkPortCollector.snapshot(
+                from: sockets.records,
+                deniedProcessCount: sockets.deniedProcessCount
+            )
+        } else {
+            ports = NetworkPortSnapshot(
+                timestamp: Date(),
+                ports: [],
+                warning: "Port inspection is limited by the App Sandbox; processes owned by other users are unavailable."
+            )
+        }
+        var lines = [
+            "flavor=\(Capabilities.flavor.rawValue)",
+            "sandboxed=\(Capabilities.isSandboxed)",
+            "pids=\(pids.count)",
+            "records=\(records.count)",
+            "recordsWithUsage=\(records.count { $0.physicalFootprint > 0 })",
+            "ownProcess=\(records.contains { $0.pid == getpid() })",
+            "cpuCores=\(system.cpu.coreUsage.count)",
+            "interfaces=\(system.interfaces.count)",
+            "disks=\(system.disks.count)",
+            "volumes=\(system.volumes.count)",
+            "gpu=\(system.gpuName)",
+            "gpuUtilization=\(system.gpu.utilizationPercent.map { String($0) } ?? "unavailable")",
+            "memoryPressure=\(system.memory.pressure.rawValue)",
+            "swapUsed=\(system.memory.swapUsedBytes) swapTotal=\(system.memory.swapTotalBytes)",
+            "battery=\(system.battery != nil)",
+            "ports=\(ports.ports.count)"
+        ]
+        if let warning = ports.warning { lines.append("portsWarning=\(warning)") }
 #if SMACK_APP_STORE
-        print("helperStatus=unavailable")
+        lines.append("helperStatus=unavailable")
 #else
-        print("helperMode=\(PrivilegedHelperMode(identity: .current()))")
-        print("helperServiceStatus=\(SMAppService.daemon(plistName: SmackIPC.daemonPlistName).status.rawValue)")
-        print("helperLegacyInstalled=\(LegacyHelperInstaller.isInstalled)")
+        lines.append("helperMode=\(PrivilegedHelperMode(identity: .current()))")
+        lines.append("helperServiceStatus=\(SMAppService.daemon(plistName: SmackIPC.daemonPlistName).status.rawValue)")
+        lines.append("helperLegacyInstalled=\(LegacyHelperInstaller.isInstalled)")
 #endif
+        return lines
     }
 }
 
@@ -166,11 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
-            let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let directory = support.appendingPathComponent("Smack", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let history = try HistoryRepository(
-                databaseURL: directory.appendingPathComponent("history.sqlite3"),
+                databaseURL: Self.historyDatabaseURL(),
                 commitInterval: HistoryRepository.appCommitInterval
             )
             self.history = history
@@ -187,43 +202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     UNNotificationAction(identifier: "SNOOZE", title: "Snooze 1 h"),
                     UNNotificationAction(identifier: "MUTE", title: "Mute")
                 ], intentIdentifiers: [])])
-            let scheduler = CollectionScheduler(
-                systemCollector: SystemCollector(),
-                processCollector: ProcessSnapshotService(
-                    local: ProcessCollector(),
-                    privileged: privilegedClient
-                ),
-                inventoryCollector: InventoryCollector(privileged: privilegedClient),
-                networkPortCollector: NetworkPortCollector(privileged: privilegedClient),
+            let scheduler = makeScheduler(
                 history: history,
                 settings: settingsStore.settings,
-                onSystem: { [weak self] sample in
-                    Task { @MainActor in self?.store?.receive(sample) }
-                },
-                onProcesses: { [weak self] snapshot in
-                    Task { @MainActor in self?.store?.receive(snapshot) }
-                },
-                onInventory: { [weak self] id, inventory in
-                    Task { @MainActor in self?.store?.receive(inventory, for: id) }
-                },
-                onNetworkPorts: { [weak self] snapshot in
-                    Task { @MainActor in self?.store?.receive(snapshot) }
-                },
-                onHistoryHealth: { [weak self] health in
-                    Task { @MainActor in self?.store?.receive(health) }
-                },
-                onEvents: { [weak self] events in
-                    Task { @MainActor in self?.store?.receive(events) }
-                },
-                onPosture: { [weak self] snapshot in
-                    Task { @MainActor in self?.store?.receive(snapshot) }
-                },
-                onStartup: { [weak self] inventory in
-                    Task { @MainActor in self?.store?.receive(inventory) }
-                },
-                helper: privilegedClient,
-                onAlert: { await dispatcher.dispatch($0) },
-                onWake: { await dispatcher.noteWake(at: $0) }
+                privilegedClient: privilegedClient,
+                dispatcher: dispatcher
             )
             let store = MonitorStore(
                 settingsStore: settingsStore,
@@ -275,6 +258,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSAlert(error: error).runModal()
             NSApplication.shared.terminate(nil)
         }
+    }
+
+    static func historyDatabaseURL(in baseDirectory: URL? = nil) throws -> URL {
+        let support: URL
+        if let baseDirectory {
+            support = baseDirectory
+        } else {
+            support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        }
+        let directory = support.appendingPathComponent("Smack", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("history.sqlite3")
+    }
+
+    func makeScheduler(
+        history: HistoryRepository,
+        settings: CollectionSettings,
+        privilegedClient: PrivilegedSamplingClient,
+        dispatcher: AlertDispatcher? = nil
+    ) -> CollectionScheduler {
+        CollectionScheduler(
+            systemCollector: SystemCollector(),
+            processCollector: ProcessSnapshotService(
+                local: ProcessCollector(),
+                privileged: privilegedClient
+            ),
+            inventoryCollector: InventoryCollector(privileged: privilegedClient),
+            networkPortCollector: NetworkPortCollector(privileged: privilegedClient),
+            history: history,
+            settings: settings,
+            onSystem: { [weak self] sample in
+                Task { @MainActor in self?.store?.receive(sample) }
+            },
+            onProcesses: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onInventory: { [weak self] id, inventory in
+                Task { @MainActor in self?.store?.receive(inventory, for: id) }
+            },
+            onNetworkPorts: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onHistoryHealth: { [weak self] health in
+                Task { @MainActor in self?.store?.receive(health) }
+            },
+            onEvents: { [weak self] events in
+                Task { @MainActor in self?.store?.receive(events) }
+            },
+            onPosture: { [weak self] snapshot in
+                Task { @MainActor in self?.store?.receive(snapshot) }
+            },
+            onStartup: { [weak self] inventory in
+                Task { @MainActor in self?.store?.receive(inventory) }
+            },
+            helper: privilegedClient,
+            onAlert: { alert in
+                if let dispatcher { return await dispatcher.dispatch(alert) }
+                return .make(kind: .alertFired, timestamp: alert.timestamp, subject: alert.rule.name, severity: .warning, details: alert.details)
+            },
+            onWake: { date in
+                await dispatcher?.noteWake(at: date)
+            }
+        )
     }
 
     /// A Dock click, or opening Smack again from Finder, shows the window.

@@ -140,13 +140,77 @@ import Testing
     #expect(LegacyHelperInstaller.result(status: 1, message: "error: run with sudo") == .failed("error: run with sudo"))
 }
 #endif
+@Test func privilegedSamplingClientReturnsNilWhenUnavailableAndInvalidatesCleanly() async {
+    let client = PrivilegedSamplingClient(timeoutOverride: 0.05)
+    #expect(await client.collectSnapshot() == nil)
+    #expect(await client.collectInventory(pid: getpid(), startTime: Date()) == nil)
+    #expect(await client.collectNetworkPorts() == nil)
+
+    // Exercise connection creation and invalidation deterministically without hanging on unapproved XPC.
+    client.setAvailable(true)
+    _ = await client.collectSnapshot()
+    client.setAvailable(false)
+    #expect(await client.collectSnapshot() == nil)
+}
+
+@MainActor
+@Test func privilegedSamplingControllerHandlesModesAndStatusDescriptions() async {
+    let unsupportedStub = StubPrivilegedSampler()
+    let unsupported = PrivilegedSamplingController(client: unsupportedStub, mode: .unsupported)
+    await unsupported.install()
+    #expect(unsupported.state == .unsupported)
+    #expect(unsupportedStub.availabilityEvents.contains(false))
+#if !SMACK_APP_STORE
+    #expect(unsupported.errorMessage?.contains("signed build") == true)
+#endif
+    #expect(unsupported.statusDescription.contains("ad-hoc"))
+
+    let legacyStub = StubPrivilegedSampler()
+    let legacy = PrivilegedSamplingController(client: legacyStub, mode: .legacyInstall)
+    await legacy.refresh()
+#if !SMACK_APP_STORE
+    if !LegacyHelperInstaller.isInstalled {
+        #expect(legacy.state == .notInstalled)
+    }
+#endif
+    #expect(legacy.statusDescription.contains("not installed") || legacy.statusDescription.contains("helper"))
+
+    let smStub = StubPrivilegedSampler()
+    let serviceManagement = PrivilegedSamplingController(client: smStub, mode: .serviceManagement)
+    #expect(serviceManagement.statusDescription.contains("not registered"))
+#if SMACK_APP_STORE
+    #expect(PrivilegedSamplingController.terminalCommand(for: .install).isEmpty)
+    #expect(PrivilegedSamplingController.terminalCommand(for: .uninstall).isEmpty)
+#else
+    #expect(!PrivilegedSamplingController.terminalCommand(for: .install).isEmpty)
+    #expect(!PrivilegedSamplingController.terminalCommand(for: .uninstall).isEmpty)
+#endif
+}
+
+@Test func smackHelperRefusesExecutionWithoutStableSignature() throws {
+    let candidate = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".build/out/Products/Debug/SmackHelper")
+    guard FileManager.default.isExecutableFile(atPath: candidate.path) else { return }
+
+    let process = Process()
+    process.executableURL = candidate
+    let stderr = Pipe()
+    process.standardError = stderr
+    try process.run()
+    process.waitUntilExit()
+    #expect(process.terminationReason == .exit)
+    #expect(process.terminationStatus == EXIT_FAILURE)
+}
 
 private final class StubPrivilegedSampler: PrivilegedSamplingProviding, @unchecked Sendable {
     var payload: ProcessSnapshotPayload?
     var inventoryPayload: InventoryPayload?
     var socketCollection: SocketCollection?
+    private(set) var availabilityEvents: [Bool] = []
 
-    func setAvailable(_ value: Bool) {}
+    func setAvailable(_ value: Bool) {
+        availabilityEvents.append(value)
+    }
 
     func collectSnapshot() async -> ProcessSnapshotPayload? {
         payload

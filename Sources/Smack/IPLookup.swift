@@ -39,7 +39,8 @@ enum IPLookup {
         }
         var v6 = in6_addr()
         if inet_pton(AF_INET6, address, &v6) == 1 {
-            return isPublicIPv6(withUnsafeBytes(of: v6) { Array($0) }) ? address : nil
+            let isPublic = withUnsafeBytes(of: v6) { isPublicIPv6($0) }
+            return isPublic ? address : nil
         }
         return nil
     }
@@ -49,33 +50,41 @@ enum IPLookup {
         return services.filter { !isIPv6 || $0.supportsIPv6 }
     }
 
+    private static let reservedIPv4Ranges: [(UInt32, UInt32)] = [
+        (0x0000_0000, 8),   // this network
+        (0x0A00_0000, 8),   // private
+        (0x6440_0000, 10),  // carrier-grade NAT
+        (0x7F00_0000, 8),   // loopback
+        (0xA9FE_0000, 16),  // link local
+        (0xAC10_0000, 12),  // private
+        (0xC000_0000, 24),  // IETF protocol assignments
+        (0xC000_0200, 24),  // documentation
+        (0xC0A8_0000, 16),  // private
+        (0xC612_0000, 15),  // benchmarking
+        (0xC633_6400, 24),  // documentation
+        (0xCB00_7100, 24),  // documentation
+        (0xE000_0000, 3)    // multicast and reserved
+    ]
+
     private static func isPublicIPv4(_ value: UInt32) -> Bool {
-        let reserved: [(UInt32, UInt32)] = [
-            (0x0000_0000, 8),   // this network
-            (0x0A00_0000, 8),   // private
-            (0x6440_0000, 10),  // carrier-grade NAT
-            (0x7F00_0000, 8),   // loopback
-            (0xA9FE_0000, 16),  // link local
-            (0xAC10_0000, 12),  // private
-            (0xC000_0000, 24),  // IETF protocol assignments
-            (0xC000_0200, 24),  // documentation
-            (0xC0A8_0000, 16),  // private
-            (0xC612_0000, 15),  // benchmarking
-            (0xC633_6400, 24),  // documentation
-            (0xCB00_7100, 24),  // documentation
-            (0xE000_0000, 3)    // multicast and reserved
-        ]
-        return !reserved.contains { network, bits in value >> (32 - bits) == network >> (32 - bits) }
+        !reservedIPv4Ranges.contains { network, bits in value >> (32 - bits) == network >> (32 - bits) }
     }
 
-    private static func isPublicIPv6(_ bytes: [UInt8]) -> Bool {
-        if bytes.allSatisfy({ $0 == 0 }) { return false }                          // unspecified
-        if bytes.dropLast().allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return false } // loopback
-        if bytes[0] & 0xFE == 0xFC { return false }                                // unique local
-        if bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80 { return false }            // link local
-        if bytes[0] == 0xFF { return false }                                       // multicast
-        if bytes[0...3] == [0x20, 0x01, 0x0D, 0xB8] { return false }               // documentation
-        return true
+    private static func isPublicIPv6(_ bytes: UnsafeRawBufferPointer) -> Bool {
+        guard bytes.count >= 16 else { return false }
+        return !isLoopbackOrUnspecifiedIPv6(bytes) && !isReservedPrefixIPv6(bytes)
+    }
+
+    private static func isLoopbackOrUnspecifiedIPv6(_ bytes: UnsafeRawBufferPointer) -> Bool {
+        for index in 0..<15 where bytes[index] != 0 { return false }
+        return bytes[15] == 0 || bytes[15] == 1
+    }
+
+    private static func isReservedPrefixIPv6(_ bytes: UnsafeRawBufferPointer) -> Bool {
+        if bytes[0] & 0xFE == 0xFC { return true }                          // unique local
+        if bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80 { return true }      // link local
+        if bytes[0] == 0xFF { return true }                                 // multicast
+        return bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0D && bytes[3] == 0xB8 // documentation
     }
 }
 

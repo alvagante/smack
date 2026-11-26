@@ -38,24 +38,22 @@ struct Sparkline: View {
 
     var body: some View {
         Canvas { context, size in
-            let upperBound = domain?.upperBound ?? max(series.flatMap(\.values).max() ?? 0, 1) * 1.1
+            let upperBound = domain?.upperBound ?? max(Self.maxValue(in: series), 1) * 1.1
             let lowerBound = domain?.lowerBound ?? 0
             let scale = max(upperBound - lowerBound, 1)
 
             for (seriesIndex, item) in series.enumerated() where !item.values.isEmpty {
-                let points = item.values.enumerated().map { index, value in
-                    CGPoint(
-                        x: item.values.count == 1 ? size.width / 2 : size.width * Double(index) / Double(item.values.count - 1),
-                        y: size.height * (1 - min(max((value - lowerBound) / scale, 0), 1))
-                    )
-                }
-                var line = Path()
-                line.addLines(points)
+                guard let geometry = Self.makeLinePath(
+                    values: item.values,
+                    size: size,
+                    lowerBound: lowerBound,
+                    scale: scale
+                ) else { continue }
 
                 if series.count == 1 {
-                    var area = line
-                    area.addLine(to: CGPoint(x: points.last?.x ?? size.width, y: size.height))
-                    area.addLine(to: CGPoint(x: points.first?.x ?? 0, y: size.height))
+                    var area = geometry.path
+                    area.addLine(to: CGPoint(x: geometry.last.x, y: size.height))
+                    area.addLine(to: CGPoint(x: geometry.first.x, y: size.height))
                     area.closeSubpath()
                     context.fill(area, with: .linearGradient(
                         Gradient(colors: [item.color.opacity(0.3), item.color.opacity(0.02)]),
@@ -63,7 +61,7 @@ struct Sparkline: View {
                         endPoint: CGPoint(x: 0, y: size.height)
                     ))
                 }
-                context.stroke(line, with: .color(item.color), style: StrokeStyle(lineWidth: seriesIndex == 0 ? 2 : 1.7, lineCap: .round, lineJoin: .round))
+                context.stroke(geometry.path, with: .color(item.color), style: StrokeStyle(lineWidth: seriesIndex == 0 ? 2 : 1.7, lineCap: .round, lineJoin: .round))
             }
         }
         .background {
@@ -72,6 +70,42 @@ struct Sparkline: View {
         }
         .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: maxHeight)
         .clipped()
+    }
+
+    static func maxValue(in series: [SparklineSeries]) -> Double {
+        var peak = 0.0
+        for item in series {
+            for value in item.values where value > peak {
+                peak = value
+            }
+        }
+        return peak
+    }
+
+    static func makeLinePath(
+        values: [Double],
+        size: CGSize,
+        lowerBound: Double,
+        scale: Double
+    ) -> (path: Path, first: CGPoint, last: CGPoint)? {
+        guard !values.isEmpty else { return nil }
+        var path = Path()
+        var first = CGPoint.zero
+        var last = CGPoint.zero
+        let divisor = values.count > 1 ? Double(values.count - 1) : 1
+        for (index, value) in values.enumerated() {
+            let x = values.count == 1 ? size.width / 2 : size.width * Double(index) / divisor
+            let y = size.height * (1 - min(max((value - lowerBound) / scale, 0), 1))
+            let point = CGPoint(x: x, y: y)
+            if index == 0 {
+                first = point
+                path.move(to: point)
+            } else {
+                path.addLine(to: point)
+            }
+            last = point
+        }
+        return (path, first, last)
     }
 }
 

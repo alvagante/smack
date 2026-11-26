@@ -48,15 +48,15 @@ struct NativeMenuBarView: View {
                     Text("Screen Recording is required to show native icons. Reopen Smack after granting it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("Open Settings") { menuBarStore.openScreenCaptureSettings() }
-                    Button("Reopen") { menuBarStore.relaunch() }
+                    Button("Open Settings") { NativeMenuBarStore.openScreenCaptureSettings() }
+                    Button("Reopen") { NativeMenuBarStore.relaunch() }
                 }
             } else if menuBarStore.accessibilityRequiredForIcons && !menuBarStore.accessibilityAllowed {
                 HStack(spacing: 8) {
                     Text("Accessibility is required to show and activate native icons.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("Open Settings") { menuBarStore.openAccessibilitySettings() }
+                    Button("Open Settings") { NativeMenuBarStore.openAccessibilitySettings() }
                     Button("Retry") { menuBarStore.refresh() }
                 }
             } else if visibleItems.isEmpty {
@@ -85,7 +85,7 @@ struct NativeMenuBarView: View {
                     Text("Accessibility is required for native click actions.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Button("Open Settings") { menuBarStore.openAccessibilitySettings() }
+                    Button("Open Settings") { NativeMenuBarStore.openAccessibilitySettings() }
                     Button("Retry") { menuBarStore.refresh() }
                 }
             }

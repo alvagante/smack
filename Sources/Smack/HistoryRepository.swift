@@ -146,41 +146,51 @@ actor HistoryRepository {
     }
 
     func save(processes snapshot: ProcessSnapshot) throws {
-        let samples = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
+        let totalCount = snapshot.applications.reduce(snapshot.backgroundProcesses.count) { $0 + $1.processes.count }
         let timestamp = snapshot.timestamp.timeIntervalSince1970
         // No unique index guards process_samples, so the same snapshot saved twice would store every row twice.
         guard timestamp != state.lastProcessSnapshot else { return }
         try batched {
             var seen = Set<String>()
-            for sample in samples {
-                seen.insert(sample.id)
-                let key = try processKey(for: sample.id, name: sample.name, at: timestamp)
-                state.pendingProcessMetadata[key] = sample.name
-                let row = ProcessRow(
-                    timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
-                    diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate, wakeups: sample.wakeupsPerSecond
-                )
-                if let run = state.idleRuns[sample.id], run.stored.isRepeated(by: row) {
-                    if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
-                        state.idleRuns[sample.id]?.skipped += 1
-                        state.idleRuns[sample.id]?.lastSkipped = row
-                        continue
-                    }
-                    // Heartbeat: values are unchanged, so the skipped run needs no closing row.
-                    try addWeight(run.skipped, toRow: run.storedRowID)
-                } else {
-                    try closeIdleRun(processID: sample.id)
+            seen.reserveCapacity(totalCount)
+            for application in snapshot.applications {
+                for sample in application.processes {
+                    seen.insert(sample.id)
+                    try recordProcessSample(sample, at: timestamp)
                 }
-                let rowID = try insert(row, key: key)
-                state.idleRuns[sample.id] = IdleRun(key: key, stored: row, storedRowID: rowID)
             }
-            for id in state.idleRuns.keys where !seen.contains(id) {
-                try closeIdleRun(processID: id)
-                state.idleRuns[id] = nil
+            for sample in snapshot.backgroundProcesses {
+                seen.insert(sample.id)
+                try recordProcessSample(sample, at: timestamp)
+            }
+            for id in Array(state.idleRuns.keys) where !seen.contains(id) {
+                try flushExitedProcess(processID: id)
             }
             try writeProcessMetadataIfDue(at: timestamp)
             state.lastProcessSnapshot = timestamp
         }
+    }
+
+    private func recordProcessSample(_ sample: ProcessMetrics, at timestamp: Double) throws {
+        let key = try processKey(for: sample.id, name: sample.name, at: timestamp)
+        state.pendingProcessMetadata[key] = sample.name
+        let row = ProcessRow(
+            timestamp: timestamp, cpu: sample.cpuUsage, memory: Double(sample.memoryBytes),
+            diskRead: sample.diskReadRate, diskWrite: sample.diskWriteRate, wakeups: sample.wakeupsPerSecond
+        )
+        if let run = state.idleRuns[sample.id], run.stored.isRepeated(by: row) {
+            if timestamp - run.stored.timestamp < Self.processHeartbeatInterval {
+                state.idleRuns[sample.id]?.skipped += 1
+                state.idleRuns[sample.id]?.lastSkipped = row
+                return
+            }
+            // Heartbeat: values are unchanged, so the skipped run needs no closing row.
+            try addWeight(run.skipped, toRow: run.storedRowID)
+        } else {
+            try closeIdleRun(processID: sample.id)
+        }
+        let rowID = try insert(row, key: key)
+        state.idleRuns[sample.id] = IdleRun(key: key, stored: row, storedRowID: rowID)
     }
 
     /// Resolves the integer key of a process identity, inserting the row on its first sighting. A process with an
@@ -231,6 +241,29 @@ actor HistoryRepository {
         try addWeight(run.skipped - 1, toRow: run.storedRowID)
         let rowID = try insert(lastSkipped, key: run.key)
         state.idleRuns[processID] = IdleRun(key: run.key, stored: lastSkipped, storedRowID: rowID)
+    }
+
+    private func flushExitedProcess(processID: String) throws {
+        guard let run = state.idleRuns.removeValue(forKey: processID) else { return }
+        if let lastSkipped = run.lastSkipped {
+            try addWeight(run.skipped - 1, toRow: run.storedRowID)
+            _ = try insert(lastSkipped, key: run.key)
+        }
+        let lastSeen = run.lastSkipped?.timestamp ?? run.stored.timestamp
+        if let name = state.pendingProcessMetadata.removeValue(forKey: run.key) {
+            try withStatement("UPDATE processes SET name = ?, last_seen = ? WHERE key = ?") { statement in
+                bind(name, at: 1, to: statement)
+                bind(lastSeen, at: 2, to: statement)
+                sqlite3_bind_int64(statement, 3, run.key)
+                try step(statement)
+            }
+        } else if run.lastSkipped != nil {
+            try withStatement("UPDATE processes SET last_seen = ? WHERE key = ?") { statement in
+                bind(lastSeen, at: 1, to: statement)
+                sqlite3_bind_int64(statement, 2, run.key)
+                try step(statement)
+            }
+        }
     }
 
     func addWeight(_ weight: Int, toRow rowID: Int64) throws {
@@ -348,7 +381,7 @@ actor HistoryRepository {
     }
 
     func bind(_ value: String, at index: Int32, to statement: OpaquePointer) {
-        sqlite3_bind_text(statement, index, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(statement, index, value, Int32(value.utf8.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
     }
 
     func bind(_ value: String?, at index: Int32, to statement: OpaquePointer) {

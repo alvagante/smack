@@ -52,12 +52,18 @@ final class SmackSound {
         }
     }
 
-    private static func wavData() -> Data {
+    nonisolated static func wavData() -> Data {
         let sampleRate = 44_100
         let duration = 0.22
         let sampleCount = Int(Double(sampleRate) * duration)
         let dataSize = UInt32(sampleCount * 2)
-        var data = Data()
+        var data = Data(capacity: 44 + Int(dataSize))
+        appendWAVHeader(sampleRate: sampleRate, dataSize: dataSize, to: &data)
+        appendSlapSamples(sampleCount: sampleCount, sampleRate: sampleRate, to: &data)
+        return data
+    }
+
+    nonisolated private static func appendWAVHeader(sampleRate: Int, dataSize: UInt32, to data: inout Data) {
         data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
         appendLittleEndian(36 + dataSize, to: &data)
         data.append(contentsOf: [0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20])
@@ -70,22 +76,29 @@ final class SmackSound {
         appendLittleEndian(UInt16(16), to: &data)
         data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
         appendLittleEndian(dataSize, to: &data)
-
-        var randomState: UInt32 = 0x53_4D_41_43
-        for index in 0..<sampleCount {
-            let time = Double(index) / Double(sampleRate)
-            randomState = randomState &* 1_664_525 &+ 1_013_904_223
-            let noise = Double(Int32(bitPattern: randomState)) / Double(Int32.max)
-            let attack = min(time / 0.002, 1)
-            let slap = noise * exp(-time * 48) * 0.82
-            let thump = sin(2 * Double.pi * (145 * time - 90 * time * time)) * exp(-time * 20) * 0.42
-            let sample = Int16(max(-1, min(1, (slap + thump) * attack)) * Double(Int16.max))
-            appendLittleEndian(sample, to: &data)
-        }
-        return data
     }
 
-    private static func appendLittleEndian<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+    nonisolated private static func appendSlapSamples(sampleCount: Int, sampleRate: Int, to data: inout Data) {
+        var randomState: UInt32 = 0x53_4D_41_43
+        let invSampleRate = 1.0 / Double(sampleRate)
+        let invInt32Max = 1.0 / Double(Int32.max)
+        let int16Max = Double(Int16.max)
+        withUnsafeTemporaryAllocation(of: Int16.self, capacity: sampleCount) { buffer in
+            for index in 0..<sampleCount {
+                let time = Double(index) * invSampleRate
+                randomState = randomState &* 1_664_525 &+ 1_013_904_223
+                let noise = Double(Int32(bitPattern: randomState)) * invInt32Max
+                let attack = min(time / 0.002, 1)
+                let slap = noise * exp(-time * 48) * 0.82
+                let thump = sin(2 * Double.pi * (145 * time - 90 * time * time)) * exp(-time * 20) * 0.42
+                let sample = Int16(max(-1, min(1, (slap + thump) * attack)) * int16Max)
+                buffer[index] = sample.littleEndian
+            }
+            data.append(UnsafeBufferPointer(buffer))
+        }
+    }
+
+    nonisolated private static func appendLittleEndian<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
         var value = value.littleEndian
         withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
     }

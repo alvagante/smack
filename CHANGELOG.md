@@ -2,6 +2,26 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Process & socket sampling:** add `ProcessSampling.allProcessIdentifiers(preferSysctl:)` and guard `SmackMain.diagnosticLines()` socket collection behind `Capabilities.supportsNetworkPortInspection` to avoid App Sandbox kernel denials (`listpids`, `pidfdinfo`, `rusage`). Cache per-process executable paths (`ProcessPathCacheKey` + `NSLock`), switch `ProcessSockets` and `ProcessSnapshotBuilder` user lookups to thread-safe `getpwuid_r` with negative caching, and use O(1) backwards `.app` root lookups in `ProcessCollector`.
+- **History & SQLite:** replace `1 + 5 × N` per-process export queries with a single SQLite `UNION ALL` query in `HistoryRepository+Export`, pass exact UTF-8 byte lengths to `sqlite3_bind_text`, and add an `isOrderedByTimestamp` fast-path with `SIMD8<Double>` in `ProcessHistoryRow.summed`.
+- **Hardware & UI hot paths:** cache boot-immutable `SystemInformation` properties (`cachedOSBuild`, `cachedDarwinVersion`, `cachedKernelVersion`, `cachedBootTime`), `hostPageSize`, volume resource keys, and IOKit disk names (`SystemHardwareSampler` / `SystemCollector`); precompute `ApplicationMetrics` totals and `NetworkPortSnapshot` external/localhost counts; pre-reserve `LiveMetricHistory` series; and remove intermediate allocations in `Formatting`, `Sparkline`, `SmackSound`, and `IPLookup`.
+
+### Fixed
+
+- **Apple Silicon CPU%:** scale `proc_taskallinfo` Mach ticks (`pti_total_user + pti_total_system`) to nanoseconds using `mach_timebase_info` via overflow-safe 128-bit arithmetic (`ProcessSampling.machTicksToNanoseconds`), fixing 41.67× per-process CPU% under-reporting on `arm64`.
+- **App Sandbox memory:** fall back to `information.ptinfo.pti_resident_size` when `proc_pid_rusage` is unavailable under App Sandbox, reporting resident memory instead of `0 B` and updating sandbox labels in `ProcessSnapshotBuilder` and `ProcessViews`.
+- **Panel hover & lifecycle:** fix hover auto-dismiss in `PanelController` by tracking and resetting `dismissTask` on pointer re-entry and grace-period completion, guard default window placement when `NSScreen.screens` is empty, and remove `NSEvent` monitors in `deinit`.
+- **History idle runs:** flush pending `last_seen` metadata when an idle process exits (`HistoryRepository.flushExitedProcess`) so deferred idle samples do not leave stale `last_seen` timestamps.
+- **Concurrency:** resolve `NSWorkspace` running-application metadata asynchronously on `@MainActor` when uncached in `ProcessCollector` and `ProcessSnapshotService`.
+
+### Security
+
+- **SQLite (`CWE-89`):** replace timestamp string interpolation in `HistoryRepository+Maintenance` retention and storage-limit `DELETE` statements with bound SQLite `?` parameters.
+
 ## [1.3.0] - 2026-11-26
 
 ### Added

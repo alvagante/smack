@@ -246,7 +246,14 @@ final class MonitorStore: ObservableObject, EnvironmentContext {
         liveMetrics.receive(snapshot)
         processes = snapshot
         environment.receive(snapshot)
-        let liveIDs = Set(snapshot.applications.flatMap(\.processes).map(\.id) + snapshot.backgroundProcesses.map(\.id))
+        var liveIDs = Set<String>()
+        let estimatedCount = snapshot.backgroundProcesses.count
+            + snapshot.applications.reduce(0) { $0 + $1.processes.count }
+        liveIDs.reserveCapacity(estimatedCount)
+        for application in snapshot.applications {
+            for process in application.processes { liveIDs.insert(process.id) }
+        }
+        for process in snapshot.backgroundProcesses { liveIDs.insert(process.id) }
         inspection.retainScheduled(liveIDs)
     }
 
@@ -292,8 +299,14 @@ final class MonitorStore: ObservableObject, EnvironmentContext {
     }
 
     func process(id: String) -> ProcessMetrics? {
-        processes?.applications.flatMap(\.processes).first { $0.id == id }
-            ?? processes?.backgroundProcesses.first { $0.id == id }
+        if let applications = processes?.applications {
+            for application in applications {
+                if let match = application.processes.first(where: { $0.id == id }) {
+                    return match
+                }
+            }
+        }
+        return processes?.backgroundProcesses.first { $0.id == id }
     }
 
     func process(pid: Int32) -> ProcessMetrics? {
