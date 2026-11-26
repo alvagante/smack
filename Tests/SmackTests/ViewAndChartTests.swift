@@ -177,15 +177,25 @@ struct ViewAndChartTests {
 }
 
 @Test func resourceDetailViewSortsTop25AndCoversAllResourceKinds() async throws {
-    let apps = (0..<30).map { index in
-        ApplicationMetrics(id: "app-\(index)", name: "App \(index)", processes: [
-            ProcessMetrics(
-                identity: ProcessIdentity(pid: Int32(index + 1), startTime: Date()), name: "App \(index)",
-                parentPID: 1, bundleIdentifier: nil, executablePath: nil, userName: nil,
-                cpuUsage: Double(index), memoryBytes: UInt64(index * 100), diskReadRate: 0, diskWriteRate: 0,
-                energyImpact: nil, threadCount: 1, isApplication: true
-            )
-        ])
+    let now = Date()
+    let apps: [ApplicationMetrics] = (0..<30).map { (index: Int) -> ApplicationMetrics in
+        let identity = ProcessIdentity(pid: Int32(index + 1), startTime: now)
+        let process = ProcessMetrics(
+            identity: identity,
+            name: "App \(index)",
+            parentPID: 1,
+            bundleIdentifier: nil,
+            executablePath: nil,
+            userName: nil,
+            cpuUsage: Double(index),
+            memoryBytes: UInt64(index * 100),
+            diskReadRate: 0,
+            diskWriteRate: 0,
+            energyImpact: nil,
+            threadCount: 1,
+            isApplication: true
+        )
+        return ApplicationMetrics(id: "app-\(index)", name: "App \(index)", processes: [process])
     }
     let top = ResourceDetailView.topApplications(apps) { $0.cpuUsage > $1.cpuUsage }
     #expect(top.count == 25)
