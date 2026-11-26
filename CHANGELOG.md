@@ -70,8 +70,6 @@ Branch: feature/reduce-complexity | Commit: 38bc42f
 
 ### Fixed
 
-- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
-
 - History kept only about 20 hours: the storage limit deleted full-resolution data before it was old enough to be compacted, and it deleted system history along with process history.
 - The History view overflowed the panel and hid the navigation header.
 - History lines joined periods without collection with straight lines; they now break.
@@ -101,8 +99,6 @@ Branch: feature/reduce-complexity | Commit: 38bc42f
 - Close the panel when a native menu-bar icon is clicked so its menu or window appears in front.
 
 ### Fixed
-
-- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
 
 - Stop `lsof` warnings about unreachable network volumes (such as Time Machine shares) appearing in Network Ports, and avoid blocking on them.
 - Fix main-actor isolation in the settings interval field.
@@ -138,8 +134,6 @@ Branch: feature/reduce-complexity | Commit: 38bc42f
 - Launch-at-login support and local-only data storage without third-party dependencies.
 
 ### Fixed
-
-- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
 
 - Read macOS network counters using the correct 32-bit layout and preserve totals across counter wraparound.
 - Preserve application metadata when grouping same-bundle helper processes.
