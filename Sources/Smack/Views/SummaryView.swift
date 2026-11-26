@@ -359,6 +359,16 @@ struct SummaryView: View {
         }
     }
 
+    static func storageTotals(for volumes: [VolumeSample]) -> (total: UInt64, used: UInt64) {
+        var total: UInt64 = 0
+        var used: UInt64 = 0
+        for volume in volumes {
+            total &+= volume.totalBytes
+            used &+= volume.usedBytes
+        }
+        return (total, used)
+    }
+
     private func batteryTile(_ battery: BatterySample) -> some View {
         let charge = battery.chargePercent
         let color: Color = (charge ?? 100) <= SummaryConcerns.criticalBattery ? .red : (charge ?? 100) <= SummaryConcerns.lowBattery ? .orange : .green

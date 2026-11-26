@@ -23,14 +23,13 @@ struct SystemInformationSection: Identifiable {
 /// Facts about the Mac that no other page shows. Resource figures (utilization, pressure, volumes, thermal
 /// state, interface addresses) live on their own pages and are deliberately left out.
 enum SystemInformation {
-    static var macOSDescription: String {
-        ProcessInfo.processInfo.operatingSystemVersionString
-    }
+    static let macOSVersion: String = {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+    }()
 
-    static var modelIdentifier: String {
-        string("hw.model") ?? "Mac"
-    }
-
+    static let macOSDescription: String = ProcessInfo.processInfo.operatingSystemVersionString
+    static let modelIdentifier: String = string("hw.model") ?? "Mac"
     /// Marketing name such as "MacBook Pro (14-inch, M5 Max)"; Apple silicon only.
     static let modelName: String? = registryString(path: "IODeviceTree:/product", key: "product-name")
     /// Order number, such as "Z1MN000MZ" for a build-to-order Mac.
@@ -40,6 +39,13 @@ enum SystemInformation {
     static let firmwareVersion: String? = registryString(path: "IODeviceTree:/chosen", key: "system-firmware-version")
         ?? registryString(path: "IODeviceTree:/rom", key: "version")
     static let processorName: String? = string("machdep.cpu.brand_string")
+
+    private static let cachedOSBuild: String? = string("kern.osversion")
+    private static let cachedDarwinVersion: String? = string("kern.osrelease")
+    private static let cachedKernelVersion: String? = string("kern.version")
+    private static let cachedBootTime: Date? = readBootTime()
+
+    static var bootTime: Date? { cachedBootTime }
 
     /// All sections for the System Details page. Serial number and hardware UUID are left out when
     /// `includeIdentifiers` is false.
@@ -95,9 +101,9 @@ enum SystemInformation {
 
     private static func softwareRows() -> [SystemInformationRow] {
         var rows = [SystemInformationRow(key: "macOS", value: macOSDescription)]
-        rows.append(optional: string("kern.osversion"), key: "Build")
-        rows.append(optional: string("kern.osrelease"), key: "Darwin")
-        rows.append(optional: string("kern.version"), key: "Kernel")
+        rows.append(optional: cachedOSBuild, key: "Build")
+        rows.append(optional: cachedDarwinVersion, key: "Darwin")
+        rows.append(optional: cachedKernelVersion, key: "Kernel")
         rows.append(optional: string("kern.bootargs"), key: "Boot Arguments")
         if let bootTime {
             rows.append(SystemInformationRow(key: "Boot Time", value: Formatting.dated(bootTime.formatted(date: .abbreviated, time: .standard), bootTime)))
@@ -222,7 +228,7 @@ enum SystemInformation {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static var bootTime: Date? {
+    private static func readBootTime() -> Date? {
         var value = timeval()
         var size = MemoryLayout<timeval>.size
         guard sysctlbyname("kern.boottime", &value, &size, nil, 0) == 0 else { return nil }
@@ -232,10 +238,12 @@ enum SystemInformation {
     static func string(_ name: String) -> String? {
         var size = 0
         guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-        var buffer = [CChar](repeating: 0, count: size)
-        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
-        let value = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        return value.isEmpty ? nil : value
+        return withUnsafeTemporaryAllocation(of: CChar.self, capacity: size) { buffer in
+            guard let baseAddress = buffer.baseAddress,
+                  sysctlbyname(name, baseAddress, &size, nil, 0) == 0 else { return nil }
+            let value = String(decoding: UnsafeRawBufferPointer(buffer).prefix { $0 != 0 }, as: UTF8.self)
+            return value.isEmpty ? nil : value
+        }
     }
 
     static func integer(_ name: String) -> UInt64? {

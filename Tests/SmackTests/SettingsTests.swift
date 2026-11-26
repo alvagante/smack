@@ -29,7 +29,11 @@ import Synchronization
     #expect(settings.panel.hoverDelay == 0)
     #expect(settings.sampling.backgroundSystemInterval == 1)
     #expect(settings.sampling.backgroundProcessInterval == 86_400)
+#if SMACK_APP_STORE
+    #expect(settings.sampling.backgroundInventoryInterval == nil)
+#else
     #expect(settings.sampling.backgroundInventoryInterval == 10)
+#endif
     #expect(settings.history.retentionDays == 1)
     #expect(settings.history.historyStorageLimitMB == 25)
 }
@@ -186,7 +190,11 @@ import Synchronization
     let store = SettingsStore(defaults: defaults, legacyDefaults: nil)
     store.update { $0.panel.showMenuBarItems = true }
 
+#if SMACK_APP_STORE
+    #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.panel.showMenuBarItems == false)
+#else
     #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.panel.showMenuBarItems == true)
+#endif
 }
 
 @Test func panelSoundDefaultsToMuteAndPersists() throws {

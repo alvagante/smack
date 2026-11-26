@@ -1,3 +1,4 @@
+import IOKit.ps
 import Testing
 @testable import Smack
 
@@ -40,4 +41,58 @@ import Testing
     #expect(SystemCollectorMath.normalizedPercentage(101) == 100)
     #expect(SystemCollectorMath.normalizedPercentage(.nan) == 0)
     #expect(SystemCollectorMath.normalizedPercentage(.infinity) == 0)
+}
+
+@Test func sampledRateHandlesValidAndMissingInputs() {
+    #expect(abs(SystemCollector.sampledRate(current: 600, previous: 100, elapsed: 2) - 250) < 0.000_001)
+    #expect(SystemCollector.sampledRate(current: 600, previous: nil, elapsed: 2) == 0)
+    #expect(SystemCollector.sampledRate(current: 600, previous: 100, elapsed: nil) == 0)
+    #expect(SystemCollector.sampledRate(current: 50, previous: 100, elapsed: 2) == 0)
+}
+
+@Test func batterySampleParsesChargingDischargingAndRejectsInvalidSources() {
+    let charging = SystemHardwareSampler.batterySample(from: [
+        kIOPSTypeKey as String: "InternalBattery",
+        kIOPSIsPresentKey as String: true,
+        kIOPSCurrentCapacityKey as String: 45,
+        kIOPSMaxCapacityKey as String: 90,
+        kIOPSIsChargingKey as String: true,
+        "Time to Full": 12,
+        kIOPSBatteryHealthKey as String: "Good",
+        "CycleCount": 140
+    ])
+    #expect(charging?.chargePercent == 50)
+    #expect(charging?.isCharging == true)
+    #expect(charging?.timeRemaining == 720)
+    #expect(charging?.health == "Good")
+    #expect(charging?.cycleCount == 140)
+
+    let discharging = SystemHardwareSampler.batterySample(from: [
+        kIOPSTypeKey as String: "InternalBattery",
+        kIOPSCurrentCapacityKey as String: 80,
+        kIOPSMaxCapacityKey as String: 0,
+        kIOPSIsChargingKey as String: false,
+        kIOPSTimeToEmptyKey as String: -5
+    ])
+    #expect(discharging?.chargePercent == nil)
+    #expect(discharging?.timeRemaining == nil)
+
+    #expect(SystemHardwareSampler.batterySample(from: [kIOPSTypeKey as String: "UPS"]) == nil)
+    #expect(SystemHardwareSampler.batterySample(from: [
+        kIOPSTypeKey as String: "InternalBattery",
+        kIOPSIsPresentKey as String: false
+    ]) == nil)
+}
+
+@Test func systemCollectorProducesConsistentNonNegativeSamplesAcrossConsecutiveTicks() async {
+    let collector = SystemCollector()
+    let first = collector.collectSystemSample()
+    try? await Task.sleep(for: .milliseconds(20))
+    let second = collector.collectSystemSample()
+
+    #expect(second.cpu.totalUsage >= 0 && second.cpu.totalUsage <= 100)
+    #expect(second.cpu.coreUsage.count == first.cpu.coreUsage.count)
+    #expect(!second.gpuName.isEmpty)
+    #expect(second.receiveRate >= 0 && second.sendRate >= 0)
+    #expect(second.diskReadRate >= 0 && second.diskWriteRate >= 0)
 }

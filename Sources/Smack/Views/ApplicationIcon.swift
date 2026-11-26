@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-private enum ApplicationIconCache {
+enum ApplicationIconCache {
     private static let images: NSCache<NSString, NSImage> = {
         NSCache<NSString, NSImage>()
     }()
@@ -27,11 +27,14 @@ private enum ApplicationIconCache {
         images.setObject(thumbnail, forKey: key, cost: 128 * 128 * 4)
     }
 
-    static func image(bundleIdentifier: String?, executablePath: String?) -> NSImage {
+    static func reset() {
+        images.removeAllObjects()
+    }
 
+    static func image(bundleIdentifier: String?, executablePath: String?) -> NSImage {
         let bundleURL = bundleIdentifier.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let executableBundleURL = executablePath.flatMap(ApplicationReadings.bundleURL(executablePath:))
-        let key = key((executableBundleURL ?? bundleURL)?.path ?? "generic-application")
+        let key = key((executableBundleURL ?? bundleURL)?.path ?? bundleIdentifier ?? "generic-application")
         if let image = images.object(forKey: key) { return image }
         let image = (executableBundleURL ?? bundleURL).map { NSWorkspace.shared.icon(forFile: $0.path) }
             ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)

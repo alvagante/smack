@@ -6,10 +6,10 @@ import Foundation
 /// contents or process memory.
 public enum InventorySampling {
     private struct Budget {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
 
         var canContinue: Bool {
-            !Task.isCancelled && Date() < deadline
+            !Task.isCancelled && ProcessInfo.processInfo.systemUptime < deadline
         }
     }
 
@@ -47,75 +47,169 @@ public enum InventorySampling {
         return payload
     }
 
-    private static func inspectDescriptors(pid: pid_t, budget: inout Budget, payload: inout InventoryPayload) {
-        guard budget.canContinue else { return }
-        let descriptorSize = MemoryLayout<proc_fdinfo>.size
-        let reportedBytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+    private enum DescriptorResult<Value> {
+        case item(Value)
+        case empty
+        case failed
+    }
+
+    private static func listProcessItems<Element>(
+        pid: pid_t,
+        flavor: Int32,
+        maximumCount: Int,
+        unavailablePrefix: String,
+        truncationWarning: String,
+        payload: inout InventoryPayload,
+        defaultValue: Element
+    ) -> ArraySlice<Element>? {
+        let elementSize = MemoryLayout<Element>.size
+        let reportedBytes = proc_pidinfo(pid, flavor, 0, nil, 0)
         guard reportedBytes > 0 else {
             if reportedBytes < 0 {
-                payload.warnings.append("File and network inventory is unavailable: \(errorDescription()).")
+                payload.warnings.append("\(unavailablePrefix): \(errorDescription()).")
             }
-            return
+            return nil
         }
 
-        let reportedCount = Int(reportedBytes) / descriptorSize
-        let count = min(reportedCount, maximumDescriptors)
-        var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
-        let bufferSize = Int32(count * descriptorSize)
-        let bytesRead = descriptors.withUnsafeMutableBytes { buffer in
-            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, bufferSize)
+        let reportedCount = Int(reportedBytes) / elementSize
+        let count = min(reportedCount, maximumCount)
+        var items = [Element](repeating: defaultValue, count: count)
+        let bufferSize = Int32(count * elementSize)
+        let bytesRead = items.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(pid, flavor, 0, buffer.baseAddress, bufferSize)
         }
         guard bytesRead >= 0 else {
-            payload.warnings.append("File and network inventory is unavailable: \(errorDescription()).")
-            return
+            payload.warnings.append("\(unavailablePrefix): \(errorDescription()).")
+            return nil
         }
-        if reportedCount > maximumDescriptors {
-            payload.warnings.append("Only the first \(maximumDescriptors) file descriptors were inspected.")
+        if reportedCount > maximumCount {
+            payload.warnings.append(truncationWarning)
         }
+        return items.prefix(Int(bytesRead) / elementSize)
+    }
+
+    private enum MappedRegionStep {
+        case region(path: String, nextAddress: UInt64?)
+        case done
+        case failed(String)
+    }
+
+    private static let tcpStateNames: [Int32: String] = [
+        TSI_S_CLOSED: "CLOSED",
+        TSI_S_LISTEN: "LISTEN",
+        TSI_S_SYN_SENT: "SYN_SENT",
+        TSI_S_SYN_RECEIVED: "SYN_RECEIVED",
+        TSI_S_ESTABLISHED: "ESTABLISHED",
+        TSI_S__CLOSE_WAIT: "CLOSE_WAIT",
+        TSI_S_FIN_WAIT_1: "FIN_WAIT_1",
+        TSI_S_CLOSING: "CLOSING",
+        TSI_S_LAST_ACK: "LAST_ACK",
+        TSI_S_FIN_WAIT_2: "FIN_WAIT_2",
+        TSI_S_TIME_WAIT: "TIME_WAIT",
+    ]
+
+    private static func inspectDescriptors(pid: pid_t, budget: inout Budget, payload: inout InventoryPayload) {
+        guard budget.canContinue,
+              let descriptors = listProcessItems(
+                  pid: pid,
+                  flavor: PROC_PIDLISTFDS,
+                  maximumCount: maximumDescriptors,
+                  unavailablePrefix: "File and network inventory is unavailable",
+                  truncationWarning: "Only the first \(maximumDescriptors) file descriptors were inspected.",
+                  payload: &payload,
+                  defaultValue: proc_fdinfo()
+              ) else { return }
 
         var fileFailures = 0
         var socketFailures = 0
-        for descriptor in descriptors.prefix(Int(bytesRead) / descriptorSize) {
+        for descriptor in descriptors {
             guard budget.canContinue else { return }
-            switch descriptor.proc_fdtype {
-            case UInt32(PROX_FDTYPE_VNODE):
-                var fileInformation = vnode_fdinfowithpath()
-                let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-                guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDVNODEPATHINFO, &fileInformation, size) == size else {
-                    fileFailures += 1
-                    continue
-                }
-                let path = string(from: fileInformation.pvip.vip_path)
-                if !path.isEmpty {
-                    payload.files.append(FileRecord(descriptor: descriptor.proc_fd, path: path, kind: "File"))
-                }
-            case UInt32(PROX_FDTYPE_SOCKET):
-                var socketInformation = socket_fdinfo()
-                let size = Int32(MemoryLayout<socket_fdinfo>.size)
-                guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO, &socketInformation, size) == size else {
-                    socketFailures += 1
-                    continue
-                }
-                if let connection = connection(fd: descriptor.proc_fd, information: socketInformation.psi) {
-                    payload.connections.append(connection)
-                    if connection.protocolName == "UNIX", connection.localAddress != "—" {
-                        payload.files.append(FileRecord(
-                            descriptor: descriptor.proc_fd,
-                            path: connection.localAddress,
-                            kind: "Unix Socket"
-                        ))
-                    }
-                }
-            default:
-                continue
-            }
+            recordDescriptor(descriptor, pid: pid, payload: &payload, fileFailures: &fileFailures, socketFailures: &socketFailures)
         }
+        appendDescriptorWarnings(fileFailures: fileFailures, socketFailures: socketFailures, payload: &payload)
+    }
+
+    private static func recordDescriptor(
+        _ descriptor: proc_fdinfo,
+        pid: pid_t,
+        payload: inout InventoryPayload,
+        fileFailures: inout Int,
+        socketFailures: inout Int
+    ) {
+        switch descriptor.proc_fdtype {
+        case UInt32(PROX_FDTYPE_VNODE):
+            recordVnodeDescriptor(pid: pid, fd: descriptor.proc_fd, payload: &payload, failures: &fileFailures)
+        case UInt32(PROX_FDTYPE_SOCKET):
+            recordSocketDescriptor(pid: pid, fd: descriptor.proc_fd, payload: &payload, failures: &socketFailures)
+        default:
+            break
+        }
+    }
+
+    private static func recordVnodeDescriptor(
+        pid: pid_t,
+        fd: Int32,
+        payload: inout InventoryPayload,
+        failures: inout Int
+    ) {
+        switch inspectVnodeDescriptor(pid: pid, fd: fd) {
+        case .item(let record): payload.files.append(record)
+        case .empty: break
+        case .failed: failures += 1
+        }
+    }
+
+    private static func recordSocketDescriptor(
+        pid: pid_t,
+        fd: Int32,
+        payload: inout InventoryPayload,
+        failures: inout Int
+    ) {
+        switch inspectSocketDescriptor(pid: pid, fd: fd) {
+        case .item(let (connection, unixFile)):
+            payload.connections.append(connection)
+            if let unixFile { payload.files.append(unixFile) }
+        case .empty: break
+        case .failed: failures += 1
+        }
+    }
+
+    private static func appendDescriptorWarnings(
+        fileFailures: Int,
+        socketFailures: Int,
+        payload: inout InventoryPayload
+    ) {
         if fileFailures > 0 {
             payload.warnings.append("\(fileFailures) file descriptor(s) could not be inspected; access may be restricted or they may have closed.")
         }
         if socketFailures > 0 {
             payload.warnings.append("\(socketFailures) socket descriptor(s) could not be inspected; access may be restricted or they may have closed.")
         }
+    }
+
+    private static func inspectVnodeDescriptor(pid: pid_t, fd: Int32) -> DescriptorResult<FileRecord> {
+        var fileInformation = vnode_fdinfowithpath()
+        let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+        guard proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEPATHINFO, &fileInformation, size) == size else {
+            return .failed
+        }
+        let path = string(from: fileInformation.pvip.vip_path)
+        return path.isEmpty ? .empty : .item(FileRecord(descriptor: fd, path: path, kind: "File"))
+    }
+
+    private static func inspectSocketDescriptor(pid: pid_t, fd: Int32) -> DescriptorResult<(ConnectionRecord, FileRecord?)> {
+        var socketInformation = socket_fdinfo()
+        let size = Int32(MemoryLayout<socket_fdinfo>.size)
+        guard proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &socketInformation, size) == size else {
+            return .failed
+        }
+        guard let connection = connection(fd: fd, information: socketInformation.psi) else {
+            return .empty
+        }
+        let unixFile = (connection.protocolName == "UNIX" && connection.localAddress != "—")
+            ? FileRecord(descriptor: fd, path: connection.localAddress, kind: "Unix Socket")
+            : nil
+        return .item((connection, unixFile))
     }
 
     private static func inspectThreads(pid: pid_t, budget: inout Budget, payload: inout InventoryPayload) {
@@ -146,9 +240,11 @@ public enum InventorySampling {
             payload.warnings.append("Only the first \(maximumThreads) threads were inspected.")
         }
 
+        let actualCount = min(handles.count, Int(bytesRead) / identifierSize)
+        payload.threads.reserveCapacity(actualCount)
         var detailFailures = 0
         // PROC_PIDLISTTHREADS returns thread handles, which PROC_PIDTHREADINFO takes; PROC_PIDTHREADID64INFO wants thread IDs.
-        for identifier in handles.prefix(Int(bytesRead) / identifierSize) {
+        for identifier in handles.prefix(actualCount) {
             guard budget.canContinue else { return }
             var information = proc_threadinfo()
             let size = Int32(MemoryLayout<proc_threadinfo>.size)
@@ -175,39 +271,56 @@ public enum InventorySampling {
         var paths: Set<String> = []
         var address: UInt64 = 0
         var inspectedRegions = 0
-        var failure: String?
 
         for _ in 0..<maximumRegions {
             guard budget.canContinue else { return }
-            var information = proc_regionwithpathinfo()
-            let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
-            let result = proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, address, &information, size)
-            if result <= 0 {
-                if inspectedRegions == 0 && result < 0 {
-                    failure = errorDescription()
-                }
-                break
+            let step = readMappedRegion(pid: pid, at: address, isFirst: inspectedRegions == 0)
+            guard let nextAddress = consumeMappedRegionStep(step, paths: &paths, inspectedRegions: &inspectedRegions, payload: &payload) else {
+                payload.libraries = paths.sorted().map(LibraryRecord.init(path:))
+                return
             }
-            inspectedRegions += 1
-            let path = string(from: information.prp_vip.vip_path)
-            if !path.isEmpty {
-                paths.insert(path)
-            }
-            let region = information.prp_prinfo
-            guard region.pri_size > 0, region.pri_address <= UInt64.max - region.pri_size else { break }
-            let nextAddress = region.pri_address + region.pri_size
-            guard nextAddress > address else { break }
             address = nextAddress
         }
 
-        if let failure {
-            payload.warnings.append("Loaded-image inventory is unavailable: \(failure).")
-            return
-        }
         payload.libraries = paths.sorted().map(LibraryRecord.init(path:))
         if inspectedRegions == maximumRegions {
             payload.warnings.append("Loaded-image inspection stopped at \(maximumRegions) memory regions; results may be incomplete.")
         }
+    }
+
+    private static func consumeMappedRegionStep(
+        _ step: MappedRegionStep,
+        paths: inout Set<String>,
+        inspectedRegions: inout Int,
+        payload: inout InventoryPayload
+    ) -> UInt64? {
+        switch step {
+        case .failed(let failure):
+            payload.warnings.append("Loaded-image inventory is unavailable: \(failure).")
+            return nil
+        case .done:
+            return nil
+        case .region(let path, let nextAddress):
+            inspectedRegions += 1
+            if !path.isEmpty { paths.insert(path) }
+            return nextAddress
+        }
+    }
+
+    private static func readMappedRegion(pid: pid_t, at address: UInt64, isFirst: Bool) -> MappedRegionStep {
+        var information = proc_regionwithpathinfo()
+        let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
+        let result = proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, address, &information, size)
+        guard result > 0 else {
+            return (isFirst && result < 0) ? .failed(errorDescription()) : .done
+        }
+        let path = string(from: information.prp_vip.vip_path)
+        let region = information.prp_prinfo
+        let hasValidNext = region.pri_size > 0
+            && region.pri_address <= UInt64.max - region.pri_size
+            && region.pri_address + region.pri_size > address
+        let nextAddress = hasValidNext ? region.pri_address + region.pri_size : nil
+        return .region(path: path, nextAddress: nextAddress)
     }
 
     public static func connection(fd: Int32, information: socket_info) -> ConnectionRecord? {
@@ -284,31 +397,21 @@ public enum InventorySampling {
     public static func socketEndpoint(addressBytes: [UInt8], networkPort: UInt16, family: Int32) -> String {
         let expectedLength = family == AF_INET6 ? 16 : 4
         guard addressBytes.count == expectedLength else { return "—" }
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-        let result = addressBytes.withUnsafeBufferPointer { address in
-            inet_ntop(family, address.baseAddress, &buffer, socklen_t(buffer.count))
+        let address: String? = withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(INET6_ADDRSTRLEN)) { buffer in
+            guard let baseAddress = buffer.baseAddress else { return nil }
+            let result = addressBytes.withUnsafeBufferPointer { address in
+                inet_ntop(family, address.baseAddress, baseAddress, socklen_t(buffer.count))
+            }
+            guard result != nil else { return nil }
+            return String(decoding: UnsafeRawBufferPointer(buffer).prefix { $0 != 0 }, as: UTF8.self)
         }
-        guard result != nil else { return "—" }
-        let address = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        guard let address else { return "—" }
         let port = UInt16(bigEndian: networkPort)
         return family == AF_INET6 ? "[\(address)]:\(port)" : "\(address):\(port)"
     }
 
     public static func tcpState(_ state: Int32) -> String {
-        switch state {
-        case TSI_S_CLOSED: return "CLOSED"
-        case TSI_S_LISTEN: return "LISTEN"
-        case TSI_S_SYN_SENT: return "SYN_SENT"
-        case TSI_S_SYN_RECEIVED: return "SYN_RECEIVED"
-        case TSI_S_ESTABLISHED: return "ESTABLISHED"
-        case TSI_S__CLOSE_WAIT: return "CLOSE_WAIT"
-        case TSI_S_FIN_WAIT_1: return "FIN_WAIT_1"
-        case TSI_S_CLOSING: return "CLOSING"
-        case TSI_S_LAST_ACK: return "LAST_ACK"
-        case TSI_S_FIN_WAIT_2: return "FIN_WAIT_2"
-        case TSI_S_TIME_WAIT: return "TIME_WAIT"
-        default: return "UNKNOWN (\(state))"
-        }
+        tcpStateNames[state] ?? "UNKNOWN (\(state))"
     }
 
     private static func string<T>(from value: T) -> String {

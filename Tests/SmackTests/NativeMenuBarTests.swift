@@ -1,10 +1,34 @@
 import CoreGraphics
 import ApplicationServices
 import Foundation
+import SwiftUI
 import Testing
 @testable import Smack
 
-#if !SMACK_APP_STORE
+#if SMACK_APP_STORE
+@MainActor
+@Test func nativeMenuBarStoreAppStoreStubNoOpsSafelyAndRendersEmptyView() {
+    let store = NativeMenuBarStore()
+    store.onItemActivated = {}
+    store.setPanelVisible(true, screen: nil)
+    store.setFeatureEnabled(true)
+    store.requestPermissions()
+    store.refresh()
+    NativeMenuBarStore.relaunch()
+    NativeMenuBarStore.openScreenCaptureSettings()
+    NativeMenuBarStore.openAccessibilitySettings()
+
+    let defaultsSuite = "com.smack.appstore.stub.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: defaultsSuite)!
+    defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+    let view = NativeMenuBarView(menuBarStore: store, settingsStore: SettingsStore(defaults: defaults, legacyDefaults: nil))
+    let host = NSHostingView(rootView: view)
+    host.layoutSubtreeIfNeeded()
+    let emptyBaseline = NSHostingView(rootView: EmptyView())
+    emptyBaseline.layoutSubtreeIfNeeded()
+    #expect(host.fittingSize == emptyBaseline.fittingSize)
+}
+#else
 @Test func nativeMenuBarNormalizesLightDarkShadedAndTransparentCaptures() throws {
     for background in [0.0, 0.4, 1.0, -1.0] {
         let context = try #require(CGContext(data: nil, width: 12, height: 12, bitsPerComponent: 8,
@@ -103,7 +127,11 @@ import Testing
 @Test func nativeMenuBarDisplayNamesPreferTheOwningApplication() {
     #expect(NativeMenuBarItem.displayName(ownerName: "Control Center", applicationName: "Control Center", title: "WiFi") == "Wi-Fi")
     #expect(NativeMenuBarItem.displayName(ownerName: "Control Center", applicationName: "Control Center", title: "BentoBox") == "Control Center")
+    #expect(NativeMenuBarItem.displayName(ownerName: "Control Center", applicationName: "Control Center", title: "CustomControl") == "CustomControl")
+    #expect(NativeMenuBarItem.displayName(ownerName: "SystemUIServer", applicationName: "SystemUIServer", title: "TimeMachine.TMMenuExtraHost") == "Time Machine")
+    #expect(NativeMenuBarItem.displayName(ownerName: "SystemUIServer", applicationName: "SystemUIServer", title: "TimeMachineMenuExtra.TMMenuExtraHost") == "Time Machine")
     #expect(NativeMenuBarItem.displayName(ownerName: "ExampleOwner", applicationName: "Example App", title: "InternalWindow") == "Example App")
+    #expect(NativeMenuBarItem.displayName(ownerName: "ExampleOwner", applicationName: "Example App", title: "") == "Example App")
     #expect(NativeMenuBarItem.displayName(ownerName: nil, applicationName: nil, title: "Clock") == "Clock")
     #expect(NativeMenuBarItem.displayName(ownerName: nil, applicationName: nil, title: nil) == "Menu Bar Item")
 }

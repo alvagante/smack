@@ -92,29 +92,32 @@ struct NativeMenuBarItem: Identifiable {
         return NSSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
     }
 
+    private static let controlCenterTitles: [String: String] = [
+        "AccessibilityShortcuts": "Accessibility Shortcuts",
+        "BentoBox": "Control Center",
+        "FocusModes": "Focus",
+        "KeyboardBrightness": "Keyboard Brightness",
+        "MusicRecognition": "Music Recognition",
+        "NowPlaying": "Now Playing",
+        "ScreenMirroring": "Screen Mirroring",
+        "StageManager": "Stage Manager",
+        "UserSwitcher": "Fast User Switching",
+        "WiFi": "Wi-Fi",
+    ]
+
+    private static let systemUIServerTitles: [String: String] = [
+        "TimeMachine.TMMenuExtraHost": "Time Machine",
+        "TimeMachineMenuExtra.TMMenuExtraHost": "Time Machine",
+    ]
+
     static func displayName(ownerName: String?, applicationName: String?, title: String?) -> String {
         let fallback = applicationName ?? ownerName ?? title ?? "Menu Bar Item"
         guard let title, !title.isEmpty else { return fallback }
         if ownerName == "Control Center" || applicationName == "Control Center" {
-            switch title {
-            case "AccessibilityShortcuts": return "Accessibility Shortcuts"
-            case "BentoBox": return "Control Center"
-            case "FocusModes": return "Focus"
-            case "KeyboardBrightness": return "Keyboard Brightness"
-            case "MusicRecognition": return "Music Recognition"
-            case "NowPlaying": return "Now Playing"
-            case "ScreenMirroring": return "Screen Mirroring"
-            case "StageManager": return "Stage Manager"
-            case "UserSwitcher": return "Fast User Switching"
-            case "WiFi": return "Wi-Fi"
-            default: return title
-            }
+            return controlCenterTitles[title] ?? title
         }
         if ownerName == "SystemUIServer" || applicationName == "SystemUIServer" {
-            switch title {
-            case "TimeMachine.TMMenuExtraHost", "TimeMachineMenuExtra.TMMenuExtraHost": return "Time Machine"
-            default: return title
-            }
+            return systemUIServerTitles[title] ?? title
         }
         return fallback
     }
@@ -339,9 +342,7 @@ final class NativeMenuBarStore: ObservableObject {
 
     func refresh() {
         accessibilityAllowed = trusted()
-        guard isActive else { return }
-
-        guard !captureInProgress else { return }
+        guard isActive, !captureInProgress else { return }
         captureInProgress = true
         let started = generation
         let display = displayID
@@ -387,7 +388,12 @@ final class NativeMenuBarStore: ObservableObject {
                 loadAttempted = false
                 return
             }
+            let windowsByID = Dictionary(
+                content.windows.map { ($0.windowID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             var captured: [NativeMenuBarItem] = []
+            captured.reserveCapacity(discovered.count)
             var windowImages: [CGWindowID: CGImage] = [:]
             var attemptedWindows = Set<CGWindowID>()
             for source in discovered {
@@ -396,8 +402,7 @@ final class NativeMenuBarStore: ObservableObject {
                 // Off-screen copies (behind the notch, or a hidden menu bar) may still render; only a blank
                 // capture is discarded in favour of the last good image.
                 if attemptedWindows.insert(window.id).inserted {
-                    let captureWindow = content.windows.first { $0.windowID == window.id }
-                    windowImages[window.id] = await capture(window, from: captureWindow, scale: scale)
+                    windowImages[window.id] = await capture(window, from: windowsByID[window.id], scale: scale)
                 }
                 if let raw = windowImages[window.id], let fresh = croppedImage(raw, for: source, scale: scale),
                    NativeMenuBarDiscovery.hasVisiblePixels(fresh) {
@@ -435,16 +440,16 @@ final class NativeMenuBarStore: ObservableObject {
         }
     }
 
-    func openScreenCaptureSettings() {
+    static func openScreenCaptureSettings() {
         openPrivacySettings(anchor: "Privacy_ScreenCapture")
     }
 
-    func openAccessibilitySettings() {
+    static func openAccessibilitySettings() {
         openPrivacySettings(anchor: "Privacy_Accessibility")
     }
 
     /// Screen Recording access is only re-evaluated at launch, so a grant needs a fresh process.
-    func relaunch() {
+    static func relaunch() {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
@@ -529,7 +534,7 @@ final class NativeMenuBarStore: ObservableObject {
         return image.cropping(to: crop) ?? image
     }
 
-    private func openPrivacySettings(anchor: String) {
+    private static func openPrivacySettings(anchor: String) {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else { return }
         NSWorkspace.shared.open(url)
     }

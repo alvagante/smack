@@ -257,7 +257,7 @@ private func makeProcessSnapshot(timestamp: Date, cpu: Double, memory: UInt64, d
     var statement: OpaquePointer?
     #expect(sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
-    #expect(sqlite3_column_int(statement, 0) == 5)
+    #expect(sqlite3_column_int(statement, 0) == Int32(HistorySchema.schemaVersion))
     sqlite3_finalize(statement)
     #expect(sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM pragma_table_info('process_samples') WHERE name = 'name'", -1, &statement, nil) == SQLITE_OK)
     #expect(sqlite3_step(statement) == SQLITE_ROW)
@@ -598,4 +598,222 @@ private func scalar(_ url: URL, _ sql: String) -> Int {
     try await repository.enforceStorageLimit(bytes: limit, now: now, batchRows: 100)
     #expect(try await repository.usedStorageBytes() <= limit)
     #expect(try await repository.integerQuery("PRAGMA freelist_count") > 0)
+}
+
+@Test func unsupportedFutureSchemaVersionThrowsTypedError() throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("future.sqlite")
+    var database: OpaquePointer?
+    #expect(sqlite3_open(url.path, &database) == SQLITE_OK)
+    #expect(sqlite3_exec(database, "PRAGMA user_version = 99;", nil, nil, nil) == SQLITE_OK)
+    sqlite3_close(database)
+
+    #expect(throws: HistoryRepositoryError.unsupportedSchemaVersion(99)) {
+        _ = try HistoryRepository(databaseURL: url)
+    }
+}
+
+private extension HistoryRepository {
+    func verifyBindAndStringColumns() throws -> (label: String, empty: String, absent: String, optionalAbsent: String?) {
+        try execute("CREATE TABLE items (label TEXT, empty TEXT, absent TEXT)")
+        try withStatement("INSERT INTO items (label, empty, absent) VALUES (?, ?, ?)") { statement in
+            bind("smack", at: 1, to: statement)
+            bind("", at: 2, to: statement)
+            bind(nil as String?, at: 3, to: statement)
+            try step(statement)
+        }
+        return try withStatement("SELECT label, empty, absent FROM items") { statement in
+            guard sqlite3_step(statement) == SQLITE_ROW else { throw sqliteError(code: SQLITE_ERROR) }
+            return (
+                stringColumn(statement, index: 0),
+                stringColumn(statement, index: 1),
+                stringColumn(statement, index: 2),
+                optionalStringColumn(statement, index: 2)
+            )
+        }
+    }
+
+    func verifyStatementResetReuse() throws -> (totalRows: Int64, namedRows: Int64) {
+        try execute("CREATE TABLE items (id INTEGER, name TEXT)")
+        try withStatement("INSERT INTO items (id, name) VALUES (?, ?)") { statement in
+            sqlite3_bind_int64(statement, 1, 1)
+            bind("alpha", at: 2, to: statement)
+            try step(statement)
+
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            sqlite3_bind_int64(statement, 1, 2)
+            try step(statement)
+        }
+        return try withStatement("SELECT COUNT(*), COUNT(name) FROM items") { query in
+            guard sqlite3_step(query) == SQLITE_ROW else { throw sqliteError(code: SQLITE_ERROR) }
+            return (sqlite3_column_int64(query, 0), sqlite3_column_int64(query, 1))
+        }
+    }
+}
+
+@Test func exporterEscapesCsvFieldsFormulaPrefixesAndPreservesTimestampOrder() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("export.sqlite"))
+
+    try await repository.save(processes: obsSnapshot([
+        obsProcess(42, name: "Worker, \"A\"\n1", cpu: 10)
+    ], at: 1_760_000_020))
+    try await repository.save(processes: obsSnapshot([
+        obsProcess(43, name: "=SUM(1,2)", cpu: 5)
+    ], at: 1_760_000_010))
+
+    let csvURL = directory.appendingPathComponent("out.csv")
+    try await repository.export(to: csvURL, format: .csv)
+    let csv = try String(contentsOf: csvURL, encoding: .utf8)
+    #expect(csv.hasPrefix("kind,process_id,process_name,metric,timestamp,average,peak\n"))
+    #expect(csv.contains("\"'=SUM(1,2)\""))
+    #expect(csv.contains("\"Worker, \"\"A\"\"\n1\""))
+
+    let firstIndex = try #require(csv.range(of: "1760000010.0")?.lowerBound)
+    let secondIndex = try #require(csv.range(of: "1760000020.0")?.lowerBound)
+    #expect(firstIndex < secondIndex)
+}
+
+@Test func repositoryBindAndStringColumnHandleValuesEmptyAndNull() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("bind.sqlite"))
+
+    let result = try await repository.verifyBindAndStringColumns()
+    #expect(result.label == "smack")
+    #expect(result.empty == "")
+    #expect(result.absent == "")
+    #expect(result.optionalAbsent == nil)
+}
+
+@Test func historyMaintenanceStorageLimitNoOpWhenUnderBudget() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("budget.sqlite")
+    let repository = try HistoryRepository(databaseURL: url)
+
+    var settings = CollectionSettings()
+    settings.history.historyStorageLimitMB = 25
+    try await repository.maintain(settings: settings)
+    let usage = try await repository.storageUsage()
+    #expect(usage.usedBytes < 25 * 1_024 * 1_024)
+}
+
+@Test func gapThresholdHandlesShortSeriesAndMinimumFloor() {
+    func point(_ seconds: TimeInterval) -> HistoricalPoint {
+        HistoricalPoint(timestamp: Date(timeIntervalSince1970: seconds), average: 1, peak: 1)
+    }
+    #expect(HistoricalPoint.gapThreshold([point(0), point(10)]) == nil)
+    #expect(HistoricalPoint.gapThreshold([point(0), point(10), point(20)]) == 30)
+    #expect(HistoricalPoint.gapThreshold([point(0), point(10), point(20)], minimum: 120) == 120)
+}
+
+@Test func sqlitePreparedStatementResetReusesAcrossMultipleRows() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try HistoryRepository(databaseURL: directory.appendingPathComponent("reuse.sqlite"))
+
+    let counts = try await repository.verifyStatementResetReuse()
+    #expect(counts.totalRows == 2)
+    #expect(counts.namedRows == 1)
+}
+
+@Test func summedProducesIdenticalResultsForPreSortedAndUnsortedRows() {
+    let r1 = ProcessHistoryRow(processKey: 1, timestamp: 10, averages: SIMD8(10, 100, 0, 0, 0, 0, 0, 0), peaks: SIMD8(10, 100, 0, 0, 0, 0, 0, 0))
+    let r2 = ProcessHistoryRow(processKey: 2, timestamp: 10, averages: SIMD8(20, 200, 0, 0, 0, 0, 0, 0), peaks: SIMD8(20, 200, 0, 0, 0, 0, 0, 0))
+    let r3 = ProcessHistoryRow(processKey: 1, timestamp: 20, averages: SIMD8(15, 150, 0, 0, 0, 0, 0, 0), peaks: SIMD8(15, 150, 0, 0, 0, 0, 0, 0))
+
+    let presorted = ProcessHistoryRow.summed([r1, r2, r3], gap: 60)
+    let unsorted = ProcessHistoryRow.summed([r3, r1, r2], gap: 60)
+    #expect(presorted[.cpuUsage]?.map(\.average) == unsorted[.cpuUsage]?.map(\.average))
+    #expect(presorted[.cpuUsage]?.map(\.average) == [30, 15])
+}
+
+@Test func skippedIdleSamplesDeferProcessLastSeenUntilHeartbeatOrExit() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let dbURL = directory.appendingPathComponent("idle-last-seen.sqlite")
+    let repository = try HistoryRepository(databaseURL: dbURL)
+    let start = Date(timeIntervalSince1970: 1_760_000_000)
+
+    try await repository.save(processes: makeProcessSnapshot(timestamp: start, cpu: 0, memory: 1_000, diskRead: 0, diskWrite: 0))
+    try await repository.save(processes: makeProcessSnapshot(timestamp: start.addingTimeInterval(10), cpu: 0, memory: 1_000, diskRead: 0, diskWrite: 0))
+
+    let initialPrograms = try await repository.programs(from: .distantPast)
+    #expect(initialPrograms.first?.lastSeen == start)
+
+    let heartbeat = start.addingTimeInterval(HistoryRepository.processHeartbeatInterval + 5)
+    try await repository.save(processes: makeProcessSnapshot(timestamp: heartbeat, cpu: 0, memory: 1_000, diskRead: 0, diskWrite: 0))
+    let heartbeatPrograms = try await repository.programs(from: .distantPast)
+    #expect(heartbeatPrograms.first?.lastSeen == heartbeat)
+
+    let idleAfterHeartbeat = heartbeat.addingTimeInterval(10)
+    try await repository.save(processes: makeProcessSnapshot(timestamp: idleAfterHeartbeat, cpu: 0, memory: 1_000, diskRead: 0, diskWrite: 0))
+    try await repository.save(processes: ProcessSnapshot(timestamp: heartbeat.addingTimeInterval(20), applications: [], backgroundProcesses: []))
+    let exitedPrograms = try await repository.programs(from: .distantPast)
+    #expect(exitedPrograms.first?.lastSeen == idleAfterHeartbeat)
+}
+
+@Test func opensAndReadsVersionFiveSchemaWithoutModification() async throws {
+    let directory = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("v5.sqlite")
+
+    var handle: OpaquePointer?
+    #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+    let setup = """
+        CREATE TABLE system_samples (
+            timestamp REAL PRIMARY KEY, cpu REAL NOT NULL, memory_used REAL NOT NULL,
+            network_receive REAL NOT NULL, network_send REAL NOT NULL, disk_read REAL NOT NULL, disk_write REAL NOT NULL,
+            gpu_utilization REAL NOT NULL DEFAULT 0, gpu_available INTEGER NOT NULL DEFAULT 0,
+            memory_pressure REAL NOT NULL DEFAULT -1, swap_used REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE system_minutes (
+            timestamp REAL PRIMARY KEY, sample_count INTEGER NOT NULL,
+            cpu_total REAL NOT NULL, cpu_peak REAL NOT NULL, memory_used_total REAL NOT NULL, memory_used_peak REAL NOT NULL,
+            network_receive_total REAL NOT NULL, network_receive_peak REAL NOT NULL,
+            network_send_total REAL NOT NULL, network_send_peak REAL NOT NULL,
+            disk_read_total REAL NOT NULL, disk_read_peak REAL NOT NULL,
+            disk_write_total REAL NOT NULL, disk_write_peak REAL NOT NULL,
+            gpu_utilization_total REAL NOT NULL DEFAULT 0, gpu_utilization_peak REAL NOT NULL DEFAULT 0,
+            gpu_available INTEGER NOT NULL DEFAULT 0, memory_pressure_total REAL NOT NULL DEFAULT -1,
+            memory_pressure_peak REAL NOT NULL DEFAULT -1, swap_used_total REAL NOT NULL DEFAULT 0, swap_used_peak REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE processes (key INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, last_seen REAL NOT NULL);
+        CREATE TABLE process_samples (
+            id INTEGER PRIMARY KEY, process_key INTEGER NOT NULL, timestamp REAL NOT NULL,
+            cpu REAL NOT NULL, memory REAL NOT NULL, disk_read REAL NOT NULL, disk_write REAL NOT NULL,
+            wakeups REAL NOT NULL DEFAULT 0, weight INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE process_minutes (
+            process_key INTEGER NOT NULL, timestamp REAL NOT NULL, sample_count INTEGER NOT NULL,
+            cpu_total REAL NOT NULL, cpu_peak REAL NOT NULL, memory_total REAL NOT NULL, memory_peak REAL NOT NULL,
+            disk_read_total REAL NOT NULL, disk_read_peak REAL NOT NULL, disk_write_total REAL NOT NULL, disk_write_peak REAL NOT NULL,
+            wakeups_total REAL NOT NULL DEFAULT 0, wakeups_peak REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (process_key, timestamp)
+        ) WITHOUT ROWID;
+        CREATE TABLE events (id TEXT PRIMARY KEY, timestamp REAL NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, process_id TEXT, process_name TEXT, severity TEXT NOT NULL, details TEXT NOT NULL);
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO processes (key, id, name, last_seen) VALUES (7, '42-1234.0', 'LegacyV5', 1760000000);
+        INSERT INTO process_samples (process_key, timestamp, cpu, memory, disk_read, disk_write, wakeups, weight)
+        VALUES (7, 1760000000, 33.5, 4096, 0, 0, 12, 1);
+        INSERT INTO metadata (key, value) VALUES ('origin', 'v1.3.0');
+        PRAGMA user_version = 5;
+        """
+    #expect(sqlite3_exec(handle, setup, nil, nil, nil) == SQLITE_OK)
+    sqlite3_close(handle)
+
+    let repository = try HistoryRepository(databaseURL: url)
+    let existing = try await repository.processSeries(processID: "42-1234.0", metric: .cpuUsage, from: .distantPast)
+    #expect(existing.count == 1)
+    #expect(abs(existing[0].average - 33.5) < 0.000_001)
+
+    let next = Date(timeIntervalSince1970: 1_760_000_060)
+    try await repository.save(processes: makeProcessSnapshot(timestamp: next, cpu: 50, memory: 8_192, name: "LegacyV5"))
+    let updated = try await repository.processSeries(processID: "42-1234.0", metric: .cpuUsage, from: .distantPast)
+    #expect(updated.count == 2)
+    #expect(HistoryRepositoryError.unsupportedSchemaVersion(99).errorDescription?.contains("99") == true)
 }

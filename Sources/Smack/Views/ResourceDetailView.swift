@@ -3,6 +3,7 @@ import SwiftUI
 struct ResourceDetailView: View {
     @ObservedObject var store: MonitorStore
     let resource: ResourceKind
+
     var body: some View {
         // One insight call site keeps the view's identity across CPU, Memory and the rest, so switching between
         // them runs its change handler instead of replacing the page.
@@ -16,5 +17,14 @@ struct ResourceDetailView: View {
             case .cpu, .memory, .network, .disk, .gpu: EmptyView()
             }
         }
+    }
+
+    static func topApplications(
+        _ applications: [ApplicationMetrics],
+        limit: Int = 25,
+        by predicate: (ApplicationMetrics, ApplicationMetrics) -> Bool
+    ) -> [ApplicationMetrics] {
+        guard limit > 0 else { return [] }
+        return Array(applications.sorted(by: predicate).prefix(limit))
     }
 }
