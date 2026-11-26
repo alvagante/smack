@@ -2,13 +2,7 @@
 
 All notable changes to Smack are documented in this file.
 
-## [Unreleased]
-
-### Changed
-
-- **CI:** a release performance budget exceeded by up to 50% now raises a warning instead of failing the run.
-
-## [1.3.0] - 2026-11-25
+## [1.3.0] - 2026-11-26
 
 ### Added
 
@@ -23,6 +17,7 @@ All notable changes to Smack are documented in this file.
 
 ### Changed
 
+- **CI:** a release performance budget exceeded by up to 50% now raises a warning instead of failing the run.
 - **Timeline:** the Log sources list starts collapsed. Display only; log file scans are unchanged.
 - **Summary:** tile rows no longer grow with column width: they are capped at 210 points, so tiles on wide Panels have much less empty space. Layout only; no collection or persistence changes.
 - **Timeline:** new **Unified log range** Setting (Activity Timeline pane: 1 hour, 6 hours, 1 day, 7 days or 30 days; default 30 days) sets the widest stretch of unified log one Timeline load reads. Longer windows keep their most recent part and say so. The Privileged Helper now refuses ranges wider than 30 days instead of letting `log show` scan the whole log store until its 10 s timeout. Narrower ranges reduce `log show` CPU time and its output (still capped at 1 MB); nothing is stored.
