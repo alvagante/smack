@@ -1050,12 +1050,12 @@ struct PrivilegedSamplingSection: View {
                         }
                     }
                     if controller.state == .requiresApproval || controller.state == .notResponding {
-                        Button("Open Login Items") { controller.openLoginItemsSettings() }
+                        Button("Open Login Items") { PrivilegedSamplingController.openLoginItemsSettings() }
                     }
                 }
                 .disabled(controller.isWorking)
                 if controller.mode == .legacyInstall, controller.state != .running(updateAvailable: false) {
-                    terminalFallback(.install)
+                    Self.terminalFallback(.install)
                 }
             } else if controller.legacyInstallPresent {
                 HStack(spacing: 8) {
@@ -1065,7 +1065,7 @@ struct PrivilegedSamplingSection: View {
                     Button("Remove Helper…") { Task { await controller.remove() } }
                         .disabled(controller.isWorking)
                 }
-                terminalFallback(.uninstall)
+                Self.terminalFallback(.uninstall)
             }
             if let error = controller.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -1087,14 +1087,14 @@ struct PrivilegedSamplingSection: View {
     }
 
     /// The same script the password prompt runs, for users who prefer Terminal.
-    private func terminalFallback(_ action: HelperScriptAction) -> some View {
+    private static func terminalFallback(_ action: HelperScriptAction) -> some View {
         DisclosureGroup("Or run in Terminal") {
             HStack(alignment: .top, spacing: 8) {
-                Text(controller.terminalCommand(for: action))
+                Text(PrivilegedSamplingController.terminalCommand(for: action))
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Copy") { controller.copyTerminalCommand(for: action) }
+                Button("Copy") { PrivilegedSamplingController.copyTerminalCommand(for: action) }
             }
         }
         .font(.caption)

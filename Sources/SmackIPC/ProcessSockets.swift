@@ -8,7 +8,9 @@ public enum ProcessSockets {
 
     public static func collect() -> SocketCollection {
         var records: [SocketRecord] = []
-        var userNames: [uid_t: String] = [:]
+        records.reserveCapacity(64)
+        var userNames: [uid_t: String?] = [:]
+        userNames.reserveCapacity(32)
         var denied = 0
 
         for pid in ProcessSampling.allProcessIdentifiers() {
@@ -30,7 +32,7 @@ public enum ProcessSockets {
         return SocketCollection(records: records, deniedProcessCount: denied)
     }
 
-    private static func owner(for pid: pid_t, userNames: inout [uid_t: String]) -> SocketOwnerRecord? {
+    private static func owner(for pid: pid_t, userNames: inout [uid_t: String?]) -> SocketOwnerRecord? {
         var information = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &information, size) == size else { return nil }
@@ -45,10 +47,21 @@ public enum ProcessSockets {
     }
 
     private static func connections(for pid: pid_t) -> [ConnectionRecord]? {
+        guard let descriptors = listDescriptors(for: pid) else { return nil }
+        var result: [ConnectionRecord] = []
+        for descriptor in descriptors where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            if let connection = socketConnection(for: pid, fd: descriptor.proc_fd) {
+                result.append(connection)
+            }
+        }
+        return result
+    }
+
+    private static func listDescriptors(for pid: pid_t) -> ArraySlice<proc_fdinfo>? {
         let descriptorSize = MemoryLayout<proc_fdinfo>.size
         let reportedBytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard reportedBytes >= 0 else { return nil }
-        guard reportedBytes > 0 else { return [] }
+        guard reportedBytes > 0 else { return [][...] }
 
         let count = min(Int(reportedBytes) / descriptorSize, maximumDescriptors)
         var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
@@ -57,26 +70,32 @@ public enum ProcessSockets {
             proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, bufferSize)
         }
         guard bytesRead >= 0 else { return nil }
-
-        var result: [ConnectionRecord] = []
-        for descriptor in descriptors.prefix(Int(bytesRead) / descriptorSize)
-        where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
-            var information = socket_fdinfo()
-            let size = Int32(MemoryLayout<socket_fdinfo>.size)
-            guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO, &information, size) == size else {
-                continue
-            }
-            if let connection = InventorySampling.connection(fd: descriptor.proc_fd, information: information.psi) {
-                result.append(connection)
-            }
-        }
-        return result
+        let actualCount = min(descriptors.count, Int(bytesRead) / descriptorSize)
+        return descriptors.prefix(actualCount)
     }
 
-    private static func userName(for uid: uid_t, cache: inout [uid_t: String]) -> String? {
+    private static func socketConnection(for pid: pid_t, fd: Int32) -> ConnectionRecord? {
+        var information = socket_fdinfo()
+        let size = Int32(MemoryLayout<socket_fdinfo>.size)
+        guard proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &information, size) == size else {
+            return nil
+        }
+        return InventorySampling.connection(fd: fd, information: information.psi)
+    }
+
+    private static func userName(for uid: uid_t, cache: inout [uid_t: String?]) -> String? {
         if let cached = cache[uid] { return cached }
-        guard let password = getpwuid(uid), let name = password.pointee.pw_name else { return nil }
-        guard let value = String(validatingCString: name) else { return nil }
+        var password = passwd()
+        var pointer: UnsafeMutablePointer<passwd>?
+        let value: String? = withUnsafeTemporaryAllocation(of: CChar.self, capacity: 1_024) { buffer in
+            guard let baseAddress = buffer.baseAddress,
+                  getpwuid_r(uid, &password, baseAddress, buffer.count, &pointer) == 0,
+                  pointer != nil,
+                  let name = password.pw_name else {
+                return nil
+            }
+            return String(validatingCString: name)
+        }
         cache[uid] = value
         return value
     }

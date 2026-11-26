@@ -48,11 +48,18 @@ struct NetworkPortsView: View {
         let ports = (store.networkPorts?.ports ?? []).filter { (model.port == nil || $0.port == model.port) && model.mode.matches($0) }
         let pairs = ListeningPortPair.pairs(ports, perProcess: true)
         guard !query.isEmpty else { return pairs }
-        return pairs.filter { pair in
-            let port = pair.primary
-            return "\(pair.ipv4?.localAddress ?? "") \(pair.ipv6?.localAddress ?? "") \(port.port) \(port.processName) \(port.pid) \(port.userName ?? "") \(port.scope.rawValue)"
-                .localizedCaseInsensitiveContains(query)
-        }
+        return pairs.filter { Self.matches($0, query: query) }
+    }
+
+    private static func matches(_ pair: ListeningPortPair, query: String) -> Bool {
+        let port = pair.primary
+        return (pair.ipv4?.localAddress.localizedCaseInsensitiveContains(query) == true)
+            || (pair.ipv6?.localAddress.localizedCaseInsensitiveContains(query) == true)
+            || port.processName.localizedCaseInsensitiveContains(query)
+            || (port.userName?.localizedCaseInsensitiveContains(query) == true)
+            || port.scope.rawValue.localizedCaseInsensitiveContains(query)
+            || String(port.port).contains(query)
+            || String(port.pid).contains(query)
     }
 
     private var connectionGroups: [ApplicationNetworkConnections] {

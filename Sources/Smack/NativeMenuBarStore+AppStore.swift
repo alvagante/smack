@@ -24,10 +24,10 @@ final class NativeMenuBarStore: ObservableObject {
 
     func refresh() {}
 
-    func relaunch() {}
+    static func relaunch() {}
 
-    func openScreenCaptureSettings() {}
+    static func openScreenCaptureSettings() {}
 
-    func openAccessibilitySettings() {}
+    static func openAccessibilitySettings() {}
 }
 #endif

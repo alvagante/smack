@@ -28,7 +28,14 @@ actor ProcessSnapshotService: ProcessMetricsCollecting {
         if includePrivileged, let payload = await privileged.collectSnapshot() {
             guard !Task.isCancelled,
                   lastTimestamp.map({ payload.timestamp > $0 }) ?? true else { return nil }
-            snapshot = privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp)
+            let metadata: [Int32: VisibleApplicationMetadata]
+            if let cached = privilegedBuilder.resolveVisibleApplicationMetadata() {
+                metadata = cached
+            } else {
+                metadata = await MainActor.run { ProcessCollector.readVisibleApplicationMetadata() }
+                guard !Task.isCancelled else { return nil }
+            }
+            snapshot = privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp, metadata: metadata)
         } else {
             guard !Task.isCancelled,
                   let localSnapshot = await local.collectProcessSnapshot(includePrivileged: false),

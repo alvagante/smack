@@ -15,6 +15,19 @@ enum ProcessSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+protocol SortableProcessItem {
+    var name: String { get }
+    var bundleIdentifier: String? { get }
+    var cpuUsage: Double { get }
+    var memoryBytes: UInt64 { get }
+    var diskReadRate: Double { get }
+    var diskWriteRate: Double { get }
+    var energyImpact: Double? { get }
+}
+
+extension ApplicationMetrics: SortableProcessItem {}
+extension ProcessMetrics: SortableProcessItem {}
+
 @MainActor
 final class ApplicationListViewModel: ObservableObject {
     @Published var query = ""
@@ -45,6 +58,51 @@ final class ApplicationListViewModel: ObservableObject {
     func requestKill(_ entry: ApplicationListEntry) {
         killMessage = nil
         killRequest = KillRequest(entryID: entry.id, kind: entry.kind, name: entry.name, targets: entry.identities)
+    }
+
+    func filtered<Item: SortableProcessItem>(_ items: [Item]) -> [Item] {
+        let matching = query.isEmpty ? items : items.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(query) == true)
+        }
+        if Self.isAlreadySorted(matching, by: sort, ascending: ascending) {
+            return matching
+        }
+        return matching.sorted { Self.compare($0, $1, by: sort, ascending: ascending) }
+    }
+
+    private static func isAlreadySorted<Item: SortableProcessItem>(
+        _ items: [Item],
+        by sort: ProcessSort,
+        ascending: Bool
+    ) -> Bool {
+        guard items.count > 1 else { return true }
+        for index in 1..<items.count {
+            if compare(items[index], items[index - 1], by: sort, ascending: ascending) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func compare<Item: SortableProcessItem>(
+        _ lhs: Item,
+        _ rhs: Item,
+        by sort: ProcessSort,
+        ascending: Bool
+    ) -> Bool {
+        switch sort {
+        case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage, ascending: ascending)
+        case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes, ascending: ascending)
+        case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate, ascending: ascending)
+        case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity, ascending: ascending)
+        case .name, .network, .wakeups, .threads, .ports, .uptime:
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == (ascending ? .orderedAscending : .orderedDescending)
+        }
+    }
+
+    private static func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value, ascending: Bool) -> Bool {
+        ascending ? lhs < rhs : lhs > rhs
     }
 }
 
@@ -89,6 +147,22 @@ final class ProcessDetailViewModel: ObservableObject {
     var sectionProcessID: String?
     @Published var origin: PathOrigin?
     @Published var connectionTone: ConnectionTone?
+
+    func filtered(_ values: [OpenFile]) -> [OpenFile] {
+        filterValues(values) { $0.path }
+    }
+
+    func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] {
+        filterValues(values) { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)" }
+    }
+
+    func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] {
+        filterValues(values) { $0.path }
+    }
+
+    private func filterValues<Item>(_ values: [Item], text: (Item) -> String) -> [Item] {
+        filter.isEmpty ? values : values.filter { text($0).localizedCaseInsensitiveContains(filter) }
+    }
 }
 
 struct ApplicationListView: View {
@@ -432,7 +506,7 @@ struct ProcessDetailView: View {
             ResourceStatsRow(stats: [
                 ResourceStat(title: "CPU", systemImage: "cpu", value: Formatting.percent(process.cpuUsage), detail: "one core is 100%", color: .blue),
                 ResourceStat(title: "Memory", systemImage: "memorychip", value: unavailable(process.memoryBytes == 0, Formatting.bytes(process.memoryBytes)),
-                             detail: "physical footprint", color: .purple),
+                             detail: Capabilities.isSandboxed && process.identity.pid != getpid() ? "resident size" : "physical footprint", color: .purple),
                 ResourceStat(title: "Threads", systemImage: DetailSectionStyle.threads.systemImage, value: process.threadCount.formatted(), color: .indigo),
                 ResourceStat(title: "Energy", systemImage: "bolt.fill", value: process.energyImpact.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "–",
                              detail: "impact", color: .yellow),

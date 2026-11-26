@@ -169,25 +169,66 @@ struct ApplicationMetrics: Identifiable, Sendable {
     var name: String
     var bundleIdentifier: String?
     var executablePath: String?
-    var processes: [ProcessMetrics]
+    var processes: [ProcessMetrics] {
+        didSet { recomputeTotals() }
+    }
+    private(set) var cpuUsage: Double = 0
+    private(set) var memoryBytes: UInt64 = 0
+    private(set) var diskReadRate: Double = 0
+    private(set) var diskWriteRate: Double = 0
+    private(set) var wakeupsPerSecond: Double = 0
+    private(set) var energyImpact: Double?
+    private(set) var networkThroughput: ProcessNetworkThroughput?
 
-    var networkThroughput: ProcessNetworkThroughput? {
-        let values = processes.compactMap(\.networkThroughput)
-        guard !values.isEmpty else { return nil }
-        return ProcessNetworkThroughput(
-            receiveRate: values.reduce(0) { $0 + $1.receiveRate },
-            sendRate: values.reduce(0) { $0 + $1.sendRate }
-        )
+    init(
+        id: String,
+        name: String,
+        bundleIdentifier: String? = nil,
+        executablePath: String? = nil,
+        processes: [ProcessMetrics]
+    ) {
+        self.id = id
+        self.name = name
+        self.bundleIdentifier = bundleIdentifier
+        self.executablePath = executablePath
+        self.processes = processes
+        recomputeTotals()
     }
 
-    var cpuUsage: Double { processes.reduce(0) { $0 + $1.cpuUsage } }
-    var memoryBytes: UInt64 { processes.reduce(UInt64(0)) { $0 &+ $1.memoryBytes } }
-    var diskReadRate: Double { processes.reduce(0) { $0 + $1.diskReadRate } }
-    var diskWriteRate: Double { processes.reduce(0) { $0 + $1.diskWriteRate } }
-    var wakeupsPerSecond: Double { processes.reduce(0) { $0 + $1.wakeupsPerSecond } }
-    var energyImpact: Double? {
-        let values = processes.compactMap(\.energyImpact)
-        return values.isEmpty ? nil : values.reduce(0, +)
+    private mutating func recomputeTotals() {
+        var cpu = 0.0
+        var memory: UInt64 = 0
+        var diskRead = 0.0
+        var diskWrite = 0.0
+        var wakeups = 0.0
+        var energySum = 0.0
+        var hasEnergy = false
+        var receiveRate = 0.0
+        var sendRate = 0.0
+        var hasNetwork = false
+        for process in processes {
+            cpu += process.cpuUsage
+            memory &+= process.memoryBytes
+            diskRead += process.diskReadRate
+            diskWrite += process.diskWriteRate
+            wakeups += process.wakeupsPerSecond
+            if let energy = process.energyImpact {
+                energySum += energy
+                hasEnergy = true
+            }
+            if let throughput = process.networkThroughput {
+                receiveRate += throughput.receiveRate
+                sendRate += throughput.sendRate
+                hasNetwork = true
+            }
+        }
+        cpuUsage = cpu
+        memoryBytes = memory
+        diskReadRate = diskRead
+        diskWriteRate = diskWrite
+        wakeupsPerSecond = wakeups
+        energyImpact = hasEnergy ? energySum : nil
+        networkThroughput = hasNetwork ? ProcessNetworkThroughput(receiveRate: receiveRate, sendRate: sendRate) : nil
     }
 }
 
@@ -285,12 +326,39 @@ struct ApplicationNetworkConnections: Identifiable, Sendable {
 
 struct NetworkPortSnapshot: Sendable {
     var timestamp: Date
-    var ports: [ListeningPort]
+    var ports: [ListeningPort] {
+        didSet { (externalCount, localhostCount) = Self.scopeCounts(for: ports) }
+    }
     var connections: [NetworkConnectionDetail]
     var warning: String?
+    private(set) var externalCount: Int
+    private(set) var localhostCount: Int
 
-    var externalCount: Int { ports.count { $0.scope == .external } }
-    var localhostCount: Int { ports.count { $0.scope == .localhost } }
+    init(
+        timestamp: Date,
+        ports: [ListeningPort],
+        connections: [NetworkConnectionDetail] = [],
+        warning: String? = nil
+    ) {
+        self.timestamp = timestamp
+        self.ports = ports
+        self.connections = connections
+        self.warning = warning
+        (externalCount, localhostCount) = Self.scopeCounts(for: ports)
+    }
+
+    private static func scopeCounts(for ports: [ListeningPort]) -> (external: Int, localhost: Int) {
+        var external = 0
+        var localhost = 0
+        for port in ports {
+            switch port.scope {
+            case .external: external += 1
+            case .localhost: localhost += 1
+            }
+        }
+        return (external, localhost)
+    }
+
     var totalConnectionCount: Int { connections.count }
 
     func connectionGroups(applications: [ApplicationMetrics]) -> [ApplicationNetworkConnections] {
@@ -427,34 +495,21 @@ struct ProcessHistoryRow: Sendable {
     /// next row; after its last row, or more than `gap` without one, the instance stops counting.
     /// Peaks are exact for full-resolution rows and an upper bound for one-minute rows.
     static func summed(_ rows: [ProcessHistoryRow], gap: TimeInterval) -> [ProcessMetric: [HistoricalPoint]] {
-        let rows = rows.sorted { $0.timestamp < $1.timestamp }
-        var endsRun = [Bool](repeating: true, count: rows.count)
-        var previousIndex: [Int64: Int] = [:]
-        for (index, row) in rows.enumerated() {
-            if let previous = previousIndex[row.processKey], row.timestamp - rows[previous].timestamp <= gap { endsRun[previous] = false }
-            previousIndex[row.processKey] = index
-        }
+        let rows = isOrderedByTimestamp(rows) ? rows : rows.sorted { $0.timestamp < $1.timestamp }
+        let endsRun = computeRunEnds(for: rows, gap: gap)
 
+        let metricCount = ProcessMetric.allCases.count
         var current: [Int64: (averages: SIMD8<Double>, peaks: SIMD8<Double>)] = [:]
         var total = SIMD8<Double>(), totalPeak = SIMD8<Double>()
-        var series = [[HistoricalPoint]](repeating: [], count: ProcessMetric.allCases.count)
+        var series = [[HistoricalPoint]](repeating: [], count: metricCount)
+        let reservedPoints = min(rows.count, 1024)
+        for index in 0..<metricCount { series[index].reserveCapacity(reservedPoints) }
         var start = 0
         while start < rows.count {
             let timestamp = rows[start].timestamp
-            var end = start
-            while end < rows.count, rows[end].timestamp == timestamp {
-                let row = rows[end]
-                if let previous = current[row.processKey] {
-                    total -= previous.averages
-                    totalPeak -= previous.peaks
-                }
-                total += row.averages
-                totalPeak += row.peaks
-                current[row.processKey] = (row.averages, row.peaks)
-                end += 1
-            }
+            let end = advanceBatch(in: rows, from: start, current: &current, total: &total, totalPeak: &totalPeak)
             let date = Date(timeIntervalSince1970: timestamp)
-            for metric in 0..<ProcessMetric.allCases.count {
+            for metric in 0..<metricCount {
                 let average = max(0, total[metric])
                 series[metric].append(HistoricalPoint(timestamp: date, average: average, peak: max(average, totalPeak[metric])))
             }
@@ -467,6 +522,74 @@ struct ProcessHistoryRow: Sendable {
             start = end
         }
         return Dictionary(uniqueKeysWithValues: ProcessMetric.allCases.enumerated().map { ($0.element, series[$0.offset]) })
+    }
+
+    private static func isOrderedByTimestamp(_ rows: [ProcessHistoryRow]) -> Bool {
+        guard rows.count > 1 else { return true }
+        for index in 1..<rows.count where rows[index].timestamp < rows[index - 1].timestamp {
+            return false
+        }
+        return true
+    }
+
+    private static func computeRunEnds(for rows: [ProcessHistoryRow], gap: TimeInterval) -> [Bool] {
+        var endsRun = [Bool](repeating: true, count: rows.count)
+        var previousIndex: [Int64: Int] = [:]
+        for (index, row) in rows.enumerated() {
+            if let previous = previousIndex[row.processKey], row.timestamp - rows[previous].timestamp <= gap {
+                endsRun[previous] = false
+            }
+            previousIndex[row.processKey] = index
+        }
+        return endsRun
+    }
+
+    private static func advanceBatch(
+        in rows: [ProcessHistoryRow],
+        from start: Int,
+        current: inout [Int64: (averages: SIMD8<Double>, peaks: SIMD8<Double>)],
+        total: inout SIMD8<Double>,
+        totalPeak: inout SIMD8<Double>
+    ) -> Int {
+        let timestamp = rows[start].timestamp
+        var end = start
+        while end < rows.count, rows[end].timestamp == timestamp {
+            let row = rows[end]
+            if let previous = current[row.processKey] {
+                total -= previous.averages
+                totalPeak -= previous.peaks
+            }
+            total += row.averages
+            totalPeak += row.peaks
+            current[row.processKey] = (row.averages, row.peaks)
+            end += 1
+        }
+        return end
+    }
+}
+
+private struct DownsampleBucket {
+    var count = 0.0
+    var weightSum = 0.0
+    var sum = 0.0
+    var timeSum = 0.0
+    var peak = -Double.infinity
+
+    mutating func add(_ point: HistoricalPoint, weight: Double) {
+        count += 1
+        weightSum += weight
+        sum += point.average * weight
+        timeSum += point.timestamp.timeIntervalSince1970
+        peak = max(peak, point.peak)
+    }
+
+    func build() -> HistoricalPoint? {
+        guard count > 0 else { return nil }
+        return HistoricalPoint(
+            timestamp: Date(timeIntervalSince1970: timeSum / count),
+            average: sum / weightSum,
+            peak: peak
+        )
     }
 }
 
@@ -487,29 +610,23 @@ extension HistoricalPoint {
         let cap = gapThreshold(points, minimum: minimumGap) ?? width
         var result: [HistoricalPoint] = []
         result.reserveCapacity(limit)
-        var bucket = -1, count = 0.0, weightSum = 0.0, sum = 0.0, timeSum = 0.0, peak = -Double.infinity
-        func flush() {
-            guard count > 0 else { return }
-            result.append(HistoricalPoint(timestamp: Date(timeIntervalSince1970: timeSum / count), average: sum / weightSum, peak: peak))
-        }
+        var currentBucket = -1
+        var accumulator = DownsampleBucket()
         var previousWeight = 1.0
         for (offset, point) in points.enumerated() {
             let index = min(limit - 1, Int(point.timestamp.timeIntervalSince(first) / width))
-            if index != bucket {
-                flush()
-                bucket = index; count = 0; weightSum = 0; sum = 0; timeSum = 0; peak = -.infinity
+            if index != currentBucket {
+                if let built = accumulator.build() { result.append(built) }
+                currentBucket = index
+                accumulator = DownsampleBucket()
             }
             let weight = offset + 1 < points.count
                 ? max(0.001, min(cap, points[offset + 1].timestamp.timeIntervalSince(point.timestamp)))
                 : previousWeight
             previousWeight = weight
-            count += 1
-            weightSum += weight
-            sum += point.average * weight
-            timeSum += point.timestamp.timeIntervalSince1970
-            peak = max(peak, point.peak)
+            accumulator.add(point, weight: weight)
         }
-        flush()
+        if let built = accumulator.build() { result.append(built) }
         return result
     }
 
@@ -517,18 +634,33 @@ extension HistoricalPoint {
     /// but never less than `minimum`.
     static func gapThreshold(_ points: [HistoricalPoint], minimum: TimeInterval = 0) -> TimeInterval? {
         guard points.count > 2 else { return nil }
-        let spacings = zip(points.dropFirst(), points).map { $0.timestamp.timeIntervalSince($1.timestamp) }.sorted()
+        var spacings: [TimeInterval] = []
+        spacings.reserveCapacity(points.count - 1)
+        for index in 1..<points.count {
+            spacings.append(points[index].timestamp.timeIntervalSince(points[index - 1].timestamp))
+        }
+        spacings.sort()
         return max(minimum, max(1, spacings[spacings.count / 2]) * 3)
     }
 
     /// Segment number for each point; it increases after every collection gap so charts can break the line there.
     static func segments(_ points: [HistoricalPoint], minimumGap: TimeInterval = 0) -> [Int] {
-        guard let threshold = gapThreshold(points, minimum: minimumGap) else { return Array(repeating: 0, count: points.count) }
+        segments(points, threshold: gapThreshold(points, minimum: minimumGap))
+    }
+
+    /// Segment number for each point using a precomputed gap `threshold` so callers avoid recomputing spacings.
+    static func segments(_ points: [HistoricalPoint], threshold: TimeInterval?) -> [Int] {
+        guard let threshold else { return Array(repeating: 0, count: points.count) }
+        var result: [Int] = []
+        result.reserveCapacity(points.count)
         var segment = 0
-        return points.indices.map { index in
-            if index > 0, points[index].timestamp.timeIntervalSince(points[index - 1].timestamp) > threshold { segment += 1 }
-            return segment
+        for index in points.indices {
+            if index > 0, points[index].timestamp.timeIntervalSince(points[index - 1].timestamp) > threshold {
+                segment += 1
+            }
+            result.append(segment)
         }
+        return result
     }
 }
 
@@ -551,15 +683,46 @@ struct LiveMetricPoint: Identifiable, Sendable {
 
 struct LiveMetricHistory {
     private(set) var points: [LiveMetricPoint] = []
+    private(set) var cpuValues: [Double] = []
+    private(set) var memoryValues: [Double] = []
+    private(set) var receiveValues: [Double] = []
+    private(set) var sendValues: [Double] = []
+    private(set) var diskReadValues: [Double] = []
+    private(set) var diskWriteValues: [Double] = []
     let capacity: Int
 
     init(capacity: Int = 60) {
         self.capacity = max(1, capacity)
+        let reserved = self.capacity + 1
+        points.reserveCapacity(reserved)
+        cpuValues.reserveCapacity(reserved)
+        memoryValues.reserveCapacity(reserved)
+        receiveValues.reserveCapacity(reserved)
+        sendValues.reserveCapacity(reserved)
+        diskReadValues.reserveCapacity(reserved)
+        diskWriteValues.reserveCapacity(reserved)
     }
 
     mutating func append(_ point: LiveMetricPoint) {
-        points.append(point)
-        if points.count > capacity { points.removeFirst(points.count - capacity) }
+        Self.append(point, to: &points, capacity: capacity)
+        Self.append(point.cpuUsage, to: &cpuValues, capacity: capacity)
+        Self.append(point.memoryUsage, to: &memoryValues, capacity: capacity)
+        Self.append(point.receiveRate, to: &receiveValues, capacity: capacity)
+        Self.append(point.sendRate, to: &sendValues, capacity: capacity)
+        Self.append(point.diskReadRate, to: &diskReadValues, capacity: capacity)
+        Self.append(point.diskWriteRate, to: &diskWriteValues, capacity: capacity)
+    }
+
+    private static func append<T>(_ value: T, to values: inout [T], capacity: Int) {
+        values.append(value)
+        let overflow = values.count - capacity
+        if overflow > 0 {
+            values.removeFirst(overflow)
+        }
+    }
+
+    var cpuPoints: [HistoricalPoint] {
+        points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
     }
 }
 

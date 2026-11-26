@@ -52,7 +52,7 @@ final class PrivilegedSamplingController: ObservableObject {
     let mode: PrivilegedHelperMode
     private let client: PrivilegedSamplingProviding
 
-    private var service: SMAppService {
+    private static var service: SMAppService {
         SMAppService.daemon(plistName: SmackIPC.daemonPlistName)
     }
 
@@ -66,9 +66,9 @@ final class PrivilegedSamplingController: ObservableObject {
     func prepare(enabled: Bool) {
         guard Capabilities.supportsPrivilegedSampling else { return }
         if mode == .serviceManagement {
-            if enabled, service.status == .notRegistered, !LegacyHelperInstaller.isInstalled {
+            if enabled, Self.service.status == .notRegistered, !LegacyHelperInstaller.isInstalled {
                 register()
-            } else if !enabled, service.status == .enabled || service.status == .requiresApproval {
+            } else if !enabled, Self.service.status == .enabled || Self.service.status == .requiresApproval {
                 unregister()
             }
         }
@@ -93,33 +93,31 @@ final class PrivilegedSamplingController: ObservableObject {
         case .unsupported:
             errorMessage = "Superuser sampling needs a signed build. Ad-hoc builds cannot run the helper."
         case .serviceManagement:
-            // Both install methods use the same launchd label, so a classic daemon left by a
-            // self-signed build must go before SMAppService can register.
-            if LegacyHelperInstaller.isInstalled {
-                guard await runScript(.uninstall) else { break }
-            }
-            if service.status != .enabled, service.status != .requiresApproval {
-                register()
-            }
+            await installServiceManagement()
         case .legacyInstall:
             _ = await runScript(.install)
         }
         await refresh()
     }
 
+    private func installServiceManagement() async {
+        // Both install methods use the same launchd label, so a classic daemon left by a
+        // self-signed build must go before SMAppService can register.
+        if LegacyHelperInstaller.isInstalled {
+            guard await runScript(.uninstall) else { return }
+        }
+        if Self.service.status != .enabled, Self.service.status != .requiresApproval {
+            register()
+        }
+    }
+
     func remove() async {
-        switch mode {
-        case .serviceManagement:
-            if service.status == .enabled || service.status == .requiresApproval {
-                unregister()
-            }
-            if LegacyHelperInstaller.isInstalled {
-                _ = await runScript(.uninstall)
-            }
-        case .legacyInstall, .unsupported:
-            if LegacyHelperInstaller.isInstalled {
-                _ = await runScript(.uninstall)
-            }
+        if mode == .serviceManagement,
+           Self.service.status == .enabled || Self.service.status == .requiresApproval {
+            unregister()
+        }
+        if LegacyHelperInstaller.isInstalled {
+            _ = await runScript(.uninstall)
         }
         await refresh()
     }
@@ -136,22 +134,30 @@ final class PrivilegedSamplingController: ObservableObject {
             state = .unsupported
             client.setAvailable(false)
         case .serviceManagement:
-            switch service.status {
-            case .enabled:
-                state = await probe() ? .running(updateAvailable: false) : .notResponding
-            case .requiresApproval:
-                state = .requiresApproval
-                client.setAvailable(false)
-            default:
-                state = .notInstalled
-                client.setAvailable(false)
-            }
+            await refreshServiceManagement()
         case .legacyInstall:
-            let installed = legacyInstallPresent
-            let responding = installed ? await probe() : false
-            if !installed { client.setAvailable(false) }
-            state = .legacy(installed: installed, current: LegacyHelperInstaller.isCurrent, responding: responding)
+            await refreshLegacyInstall()
         }
+    }
+
+    private func refreshServiceManagement() async {
+        switch Self.service.status {
+        case .enabled:
+            state = await probe() ? .running(updateAvailable: false) : .notResponding
+        case .requiresApproval:
+            state = .requiresApproval
+            client.setAvailable(false)
+        default:
+            state = .notInstalled
+            client.setAvailable(false)
+        }
+    }
+
+    private func refreshLegacyInstall() async {
+        let installed = legacyInstallPresent
+        let responding = installed ? await probe() : false
+        if !installed { client.setAvailable(false) }
+        state = .legacy(installed: installed, current: LegacyHelperInstaller.isCurrent, responding: responding)
     }
 
     func captureFileActivity(identity: ProcessIdentity) async -> FileActivityPayload? {
@@ -164,16 +170,16 @@ final class PrivilegedSamplingController: ObservableObject {
         return await client.queryUnifiedLog(start: window.start, end: window.end)
     }
 
-    func terminalCommand(for action: HelperScriptAction) -> String {
+    static func terminalCommand(for action: HelperScriptAction) -> String {
         LegacyHelperInstaller.terminalCommand(for: action)
     }
 
-    func copyTerminalCommand(for action: HelperScriptAction) {
+    static func copyTerminalCommand(for action: HelperScriptAction) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(terminalCommand(for: action), forType: .string)
     }
 
-    func openLoginItemsSettings() {
+    static func openLoginItemsSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") else { return }
         NSWorkspace.shared.open(url)
     }
@@ -224,7 +230,7 @@ final class PrivilegedSamplingController: ObservableObject {
 
     private func register() {
         do {
-            try service.register()
+            try Self.service.register()
         } catch {
             errorMessage = "The sampling helper could not be registered: \(error.localizedDescription)"
         }
@@ -232,7 +238,7 @@ final class PrivilegedSamplingController: ObservableObject {
 
     private func unregister() {
         do {
-            try service.unregister()
+            try Self.service.unregister()
         } catch {
             errorMessage = "The sampling helper could not be removed: \(error.localizedDescription)"
         }

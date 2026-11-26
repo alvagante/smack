@@ -40,15 +40,17 @@ extension HistoryRepository {
 
         try flush()
         try transaction {
-            try execute("DELETE FROM system_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
-            try execute("DELETE FROM system_minutes WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
-            try execute("DELETE FROM process_samples WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
-            try execute("DELETE FROM process_minutes WHERE timestamp < \(expirationCutoff.timeIntervalSince1970)")
-            try execute("DELETE FROM process_minutes WHERE timestamp < \(processMinuteCutoff.timeIntervalSince1970)")
+            let expirationTimestamp = expirationCutoff.timeIntervalSince1970
+            let fullResolutionTimestamp = fullResolutionCutoff.timeIntervalSince1970
+            try deleteOlderThan(from: "system_samples", cutoff: expirationTimestamp)
+            try deleteOlderThan(from: "system_minutes", cutoff: expirationTimestamp)
+            try deleteOlderThan(from: "process_samples", cutoff: expirationTimestamp)
+            try deleteOlderThan(from: "process_minutes", cutoff: expirationTimestamp)
+            try deleteOlderThan(from: "process_minutes", cutoff: processMinuteCutoff.timeIntervalSince1970)
             try downsampleSystemSamples(olderThan: fullResolutionCutoff)
             try downsampleProcessSamples(olderThan: fullResolutionCutoff)
-            try execute("DELETE FROM system_samples WHERE timestamp < \(fullResolutionCutoff.timeIntervalSince1970)")
-            try execute("DELETE FROM process_samples WHERE timestamp < \(fullResolutionCutoff.timeIntervalSince1970)")
+            try deleteOlderThan(from: "system_samples", cutoff: fullResolutionTimestamp)
+            try deleteOlderThan(from: "process_samples", cutoff: fullResolutionTimestamp)
             try removeProcessesWithoutSamples()
         }
         try pruneEvents(settings: settings, now: now)
@@ -198,17 +200,25 @@ extension HistoryRepository {
         let compactionCutoff = now.addingTimeInterval(-3_600)
         try transaction {
             try downsampleProcessSamples(olderThan: compactionCutoff)
-            try execute("DELETE FROM process_samples WHERE timestamp < \(compactionCutoff.timeIntervalSince1970)")
+            try deleteOlderThan(from: "process_samples", cutoff: compactionCutoff.timeIntervalSince1970)
         }
         for tables in [["process_samples", "process_minutes"], ["events"], ["system_samples", "system_minutes"]] {
             while try usedStorageBytes() > target, let cutoff = try oldestPruneCutoff(in: tables, batchRows: batchRows) {
                 try transaction {
-                    for table in tables { try execute("DELETE FROM \(table) WHERE timestamp <= \(cutoff)") }
+                    for table in tables { try deleteOlderThan(from: table, cutoff: cutoff, inclusive: true) }
                     try removeProcessesWithoutSamples()
                 }
             }
         }
         if try databaseSize() > fileLimit { try compactFile() }
+    }
+
+    private func deleteOlderThan(from table: String, cutoff: Double, inclusive: Bool = false) throws {
+        let comparator = inclusive ? "<=" : "<"
+        try withStatement("DELETE FROM \(table) WHERE timestamp \(comparator) ?") { statement in
+            bind(cutoff, at: 1, to: statement)
+            try step(statement)
+        }
     }
 
     /// Bytes held by live pages; unlike the file size it drops as soon as rows are deleted.

@@ -47,3 +47,10 @@ import Testing
     let identifierKeys = Set(rows.filter { identifiers.contains($0.key) }.map { $0.key })
     #expect(sensitiveKeys == identifierKeys)
 }
+
+@Test func sysctlStringReturnsHardwareModelAndNilForUnknownKey() {
+    #expect(SystemInformation.string("hw.model")?.isEmpty == false)
+    #expect(SystemInformation.string("smack.nonexistent.sysctl.key") == nil)
+    #expect(!SystemInformation.modelIdentifier.isEmpty)
+    #expect(!SystemInformation.macOSVersion.isEmpty)
+}

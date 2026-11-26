@@ -18,22 +18,7 @@ extension HistoryRepository {
                 ))
             }
         }
-        let processes = try processNames()
-        for process in processes {
-            for metric in ProcessMetric.allCases {
-                for point in try processSeries(processID: process.id, metric: metric, from: .distantPast) {
-                    records.append(HistoryExportRecord(
-                        kind: "process",
-                        processID: process.id,
-                        processName: process.name,
-                        metric: metric.rawValue,
-                        timestamp: point.timestamp.timeIntervalSince1970,
-                        average: point.average,
-                        peak: point.peak
-                    ))
-                }
-            }
-        }
+        try appendProcessExportRecords(into: &records)
         records.sort {
             if $0.timestamp != $1.timestamp { return $0.timestamp < $1.timestamp }
             if $0.kind != $1.kind { return $0.kind < $1.kind }
@@ -64,6 +49,43 @@ extension HistoryRepository {
             let eventsURL = url.deletingLastPathComponent()
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-events.csv")
             try Data(csv(events: exportedEvents).utf8).write(to: eventsURL, options: .atomic)
+        }
+    }
+
+    private func appendProcessExportRecords(into records: inout [HistoryExportRecord]) throws {
+        try withStatement("""
+            SELECT p.id, p.name, s.timestamp,
+                s.cpu, s.memory, s.disk_read, s.disk_write, s.wakeups,
+                s.cpu, s.memory, s.disk_read, s.disk_write, s.wakeups
+            FROM process_samples s
+            JOIN processes p ON p.key = s.process_key
+            UNION ALL
+            SELECT p.id, p.name, m.timestamp,
+                m.cpu_total / m.sample_count, m.memory_total / m.sample_count, m.disk_read_total / m.sample_count, m.disk_write_total / m.sample_count, m.wakeups_total / m.sample_count,
+                m.cpu_peak, m.memory_peak, m.disk_read_peak, m.disk_write_peak, m.wakeups_peak
+            FROM process_minutes m
+            JOIN processes p ON p.key = m.process_key
+            """) { statement in
+            let metrics = ProcessMetric.allCases
+            while true {
+                let code = sqlite3_step(statement)
+                if code == SQLITE_DONE { return }
+                guard code == SQLITE_ROW else { throw sqliteError(code: code) }
+                let processID = stringColumn(statement, index: 0)
+                let processName = stringColumn(statement, index: 1)
+                let timestamp = sqlite3_column_double(statement, 2)
+                for (offset, metric) in metrics.enumerated() {
+                    records.append(HistoryExportRecord(
+                        kind: "process",
+                        processID: processID,
+                        processName: processName,
+                        metric: metric.rawValue,
+                        timestamp: timestamp,
+                        average: sqlite3_column_double(statement, Int32(3 + offset)),
+                        peak: sqlite3_column_double(statement, Int32(8 + offset))
+                    ))
+                }
+            }
         }
     }
 }

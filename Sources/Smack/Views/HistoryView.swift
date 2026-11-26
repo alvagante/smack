@@ -172,7 +172,11 @@ extension HistoryChartMetric {
 
 /// Scales to the range maximum of averages so one spike does not flatten the line, or of peaks when they are drawn.
 private func rangeMaximumScale(_ points: [HistoricalPoint], peaks: Bool) -> Double {
-    let maximum = points.map { peaks ? $0.peak : $0.average }.max() ?? 0
+    var maximum = 0.0
+    for point in points {
+        let value = peaks ? point.peak : point.average
+        if value > maximum { maximum = value }
+    }
     return maximum > 0 ? 100 / maximum : 0
 }
 
@@ -268,7 +272,7 @@ extension ProcessMetric: HistoryChartMetric {
 }
 
 /// One metric's line. `plotted` values are what the chart scales; `actual` values are shown in the hover readout.
-private struct HistorySeries: Identifiable {
+struct HistorySeries: Identifiable {
     struct Sample: Identifiable {
         let id: Int
         let timestamp: Date
@@ -290,19 +294,23 @@ private struct HistorySeries: Identifiable {
     let ticks: [Double]?
 
     init(id: String, color: Color, points: [HistoricalPoint], minimumGap: TimeInterval, ticks: [Double]? = nil, format: @escaping (Double) -> String, plot: (Double) -> Double) {
-        let segments = HistoricalPoint.segments(points, minimumGap: minimumGap)
+        let threshold = HistoricalPoint.gapThreshold(points, minimum: minimumGap)
+        let segments = HistoricalPoint.segments(points, threshold: threshold)
         self.id = id
         self.color = color
         self.format = format
         self.ticks = ticks
-        gapThreshold = HistoricalPoint.gapThreshold(points, minimum: minimumGap)
-        samples = points.indices.map { index in
+        gapThreshold = threshold
+        var built: [Sample] = []
+        built.reserveCapacity(points.count)
+        for index in points.indices {
             let point = points[index]
-            return Sample(
+            built.append(Sample(
                 id: index, timestamp: point.timestamp, plotted: plot(point.average), plottedPeak: plot(point.peak),
                 actual: point.average, actualPeak: point.peak, segment: segments[index]
-            )
+            ))
         }
+        samples = built
     }
 }
 
@@ -496,6 +504,12 @@ struct HistoryView: View {
     }
 
     /// Process IDs are "pid-startTime".
+    static func instanceLabel(_ instance: HistoricalProcess) -> String {
+        let parts = instance.id.split(separator: "-", maxSplits: 1)
+        guard parts.count == 2, let start = Double(parts[1]) else { return instance.id }
+        return "PID \(parts[0]), started \(Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened))"
+    }
+
     private func instanceLabel(_ id: String) -> String {
         let parts = id.split(separator: "-", maxSplits: 1)
         guard parts.count == 2, let start = Double(parts[1]) else { return id }
@@ -505,7 +519,7 @@ struct HistoryView: View {
     }
 
     private func metricChip<M: HistoryChartMetric>(_ metric: M, enabled: Bool, points: [HistoricalPoint]?, toggle: @escaping () -> Void) -> some View {
-        let peak = points?.map(\.peak).max()
+        let peak = points?.max(by: { $0.peak < $1.peak })?.peak
         return Button(action: toggle) {
             HStack(spacing: 4) {
                 Circle().fill(enabled ? metric.color : .secondary.opacity(0.4)).frame(width: 8, height: 8)
@@ -686,7 +700,13 @@ struct HistoryView: View {
 
     private func yUpperBound(_ series: [HistorySeries]) -> Double {
         if normalized { return 100 }
-        let maximum = series.flatMap(\.samples).map { model.showPeaks ? max($0.plotted, $0.plottedPeak) : $0.plotted }.max() ?? 0
+        var maximum = 0.0
+        for line in series {
+            for sample in line.samples {
+                let value = model.showPeaks ? max(sample.plotted, sample.plottedPeak) : sample.plotted
+                if value > maximum { maximum = value }
+            }
+        }
         if let top = series.first?.ticks?.max() { return max(top, maximum * 1.05) }
         return maximum > 0 ? maximum * 1.05 : 1
     }
@@ -709,17 +729,7 @@ struct HistoryView: View {
                     .lineLimit(1)
             }
             ForEach(series) { line in
-                HStack(spacing: 4) {
-                    Circle().fill(line.color).frame(width: 6, height: 6)
-                    Text(line.id)
-                    Spacer(minLength: 8)
-                    if let sample = nearest(to: date, in: line) {
-                        Text(line.format(sample.actual)).monospacedDigit()
-                        Text("peak \(line.format(sample.actualPeak))").foregroundStyle(.secondary).monospacedDigit()
-                    } else {
-                        Text("no data").foregroundStyle(.secondary)
-                    }
-                }
+                Self.readoutRow(for: line, at: date)
             }
         }
         .font(.caption)
@@ -728,8 +738,22 @@ struct HistoryView: View {
         .fixedSize()
     }
 
+    private static func readoutRow(for line: HistorySeries, at date: Date) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(line.color).frame(width: 6, height: 6)
+            Text(line.id)
+            Spacer(minLength: 8)
+            if let sample = nearest(to: date, in: line) {
+                Text(line.format(sample.actual)).monospacedDigit()
+                Text("peak \(line.format(sample.actualPeak))").foregroundStyle(.secondary).monospacedDigit()
+            } else {
+                Text("no data").foregroundStyle(.secondary)
+            }
+        }
+    }
+
     /// Closest sample to `date`, or nil when the cursor sits inside a collection gap.
-    private func nearest(to date: Date, in line: HistorySeries) -> HistorySeries.Sample? {
+    static func nearest(to date: Date, in line: HistorySeries) -> HistorySeries.Sample? {
         let samples = line.samples
         var low = 0, high = samples.count
         while low < high {
