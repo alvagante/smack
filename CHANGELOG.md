@@ -2,6 +2,25 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased] - 2026-11-26 UTC
+Branch: feature/reduce-complexity | Commit: 199d5df
+
+### Changed
+
+- Decomposed `HistoryRepository` into `HistorySQLiteDatabase`, `HistorySchemaMigrator`, and `HistoryExporter`, removing duplicated SQLite execution helpers in `migrate` (`openspec/specs/complexity-reduction/spec.md`).
+- Separated stateless hardware/OS readers (`SystemHardwareSampler`) from `SystemCollector`, and extracted `NativeMenuBarSystemBridge` (`!SMACK_APP_STORE`) from `NativeMenuBarStore`.
+- Unified duplicated application and process filtering/sorting in `ProcessViews` via `SortableProcessItem` inside `ApplicationListViewModel`, and extracted per-record rate computation in `ProcessSnapshotBuilder`.
+- Extracted a shared two-pass `proc_pidinfo` buffer helper and split vnode/socket inspection in `InventorySampling`.
+
+### Fixed
+
+- Fixed permanent hover auto-dismiss failure in `PanelController.mouseMoved` by resetting `dismissTask` to `nil` on pointer re-entry and grace-period completion, and added `deinit` cleanup for `NSEvent` monitors.
+- Fixed IPv4 socket address decoding in `InventorySampling.addressBytes` to read `in4in6_addr.i46a_addr4` at bytes `12..<16` instead of `0..<4` (which previously reported `0.0.0.0`).
+
+### Security
+
+- Replaced raw timestamp string interpolation in `HistoryRepository` retention and storage-limit `DELETE` queries with bound SQLite `?` parameters (`CWE-89`).
+
 ## [0.4.0] - 2026-10-28
 
 ### Added
