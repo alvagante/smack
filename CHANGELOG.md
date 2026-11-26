@@ -3,11 +3,14 @@
 All notable changes to Smack are documented in this file.
 
 ## [Unreleased] - 2026-11-26 UTC
-Branch: feature/reduce-complexity | Commit: bd0627f
+Branch: feature/reduce-complexity | Commit: 38bc42f
 
 ### Changed
 
-- Realigned bundle metadata (`Info.plist`) to `1.3.1-beta1` (build `14`).
+- Updated bundle metadata (`Info.plist`) to `1.3.1-beta2` (build `15`).
+- Replaced `1 + 4 × N` per-process export queries with a single SQLite `UNION ALL` query in `HistoryRepository.appendProcessExportRecords`, and passed exact UTF-8 byte lengths to `sqlite3_bind_text` in `HistorySQLiteDatabase.bind`.
+- Precomputed `NetworkPortSnapshot.externalCount` and `localhostCount` in a single pass (`init` + `didSet`) and replaced string interpolation filtering in `NetworkPortsView` with `Self.matches(_:query:)`.
+- Cached boot-immutable `SystemInformation` sections and properties (`cachedHardwareSection`, `cachedOSBuild`, `cachedDarwinVersion`, `cachedKernelVersion`, `cachedBootTime`) and pre-allocated `storageSection(volumes:)`.
 - Added `ProcessSampling.allProcessIdentifiers(preferSysctl:)` and guarded `SmackMain.diagnose()` socket collection behind `Capabilities.supportsNetworkPortInspection` to eliminate avoidable App Sandbox kernel denials (`listpids`, `pidfdinfo`, `rusage`).
 - Cached per-process executable paths (`ProcessPathCacheKey` + `NSLock`), `getpwuid_r` lookups, boot-time `hostPageSize` / volume resource keys, IOKit disk names, `SystemInformation` properties, and bounded `64×64` rasterized `ApplicationIconCache` entries (`maxEntries = 128`).
 - Reused prepared SQLite statements (`ProcessWriteStatements` and `systemInsertStatement`) in `HistoryProcessWriter`, skipped `BEGIN IMMEDIATE`/`COMMIT` on quiet ticks with zero writes, and deferred `upsertProcess` past the `idleRuns` fast-skip path until change, 60s heartbeat, or exit.
@@ -19,6 +22,8 @@ Branch: feature/reduce-complexity | Commit: bd0627f
 - Extracted a shared two-pass `proc_pidinfo` buffer helper and split vnode/socket inspection in `InventorySampling`.
 
 ### Fixed
+
+- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
 
 - Fixed 41.67× per-process CPU% under-reporting on Apple Silicon by scaling `proc_taskallinfo` Mach ticks (`pti_total_user + pti_total_system`) to nanoseconds using `mach_timebase_info` via overflow-safe 128-bit arithmetic (`ProcessSampling.machTicksToNanoseconds`).
 - Fixed `0 B` third-party process memory reporting under App Sandbox by falling back to `information.ptinfo.pti_resident_size` in `ProcessSampling.records` and updating sandbox messaging in `ProcessSnapshotBuilder` and `ProcessViews`.
@@ -65,6 +70,8 @@ Branch: feature/reduce-complexity | Commit: bd0627f
 
 ### Fixed
 
+- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
+
 - History kept only about 20 hours: the storage limit deleted full-resolution data before it was old enough to be compacted, and it deleted system history along with process history.
 - The History view overflowed the panel and hid the navigation header.
 - History lines joined periods without collection with straight lines; they now break.
@@ -94,6 +101,8 @@ Branch: feature/reduce-complexity | Commit: bd0627f
 - Close the panel when a native menu-bar icon is clicked so its menu or window appears in front.
 
 ### Fixed
+
+- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
 
 - Stop `lsof` warnings about unreachable network volumes (such as Time Machine shares) appearing in Network Ports, and avoid blocking on them.
 - Fix main-actor isolation in the settings interval field.
@@ -129,6 +138,8 @@ Branch: feature/reduce-complexity | Commit: bd0627f
 - Launch-at-login support and local-only data storage without third-party dependencies.
 
 ### Fixed
+
+- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
 
 - Read macOS network counters using the correct 32-bit layout and preserve totals across counter wraparound.
 - Preserve application metadata when grouping same-bundle helper processes.
