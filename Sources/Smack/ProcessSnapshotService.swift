@@ -15,7 +15,13 @@ final class ProcessSnapshotService: ProcessMetricsCollecting, @unchecked Sendabl
 
     func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
         if includePrivileged, let payload = await privileged.collectSnapshot() {
-            return privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp)
+            let metadata: [Int32: VisibleApplicationMetadata]
+            if let cached = privilegedBuilder.resolveVisibleApplicationMetadata() {
+                metadata = cached
+            } else {
+                metadata = await MainActor.run { ProcessCollector.readVisibleApplicationMetadata() }
+            }
+            return privilegedBuilder.build(records: payload.records, timestamp: payload.timestamp, metadata: metadata)
         }
         return await local.collectProcessSnapshot(includePrivileged: false)
     }

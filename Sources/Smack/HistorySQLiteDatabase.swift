@@ -42,23 +42,33 @@ struct HistorySQLiteDatabase: @unchecked Sendable {
         guard result == SQLITE_OK else { throw sqliteError(code: result) }
     }
 
-    func withStatement<T>(_ sql: String, _ body: (OpaquePointer) throws -> T) throws -> T {
+    func prepare(_ sql: String) throws -> OpaquePointer {
         var statement: OpaquePointer?
         let result = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
         guard result == SQLITE_OK, let statement else { throw sqliteError(code: result) }
+        return statement
+    }
+
+    static func reset(_ statement: OpaquePointer) {
+        sqlite3_reset(statement)
+        sqlite3_clear_bindings(statement)
+    }
+
+    func withStatement<T>(_ sql: String, _ body: (OpaquePointer) throws -> T) throws -> T {
+        let statement = try prepare(sql)
         defer { sqlite3_finalize(statement) }
         return try body(statement)
     }
 
-    func bind(_ value: Double, at index: Int32, to statement: OpaquePointer) {
+    static func bind(_ value: Double, at index: Int32, to statement: OpaquePointer) {
         sqlite3_bind_double(statement, index, value)
     }
 
-    func bind(_ value: Int64, at index: Int32, to statement: OpaquePointer) {
+    static func bind(_ value: Int64, at index: Int32, to statement: OpaquePointer) {
         sqlite3_bind_int64(statement, index, value)
     }
 
-    func bind(_ value: String, at index: Int32, to statement: OpaquePointer) {
+    static func bind(_ value: String, at index: Int32, to statement: OpaquePointer) {
         sqlite3_bind_text(statement, index, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
     }
 
@@ -67,7 +77,7 @@ struct HistorySQLiteDatabase: @unchecked Sendable {
         guard result == SQLITE_DONE else { throw sqliteError(code: result) }
     }
 
-    func stringColumn(_ statement: OpaquePointer, index: Int32) -> String {
+    static func stringColumn(_ statement: OpaquePointer, index: Int32) -> String {
         guard let value = sqlite3_column_text(statement, index) else { return "" }
         return String(cString: value)
     }

@@ -10,7 +10,7 @@ struct ResourceDetailView: View {
                 switch resource {
                 case .cpu:
                     Text("Total system CPU is normalized to 0–100%. Application values can exceed 100% across cores.").font(.caption).foregroundStyle(.secondary)
-                    TrendChart(points: store.recentCPU)
+                    TrendChart(points: store.recentMetrics.cpuPoints)
                     MetricTable(applications: sorted { $0.cpuUsage > $1.cpuUsage }, value: { Formatting.percent($0.cpuUsage) }) { store.route = .application($0.id) }
                 case .memory:
                     if let memory = store.system?.memory {
@@ -55,6 +55,15 @@ struct ResourceDetailView: View {
     }
 
     private func sorted(by predicate: (ApplicationMetrics, ApplicationMetrics) -> Bool) -> [ApplicationMetrics] {
-        Array((store.processes?.applications ?? []).sorted(by: predicate).prefix(25))
+        Self.topApplications(store.processes?.applications ?? [], by: predicate)
+    }
+
+    static func topApplications(
+        _ applications: [ApplicationMetrics],
+        limit: Int = 25,
+        by predicate: (ApplicationMetrics, ApplicationMetrics) -> Bool
+    ) -> [ApplicationMetrics] {
+        guard limit > 0 else { return [] }
+        return Array(applications.sorted(by: predicate).prefix(limit))
     }
 }

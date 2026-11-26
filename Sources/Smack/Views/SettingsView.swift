@@ -15,7 +15,7 @@ struct SettingsView: View {
     init(store: MonitorStore) {
         self.store = store
         settings = store.settingsStore
-        model = store.settingsViewModel
+        model = store.viewModels.settings
     }
 
     var body: some View {
@@ -30,7 +30,7 @@ struct SettingsView: View {
                         PrivilegedSamplingSection(controller: controller, settings: settings, onChange: { store.settingsChanged() })
                     }
                 }
-                aboutCard
+                Self.aboutCard
             }
             .padding()
         }
@@ -115,7 +115,7 @@ struct SettingsView: View {
         }
     }
 
-    private var aboutCard: some View {
+    private static var aboutCard: some View {
         SettingsCard(title: "Privacy & Visibility", systemImage: "hand.raised") {
             Label {
                 SettingsCaption("All metrics and settings stay on this Mac; no analytics. Exports contain metrics only, never file paths or connection inventories.")
@@ -213,12 +213,12 @@ private struct PrivilegedSamplingSection: View {
                         }
                     }
                     if controller.state == .requiresApproval || controller.state == .notResponding {
-                        Button("Open Login Items") { controller.openLoginItemsSettings() }
+                        Button("Open Login Items") { PrivilegedSamplingController.openLoginItemsSettings() }
                     }
                 }
                 .disabled(controller.isWorking)
                 if controller.mode == .legacyInstall, controller.state != .running(updateAvailable: false) {
-                    terminalFallback(.install)
+                    Self.terminalFallback(.install)
                 }
             } else if controller.legacyInstallPresent {
                 HStack(spacing: 8) {
@@ -228,7 +228,7 @@ private struct PrivilegedSamplingSection: View {
                     Button("Remove Helper…") { Task { await controller.remove() } }
                         .disabled(controller.isWorking)
                 }
-                terminalFallback(.uninstall)
+                Self.terminalFallback(.uninstall)
             }
             if let error = controller.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -250,14 +250,14 @@ private struct PrivilegedSamplingSection: View {
     }
 
     /// The same script the password prompt runs, for users who prefer Terminal.
-    private func terminalFallback(_ action: HelperScriptAction) -> some View {
+    private static func terminalFallback(_ action: HelperScriptAction) -> some View {
         DisclosureGroup("Or run in Terminal") {
             HStack(alignment: .top, spacing: 8) {
-                Text(controller.terminalCommand(for: action))
+                Text(PrivilegedSamplingController.terminalCommand(for: action))
                     .font(.caption.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Copy") { controller.copyTerminalCommand(for: action) }
+                Button("Copy") { PrivilegedSamplingController.copyTerminalCommand(for: action) }
             }
         }
         .font(.caption)

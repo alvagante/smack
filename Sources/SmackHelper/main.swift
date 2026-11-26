@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: SmackIPC.helperIdentifier, category: "sam
 /// That is why connections are restricted to the signed Smack app run by an administrator.
 final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
     func collectSnapshot(reply: @escaping (Data?, String?) -> Void) {
-        encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records()), reply: reply)
+        Self.encode(ProcessSnapshotPayload(timestamp: Date(), records: ProcessSampling.records()), reply: reply)
     }
 
     func collectInventory(pid: Int32, startTime: Double, reply: @escaping (Data?, String?) -> Void) {
@@ -18,14 +18,14 @@ final class PrivilegedSamplingService: NSObject, SmackPrivilegedSampling {
             pid: pid,
             startTime: Date(timeIntervalSince1970: startTime)
         )
-        encode(payload, reply: reply)
+        Self.encode(payload, reply: reply)
     }
 
     func collectNetworkPorts(reply: @escaping (Data?, String?) -> Void) {
-        encode(ProcessSockets.collect(), reply: reply)
+        Self.encode(ProcessSockets.collect(), reply: reply)
     }
 
-    private func encode<T: Encodable>(_ value: T, reply: (Data?, String?) -> Void) {
+    private static func encode<T: Encodable>(_ value: T, reply: (Data?, String?) -> Void) {
         do {
             reply(try JSONEncoder().encode(value), nil)
         } catch {

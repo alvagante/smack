@@ -44,6 +44,44 @@ import Testing
     #expect(fixture.controller.dismissTask == nil)
 }
 
+@Test func panelPlacementCameraHotZoneComputesNotchRectAndRejectsInvalidBounds() {
+    let rect = PanelPlacement.cameraHotZoneRect(
+        screenFrame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+        safeAreaTop: 37,
+        left: NSRect(x: 0, y: 945, width: 650, height: 37),
+        right: NSRect(x: 862, y: 945, width: 650, height: 37)
+    )
+    #expect(rect == NSRect(x: 638, y: 942, width: 236, height: 43))
+
+    let inverted = PanelPlacement.cameraHotZoneRect(
+        screenFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+        safeAreaTop: 20,
+        left: NSRect(x: 0, y: 780, width: 600, height: 20),
+        right: NSRect(x: 500, y: 780, width: 500, height: 20)
+    )
+    #expect(inverted == nil)
+    #expect(PanelPlacement.cameraHotZone(suppressedUntil: .distantFuture) == nil)
+}
+
+@MainActor
+@Test func applicationListViewModelCompareOrdersNilEnergyBelowMeasured() {
+    let low = ProcessMetrics(
+        identity: ProcessIdentity(pid: 1, startTime: Date(timeIntervalSince1970: 10)),
+        name: "Alpha", parentPID: 1, bundleIdentifier: nil, executablePath: nil,
+        userName: nil, cpuUsage: 5, memoryBytes: 100, diskReadRate: 0, diskWriteRate: 0,
+        energyImpact: nil, threadCount: 1, isApplication: false
+    )
+    let high = ProcessMetrics(
+        identity: ProcessIdentity(pid: 2, startTime: Date(timeIntervalSince1970: 10)),
+        name: "Beta", parentPID: 1, bundleIdentifier: nil, executablePath: nil,
+        userName: nil, cpuUsage: 10, memoryBytes: 200, diskReadRate: 0, diskWriteRate: 0,
+        energyImpact: 3.5, threadCount: 1, isApplication: false
+    )
+    #expect(ApplicationListViewModel.compare(high, low, by: .energy, ascending: false))
+    #expect(!ApplicationListViewModel.compare(low, high, by: .energy, ascending: false))
+    #expect(ApplicationListViewModel.compare(low, high, by: .name, ascending: true))
+}
+
 @MainActor
 private struct PanelFixture {
     let controller: PanelController

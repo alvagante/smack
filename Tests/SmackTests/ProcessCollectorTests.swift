@@ -7,14 +7,40 @@ import Testing
 @Test func groupsVisibleAppsAndTheirHelpersWithoutDuplication() {
     let main = makeProcess(pid: 10, path: "/Applications/Example.app/Contents/MacOS/Example")
     let helper = makeProcess(pid: 11, path: "/Applications/Example.app/Contents/Frameworks/Helper")
+    let nested = makeProcess(pid: 13, path: "/Applications/Example.app/Contents/Applications/Nested.app/Contents/MacOS/Nested")
+    let nestedHelper = makeProcess(pid: 14, path: "/Applications/Example.app/Contents/Applications/Nested.app/Contents/Resources/worker")
     let daemon = makeProcess(pid: 12, path: "/usr/libexec/exampled")
-    let metadata: [Int32: VisibleApplicationMetadata] = [10: VisibleApplicationMetadata(name: "Example", bundleIdentifier: "com.example", executablePath: main.executablePath)]
-    let result = ProcessCollector.groupApplications([main, helper, daemon], metadata: metadata)
-    #expect(result.applications.count == 1)
-    #expect(result.applications[0].processes.map(\.identity.pid).sorted() == [10, 11])
-    #expect(result.applications[0].bundleIdentifier == "com.example")
-    #expect(result.applications[0].executablePath == main.executablePath)
+    let metadata: [Int32: VisibleApplicationMetadata] = [
+        10: VisibleApplicationMetadata(name: "Example", bundleIdentifier: "com.example", executablePath: main.executablePath),
+        13: VisibleApplicationMetadata(name: "Nested", bundleIdentifier: "com.example.nested", executablePath: nested.executablePath)
+    ]
+    let result = ProcessCollector.groupApplications([main, helper, nested, nestedHelper, daemon], metadata: metadata)
+    #expect(result.applications.count == 2)
+    let exampleApp = result.applications.first { $0.bundleIdentifier == "com.example" }
+    let nestedApp = result.applications.first { $0.bundleIdentifier == "com.example.nested" }
+    #expect(exampleApp?.processes.map(\.identity.pid).sorted() == [10, 11])
+    #expect(exampleApp?.executablePath == main.executablePath)
+    #expect(nestedApp?.processes.map(\.identity.pid).sorted() == [13, 14])
     #expect(result.background.map(\.identity.pid) == [12])
+
+    var p1 = makeProcess(pid: 20, path: nil)
+    p1.cpuUsage = 12.5
+    p1.memoryBytes = 1_000
+    p1.diskReadRate = 40
+    p1.diskWriteRate = 60
+    var p2 = makeProcess(pid: 21, path: nil)
+    p2.cpuUsage = 7.5
+    p2.memoryBytes = 2_000
+    p2.energyImpact = 3.5
+    let aggregated = ApplicationMetrics(id: "app", name: "App", bundleIdentifier: nil, executablePath: nil, processes: [p1, p2])
+    #expect(aggregated.cpuUsage == 20.0)
+    #expect(aggregated.memoryBytes == 3_000)
+    #expect(aggregated.diskReadRate == 40)
+    #expect(aggregated.diskWriteRate == 60)
+    #expect(aggregated.energyImpact == 3.5)
+
+    let noEnergy = ApplicationMetrics(id: "app2", name: "App2", bundleIdentifier: nil, executablePath: nil, processes: [p1])
+    #expect(noEnergy.energyImpact == nil)
 }
 
 @Test func processIdentityDistinguishesPIDReuse() {
@@ -34,7 +60,9 @@ import Testing
     // GPU discovery can return "Unknown" when the environment exposes no accelerator.
     #expect(!sample.gpuName.isEmpty)
 
-    let processes = await ProcessCollector().collectProcessSnapshot(includePrivileged: false)
+    let processes = await Task.detached {
+        await ProcessCollector().collectProcessSnapshot(includePrivileged: false)
+    }.value
     let all = processes.applications.flatMap(\.processes) + processes.backgroundProcesses
     #expect(!all.isEmpty)
     if let current = all.first(where: { $0.identity.pid == getpid() }) {
@@ -78,10 +106,40 @@ import Testing
 @Test func restrictedProcessSamplingSkipsUsageForOtherProcesses() {
     let records = ProcessSampling.records(restrictUsageToCurrentProcess: true)
     #expect(records.contains { $0.pid == getpid() })
-    #expect(records.allSatisfy { $0.pid == getpid() || $0.physicalFootprint == 0 })
+    #expect(records.allSatisfy { $0.pid == getpid() || ($0.bytesRead == 0 && $0.bytesWritten == 0 && $0.energyNanojoules == nil) })
+    #expect(records.contains { $0.pid != getpid() && $0.physicalFootprint > 0 })
+
+    let sysctlPIDs = ProcessSampling.allProcessIdentifiers(preferSysctl: true)
+    #expect(sysctlPIDs.contains(getpid()))
+    #expect(sysctlPIDs.allSatisfy { $0 > 0 })
 }
 
-private func makeProcess(pid: Int32, path: String) -> ProcessMetrics {
+@Test func machTicksToNanosecondsHandlesIntelAppleSiliconZeroAndOverflow() {
+    #expect(ProcessSampling.machTicksToNanoseconds(1_234_567, numer: 1, denom: 1) == 1_234_567)
+    #expect(ProcessSampling.machTicksToNanoseconds(300_000, numer: 125, denom: 3) == 12_500_000)
+    #expect(ProcessSampling.machTicksToNanoseconds(1_000_000_000, numer: 125, denom: 3) == 41_666_666_666)
+    #expect(ProcessSampling.machTicksToNanoseconds(0, numer: 125, denom: 3) == 0)
+    #expect(ProcessSampling.machTicksToNanoseconds(500, numer: 125, denom: 0) == 0)
+    #expect(ProcessSampling.machTicksToNanoseconds(UInt64.max, numer: 125, denom: 3) == UInt64.max)
+}
+
+@Test func processSamplingPathCacheReusesAndPrunesEntries() {
+    let currentPID = getpid()
+    let staleKey = ProcessPathCacheKey(pid: Int32.max, startSeconds: 1, startMicroseconds: 0)
+    var cache: [ProcessPathCacheKey: String?] = [staleKey: "/stale/path"]
+
+    let first = ProcessSampling.records(restrictUsageToCurrentProcess: true, pathCache: &cache)
+    let firstSelf = first.first { $0.pid == currentPID }
+    #expect(firstSelf != nil)
+    #expect(cache[staleKey] == nil)
+    #expect(cache.count == first.count)
+
+    let second = ProcessSampling.records(restrictUsageToCurrentProcess: true, pathCache: &cache)
+    let secondSelf = second.first { $0.pid == currentPID }
+    #expect(secondSelf?.executablePath == firstSelf?.executablePath)
+}
+
+private func makeProcess(pid: Int32, path: String?) -> ProcessMetrics {
     ProcessMetrics(
         identity: ProcessIdentity(pid: pid, startTime: Date(timeIntervalSince1970: 1)),
         name: "Example", parentPID: 1, bundleIdentifier: nil, executablePath: path, userName: nil,
@@ -139,4 +197,82 @@ private func makeProcess(pid: Int32, path: String) -> ProcessMetrics {
 
     let reusedPidPayload = InventorySampling.collect(pid: getpid(), startTime: Date(timeIntervalSince1970: 1))
     #expect(reusedPidPayload.warnings.contains { $0.contains("PID may have been reused") })
+}
+
+@Test func snapshotBuilderStaticComputeRatesHandlesValidNilAndInvalidElapsed() {
+    let start = Date(timeIntervalSince1970: 1_000)
+    let record = ProcessRecord(
+        pid: 99,
+        parentPID: 1,
+        startTime: start,
+        userID: 501,
+        name: "worker",
+        executablePath: nil,
+        cpuTimeNanoseconds: 3_000_000_000,
+        physicalFootprint: 1_024,
+        bytesRead: 4_000,
+        bytesWritten: 2_000,
+        energyNanojoules: 5_000_000_000,
+        threadCount: 2
+    )
+    let previous = ProcessSnapshotBuilder.Counters(
+        timestamp: start,
+        cpuTime: 1_000_000_000,
+        bytesRead: 1_000,
+        bytesWritten: 500,
+        energyNanojoules: 1_000_000_000
+    )
+
+    let valid = ProcessSnapshotBuilder.computeRates(for: record, previous: previous, timestamp: start.addingTimeInterval(2))
+    #expect(abs(valid.cpuUsage - 100) < 0.000_001)
+    #expect(abs(valid.diskReadRate - 1_500) < 0.000_001)
+    #expect(abs(valid.diskWriteRate - 750) < 0.000_001)
+    #expect(abs((valid.energyImpact ?? 0) - 2) < 0.000_001)
+
+    let missingPrevious = ProcessSnapshotBuilder.computeRates(for: record, previous: nil, timestamp: start.addingTimeInterval(2))
+    #expect(missingPrevious.cpuUsage == 0 && missingPrevious.energyImpact == nil)
+
+    let nonPositiveElapsed = ProcessSnapshotBuilder.computeRates(for: record, previous: previous, timestamp: start)
+    #expect(nonPositiveElapsed.cpuUsage == 0 && nonPositiveElapsed.diskReadRate == 0 && nonPositiveElapsed.energyImpact == nil)
+}
+
+@Test func groupApplicationsFallsBackToProcessBundleAndExecutableMetadata() {
+    let empty = ProcessCollector.groupApplications([], metadata: [:])
+    #expect(empty.applications.isEmpty && empty.background.isEmpty)
+
+    let process = ProcessMetrics(
+        identity: ProcessIdentity(pid: 55, startTime: Date(timeIntervalSince1970: 50)),
+        name: "Helper",
+        parentPID: 1,
+        bundleIdentifier: "com.example.fallback",
+        executablePath: "/Applications/Example.app/Contents/MacOS/Example",
+        userName: nil,
+        cpuUsage: 4,
+        memoryBytes: 512,
+        diskReadRate: 0,
+        diskWriteRate: 0,
+        energyImpact: nil,
+        threadCount: 1,
+        isApplication: false
+    )
+    let metadata: [Int32: VisibleApplicationMetadata] = [
+        55: VisibleApplicationMetadata(name: "Example", bundleIdentifier: nil, executablePath: nil)
+    ]
+    let grouped = ProcessCollector.groupApplications([process], metadata: metadata)
+    #expect(grouped.applications.count == 1)
+    #expect(grouped.applications[0].bundleIdentifier == "com.example.fallback")
+    #expect(grouped.applications[0].executablePath == "/Applications/Example.app/Contents/MacOS/Example")
+    #expect(grouped.background.isEmpty)
+}
+
+@Test func processSamplingAndSocketsReturnCurrentProcessSafely() {
+    let records = ProcessSampling.records(restrictUsageToCurrentProcess: true)
+    let currentPID = getpid()
+    let currentRecord = records.first { $0.pid == currentPID }
+    #expect(currentRecord != nil)
+    #expect(currentRecord?.name.isEmpty == false)
+    #expect(currentRecord?.executablePath?.isEmpty == false)
+
+    let sockets = ProcessSockets.collect()
+    #expect(sockets.deniedProcessCount >= 0)
 }

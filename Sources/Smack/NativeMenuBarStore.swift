@@ -32,29 +32,32 @@ struct NativeMenuBarItem: Identifiable {
         return NSSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
     }
 
+    private static let controlCenterTitles: [String: String] = [
+        "AccessibilityShortcuts": "Accessibility Shortcuts",
+        "BentoBox": "Control Center",
+        "FocusModes": "Focus",
+        "KeyboardBrightness": "Keyboard Brightness",
+        "MusicRecognition": "Music Recognition",
+        "NowPlaying": "Now Playing",
+        "ScreenMirroring": "Screen Mirroring",
+        "StageManager": "Stage Manager",
+        "UserSwitcher": "Fast User Switching",
+        "WiFi": "Wi-Fi",
+    ]
+
+    private static let systemUIServerTitles: [String: String] = [
+        "TimeMachine.TMMenuExtraHost": "Time Machine",
+        "TimeMachineMenuExtra.TMMenuExtraHost": "Time Machine",
+    ]
+
     static func displayName(ownerName: String?, applicationName: String?, title: String?) -> String {
         let fallback = applicationName ?? ownerName ?? title ?? "Menu Bar Item"
         guard let title, !title.isEmpty else { return fallback }
         if ownerName == "Control Center" || applicationName == "Control Center" {
-            switch title {
-            case "AccessibilityShortcuts": return "Accessibility Shortcuts"
-            case "BentoBox": return "Control Center"
-            case "FocusModes": return "Focus"
-            case "KeyboardBrightness": return "Keyboard Brightness"
-            case "MusicRecognition": return "Music Recognition"
-            case "NowPlaying": return "Now Playing"
-            case "ScreenMirroring": return "Screen Mirroring"
-            case "StageManager": return "Stage Manager"
-            case "UserSwitcher": return "Fast User Switching"
-            case "WiFi": return "Wi-Fi"
-            default: return title
-            }
+            return controlCenterTitles[title] ?? title
         }
         if ownerName == "SystemUIServer" || applicationName == "SystemUIServer" {
-            switch title {
-            case "TimeMachine.TMMenuExtraHost", "TimeMachineMenuExtra.TMMenuExtraHost": return "Time Machine"
-            default: return title
-            }
+            return systemUIServerTitles[title] ?? title
         }
         return fallback
     }
@@ -105,6 +108,55 @@ enum NativeMenuBarDiscovery {
     }
 }
 
+private struct NativeMenuBarCaptureState {
+    var pendingLayout: [CGWindowID]?
+    var isRequestingPermissions = false
+    var isCapturing = false
+}
+
+extension NativeMenuBarDiscovery {
+    static func hasScreenCaptureAccess(preflight: Bool, discovered: [NativeMenuBarWindow]) -> Bool {
+        preflight || discovered.contains { $0.title != nil }
+    }
+
+    @MainActor
+    static func captureItems(
+        from discovered: [NativeMenuBarWindow],
+        previous: [NativeMenuBarItem],
+        content: SCShareableContent,
+        scale: CGFloat
+    ) async -> [NativeMenuBarItem] {
+        let previousImages = Dictionary(
+            previous.compactMap { item in item.image.map { (item.id, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let windowsByID = Dictionary(
+            content.windows.map { ($0.windowID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var captured: [NativeMenuBarItem] = []
+        captured.reserveCapacity(discovered.count)
+        for window in discovered {
+            var image = previousImages[window.id]
+            // Off-screen copies (behind the notch, or a hidden menu bar) may still render; only a blank
+            // capture is discarded in favour of the last good image.
+            if let fresh = await NativeMenuBarSystemBridge.capture(window, from: windowsByID[window.id], scale: scale),
+               hasVisiblePixels(fresh) {
+                image = fresh
+            }
+            captured.append(NativeMenuBarItem(
+                id: window.id,
+                ownerPID: window.ownerPID,
+                ownerName: window.ownerName,
+                title: window.title,
+                image: image,
+                scale: scale
+            ))
+        }
+        return captured
+    }
+}
+
 @MainActor
 final class NativeMenuBarStore: ObservableObject {
     @Published private(set) var items: [NativeMenuBarItem] = []
@@ -120,10 +172,8 @@ final class NativeMenuBarStore: ObservableObject {
     private var backingScaleFactor: CGFloat = 2
     /// Each display has its own copy of every status item; keep the last good capture per display.
     private var snapshots: [CGDirectDisplayID: [NativeMenuBarItem]] = [:]
-    private var pendingLayout: [CGWindowID]?
+    private var captureState = NativeMenuBarCaptureState()
     private var refreshTimer: Timer?
-    private var requestingPermissions = false
-    private var captureInProgress = false
 
     private var isActive: Bool { panelVisible && featureEnabled }
 
@@ -134,7 +184,7 @@ final class NativeMenuBarStore: ObservableObject {
         }
         if let screen, screen.nativeDisplayID != displayID {
             displayID = screen.nativeDisplayID
-            pendingLayout = nil
+            captureState.pendingLayout = nil
             items = snapshots[displayID] ?? []
             loadAttempted = !items.isEmpty
         }
@@ -146,14 +196,14 @@ final class NativeMenuBarStore: ObservableObject {
         if !enabled {
             items = []
             snapshots = [:]
-            pendingLayout = nil
+            captureState.pendingLayout = nil
         }
         updateActivity()
     }
 
     func requestPermissions() {
-        guard featureEnabled, !requestingPermissions else { return }
-        requestingPermissions = true
+        guard featureEnabled, !captureState.isRequestingPermissions else { return }
+        captureState.isRequestingPermissions = true
         Task {
             if !CGPreflightScreenCaptureAccess() {
                 _ = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -162,7 +212,7 @@ final class NativeMenuBarStore: ObservableObject {
                 let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
                 _ = AXIsProcessTrustedWithOptions(options)
             }
-            requestingPermissions = false
+            captureState.isRequestingPermissions = false
             refresh()
         }
     }
@@ -170,76 +220,63 @@ final class NativeMenuBarStore: ObservableObject {
     func refresh() {
         accessibilityAllowed = AXIsProcessTrusted()
         guard isActive else { return }
+        guard let layout = resolveLayoutForCapture() else { return }
+        performCapture(discovered: layout.discovered, previous: layout.previous)
+    }
 
+    private func resolveLayoutForCapture() -> (discovered: [NativeMenuBarWindow], previous: [NativeMenuBarItem])? {
         let discovered = NativeMenuBarDiscovery.items(
             from: NativeMenuBarSystemBridge.menuBarWindows(),
             currentPID: ProcessInfo.processInfo.processIdentifier,
             menuBarMinY: CGDisplayBounds(displayID).minY
         )
-        screenCaptureAllowed = CGPreflightScreenCaptureAccess() || discovered.contains { $0.title != nil }
-        guard screenCaptureAllowed, !captureInProgress else {
+        screenCaptureAllowed = NativeMenuBarDiscovery.hasScreenCaptureAccess(
+            preflight: CGPreflightScreenCaptureAccess(),
+            discovered: discovered
+        )
+        guard screenCaptureAllowed, !captureState.isCapturing else {
             if !screenCaptureAllowed {
                 items = []
                 loadAttempted = false
             }
-            return
+            return nil
         }
         // A hidden menu bar has nothing to capture: keep the last snapshot instead of blanking it.
-        guard discovered.contains(where: \.isOnScreen) else { return }
+        guard discovered.contains(where: \.isOnScreen) else { return nil }
         let ids = discovered.map(\.id)
         let previous = snapshots[displayID] ?? []
-        guard NativeMenuBarDiscovery.acceptsLayout(ids, current: previous.map(\.id), pending: pendingLayout) else {
-            pendingLayout = ids
-            return
+        guard NativeMenuBarDiscovery.acceptsLayout(ids, current: previous.map(\.id), pending: captureState.pendingLayout) else {
+            captureState.pendingLayout = ids
+            return nil
         }
-        pendingLayout = nil
+        captureState.pendingLayout = nil
+        return (discovered, previous)
+    }
 
-        captureInProgress = true
+    private func performCapture(discovered: [NativeMenuBarWindow], previous: [NativeMenuBarItem]) {
+        captureState.isCapturing = true
         let display = displayID
         let scale = backingScaleFactor
         Task {
-            defer { captureInProgress = false }
+            defer { captureState.isCapturing = false }
             guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
                 screenCaptureAllowed = false
                 items = []
                 loadAttempted = false
                 return
             }
-            let captured = await captureItems(from: discovered, previous: previous, content: content, scale: scale)
+            let captured = await NativeMenuBarDiscovery.captureItems(
+                from: discovered,
+                previous: previous,
+                content: content,
+                scale: scale
+            )
             guard featureEnabled else { return }
             snapshots[display] = captured
             guard display == displayID else { return }
             items = captured
             loadAttempted = true
         }
-    }
-
-    private func captureItems(
-        from discovered: [NativeMenuBarWindow],
-        previous: [NativeMenuBarItem],
-        content: SCShareableContent,
-        scale: CGFloat
-    ) async -> [NativeMenuBarItem] {
-        var captured: [NativeMenuBarItem] = []
-        for window in discovered {
-            var image = previous.first { $0.id == window.id }?.image
-            // Off-screen copies (behind the notch, or a hidden menu bar) may still render; only a blank
-            // capture is discarded in favour of the last good image.
-            let captureWindow = content.windows.first { $0.windowID == window.id }
-            if let fresh = await NativeMenuBarSystemBridge.capture(window, from: captureWindow, scale: scale),
-               NativeMenuBarDiscovery.hasVisiblePixels(fresh) {
-                image = fresh
-            }
-            captured.append(NativeMenuBarItem(
-                id: window.id,
-                ownerPID: window.ownerPID,
-                ownerName: window.ownerName,
-                title: window.title,
-                image: image,
-                scale: scale
-            ))
-        }
-        return captured
     }
 
     func click(_ item: NativeMenuBarItem, button: CGMouseButton) {
@@ -251,16 +288,16 @@ final class NativeMenuBarStore: ObservableObject {
         NativeMenuBarSystemBridge.postClick(item, button: button, frame: frame)
     }
 
-    func openScreenCaptureSettings() {
+    static func openScreenCaptureSettings() {
         NativeMenuBarSystemBridge.openPrivacySettings(anchor: "Privacy_ScreenCapture")
     }
 
-    func openAccessibilitySettings() {
+    static func openAccessibilitySettings() {
         NativeMenuBarSystemBridge.openPrivacySettings(anchor: "Privacy_Accessibility")
     }
 
     /// Screen Recording access is only re-evaluated at launch, so a grant needs a fresh process.
-    func relaunch() {
+    static func relaunch() {
         NativeMenuBarSystemBridge.relaunch()
     }
 

@@ -6,17 +6,57 @@ private final class FloatingPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { close() }
 }
 
-@MainActor
-final class PanelController: NSObject, NSWindowDelegate {
-    private struct EventMonitorToken: @unchecked Sendable {
-        let value: Any
+private struct EventMonitorToken: @unchecked Sendable {
+    let value: Any
+}
+
+enum PanelPlacement {
+    static func targetFrame() -> NSRect {
+        guard let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens.first else {
+            return NSRect(x: 0, y: 0, width: 1_000, height: 430)
+        }
+        let frame = screen.visibleFrame
+        let width = frame.width * 0.92
+        let height = min(430, frame.height * 0.55)
+        let x = frame.midX - width / 2
+        let y = screen.frame.maxY - max(screen.safeAreaInsets.top, 24) - height - 6
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 
+    static func screenContainingPointer() -> NSScreen? {
+        let location = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
+    }
+
+    static func cameraHotZone(suppressedUntil: Date) -> NSRect? {
+        guard Date() >= suppressedUntil else { return nil }
+        guard let screen = screenContainingPointer(),
+              let left = screen.auxiliaryTopLeftArea,
+              let right = screen.auxiliaryTopRightArea else { return nil }
+        return cameraHotZoneRect(
+            screenFrame: screen.frame,
+            safeAreaTop: screen.safeAreaInsets.top,
+            left: left,
+            right: right
+        )
+    }
+
+    static func cameraHotZoneRect(screenFrame: NSRect, safeAreaTop: CGFloat, left: NSRect, right: NSRect) -> NSRect? {
+        let minX = left.maxX - 12
+        let maxX = right.minX + 12
+        guard maxX > minX else { return nil }
+        let height = max(safeAreaTop, 32)
+        return NSRect(x: minX, y: screenFrame.maxY - height - 3, width: maxX - minX, height: height + 6)
+    }
+}
+
+@MainActor
+final class PanelController: NSObject, NSWindowDelegate {
     private let store: MonitorStore
     private let nativeMenuBarStore: NativeMenuBarStore
     private let statusItem: NSStatusItem
     let panel: NSPanel
-    private let smackSound = SmackSound()
+    private var smackSound: SmackSound?
     nonisolated(unsafe) private var eventMonitorTokens: [EventMonitorToken] = []
     nonisolated(unsafe) private var hoverTask: Task<Void, Never>?
     nonisolated(unsafe) private(set) var dismissTask: Task<Void, Never>?
@@ -93,7 +133,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         dismissTask?.cancel()
         dismissTask = nil
         guard !panel.isVisible else { return }
-        let target = targetFrame()
+        let target = PanelPlacement.targetFrame()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if reduceMotion {
             panel.setFrame(target, display: false)
@@ -110,9 +150,11 @@ final class PanelController: NSObject, NSWindowDelegate {
             panel.alphaValue = 0
         }
         panel.orderFrontRegardless()
-        nativeMenuBarStore.setPanelVisible(true, screen: screenContainingPointer() ?? NSScreen.main)
+        nativeMenuBarStore.setPanelVisible(true, screen: PanelPlacement.screenContainingPointer() ?? NSScreen.main)
         store.setVisible(true)
-        smackSound.play()
+        let sound = smackSound ?? SmackSound()
+        smackSound = sound
+        sound.play()
         guard !reduceMotion else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.28
@@ -124,31 +166,6 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func close() {
         panel.close()
-    }
-
-    private func targetFrame() -> NSRect {
-        let screen = screenContainingPointer() ?? NSScreen.main ?? NSScreen.screens[0]
-        let frame = screen.visibleFrame
-        let width = frame.width * 0.92
-        let height = min(430, frame.height * 0.55)
-        let x = frame.midX - width / 2
-        let y = screen.frame.maxY - max(screen.safeAreaInsets.top, 24) - height - 6
-        return NSRect(x: x, y: y, width: width, height: height)
-    }
-
-    private func screenContainingPointer() -> NSScreen? {
-        let location = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
-    }
-
-    private func cameraHotZone() -> NSRect? {
-        guard Date() >= hotZoneSuppressedUntil else { return nil }
-        guard let screen = screenContainingPointer(), let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea else { return nil }
-        let minX = left.maxX - 12
-        let maxX = right.minX + 12
-        guard maxX > minX else { return nil }
-        let height = max(screen.safeAreaInsets.top, 32)
-        return NSRect(x: minX, y: screen.frame.maxY - height - 3, width: maxX - minX, height: height + 6)
     }
 
     private func installMonitors() {
@@ -173,40 +190,54 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private func mouseMoved() {
         let location = NSEvent.mouseLocation
-        let inHotZone = cameraHotZone()?.contains(location) == true
+        let inHotZone = PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(location) == true
         let inPanel = panel.frame.contains(location)
         updateHoverState(inHotZone: inHotZone, inPanel: inPanel)
     }
 
     func updateHoverState(inHotZone: Bool, inPanel: Bool) {
-        if inHotZone, store.settingsStore.settings.trigger == .hover, !panel.isVisible {
-            hoverTask?.cancel()
-            hoverTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.hoverDelay ?? 0.3))
-                guard let self, !Task.isCancelled, self.cameraHotZone()?.contains(NSEvent.mouseLocation) == true else { return }
-                self.pinned = false
-                self.open()
-            }
-        } else if !inHotZone {
-            hoverTask?.cancel()
+        updateHoverOpen(inHotZone: inHotZone)
+        updateHoverDismiss(inHotZone: inHotZone, inPanel: inPanel)
+    }
+
+    private func updateHoverOpen(inHotZone: Bool) {
+        guard inHotZone, store.settingsStore.settings.trigger == .hover, !panel.isVisible else {
+            if !inHotZone { hoverTask?.cancel() }
+            return
         }
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in await self?.scheduleHoverOpen() }
+    }
+
+    private func scheduleHoverOpen() async {
+        try? await Task.sleep(for: .seconds(store.settingsStore.settings.hoverDelay))
+        guard !Task.isCancelled,
+              PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(NSEvent.mouseLocation) == true else { return }
+        pinned = false
+        open()
+    }
+
+    private func updateHoverDismiss(inHotZone: Bool, inPanel: Bool) {
         guard panel.isVisible, !pinned else { return }
         if inHotZone || inPanel {
             dismissTask?.cancel()
             dismissTask = nil
         } else if dismissTask == nil {
-            dismissTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(self?.store.settingsStore.settings.hoverGracePeriod ?? 0.5))
-                guard let self, !Task.isCancelled else { return }
-                self.dismissTask = nil
-                if !self.panel.frame.contains(NSEvent.mouseLocation) { self.close() }
-            }
+            dismissTask = Task { [weak self] in await self?.scheduleHoverDismiss() }
         }
+    }
+
+    private func scheduleHoverDismiss() async {
+        try? await Task.sleep(for: .seconds(store.settingsStore.settings.hoverGracePeriod))
+        guard !Task.isCancelled else { return }
+        dismissTask = nil
+        if !panel.frame.contains(NSEvent.mouseLocation) { close() }
     }
 
     private func mouseClicked() {
         let location = NSEvent.mouseLocation
-        if cameraHotZone()?.contains(location) == true, store.settingsStore.settings.trigger == .click {
+        if PanelPlacement.cameraHotZone(suppressedUntil: hotZoneSuppressedUntil)?.contains(location) == true,
+           store.settingsStore.settings.trigger == .click {
             pinned = true
             panel.isVisible ? close() : open()
         } else if panel.isVisible, pinned, !panel.frame.contains(location), statusItem.button?.window?.frame.contains(location) != true {

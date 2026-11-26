@@ -6,7 +6,7 @@ import SmackIPC
 /// under their owning application. It keeps the previous counters, so one instance must be
 /// reused across samples.
 final class ProcessSnapshotBuilder {
-    private struct Counters {
+    struct Counters {
         var timestamp: Date
         var cpuTime: UInt64
         var bytesRead: UInt64
@@ -15,14 +15,35 @@ final class ProcessSnapshotBuilder {
     }
 
     private var previousCounters: [ProcessIdentity: Counters] = [:]
-    private var userNames: [uid_t: String] = [:]
+    private var userNames: [uid_t: String?] = [:]
     private var applicationMetadata: [Int32: VisibleApplicationMetadata] = [:]
     private var metadataTimestamp: TimeInterval?
 
-    func build(records: [ProcessRecord], timestamp: Date) -> ProcessSnapshot {
-        let metadata = currentApplicationMetadata()
+    func resolveVisibleApplicationMetadata() -> [Int32: VisibleApplicationMetadata]? {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let metadataTimestamp, now - metadataTimestamp < 10 {
+            return applicationMetadata
+        }
+        return nil
+    }
+
+    func build(
+        records: [ProcessRecord],
+        timestamp: Date,
+        metadata: [Int32: VisibleApplicationMetadata]? = nil
+    ) -> ProcessSnapshot {
+        let resolvedMetadata: [Int32: VisibleApplicationMetadata]
+        if let metadata {
+            applicationMetadata = metadata
+            metadataTimestamp = ProcessInfo.processInfo.systemUptime
+            resolvedMetadata = metadata
+        } else {
+            resolvedMetadata = currentApplicationMetadata()
+        }
         var processes: [ProcessMetrics] = []
+        processes.reserveCapacity(records.count)
         var currentCounters: [ProcessIdentity: Counters] = [:]
+        currentCounters.reserveCapacity(records.count)
 
         for record in records {
             let identity = ProcessIdentity(pid: record.pid, startTime: record.startTime)
@@ -30,7 +51,7 @@ final class ProcessSnapshotBuilder {
                 for: record,
                 identity: identity,
                 timestamp: timestamp,
-                metadata: metadata
+                metadata: resolvedMetadata
             ))
             currentCounters[identity] = Counters(
                 timestamp: timestamp,
@@ -42,13 +63,13 @@ final class ProcessSnapshotBuilder {
         }
 
         previousCounters = currentCounters
-        let grouped = ProcessCollector.groupApplications(processes, metadata: metadata)
+        let grouped = ProcessCollector.groupApplications(processes, metadata: resolvedMetadata)
         return ProcessSnapshot(
             timestamp: timestamp,
             applications: Self.sortByCPUAndName(grouped.applications),
             backgroundProcesses: Self.sortByCPUAndName(grouped.background),
             warning: Capabilities.isSandboxed
-                ? "App Sandbox limits memory, disk, and energy details for processes owned by other users; CPU and thread counts remain available."
+                ? "App Sandbox limits disk and energy details for other processes; memory uses resident size, and CPU and thread counts remain available."
                 : nil
         )
     }
@@ -59,7 +80,7 @@ final class ProcessSnapshotBuilder {
         timestamp: Date,
         metadata: [Int32: VisibleApplicationMetadata]
     ) -> ProcessMetrics {
-        let rates = computeRates(for: record, identity: identity, timestamp: timestamp)
+        let rates = Self.computeRates(for: record, previous: previousCounters[identity], timestamp: timestamp)
         let application = metadata[record.pid]
         return ProcessMetrics(
             identity: identity,
@@ -78,12 +99,12 @@ final class ProcessSnapshotBuilder {
         )
     }
 
-    private func computeRates(
+    static func computeRates(
         for record: ProcessRecord,
-        identity: ProcessIdentity,
+        previous: Counters?,
         timestamp: Date
     ) -> (cpuUsage: Double, diskReadRate: Double, diskWriteRate: Double, energyImpact: Double?) {
-        guard let previous = previousCounters[identity] else {
+        guard let previous else {
             return (0, 0, 0, nil)
         }
         let elapsed = timestamp.timeIntervalSince(previous.timestamp)
@@ -114,29 +135,30 @@ final class ProcessSnapshotBuilder {
 
     private func userName(for uid: uid_t) -> String? {
         if let cached = userNames[uid] { return cached }
-        guard let password = getpwuid(uid), let name = password.pointee.pw_name else { return nil }
-        let value = String(cString: name)
-        userNames[uid] = value
-        return value
+        var password = passwd()
+        var pointer: UnsafeMutablePointer<passwd>?
+        let name: String? = withUnsafeTemporaryAllocation(of: CChar.self, capacity: 1_024) { buffer in
+            guard let baseAddress = buffer.baseAddress,
+                  getpwuid_r(uid, &password, baseAddress, buffer.count, &pointer) == 0,
+                  pointer != nil,
+                  let cString = password.pw_name else {
+                return nil
+            }
+            return String(cString: cString)
+        }
+        userNames[uid] = name
+        return name
     }
 
     private func currentApplicationMetadata() -> [Int32: VisibleApplicationMetadata] {
-        let now = ProcessInfo.processInfo.systemUptime
-        if let metadataTimestamp, now - metadataTimestamp < 10 {
+        if let cached = resolveVisibleApplicationMetadata() {
+            return cached
+        }
+        guard Thread.isMainThread else {
             return applicationMetadata
         }
-        if Thread.isMainThread {
-            applicationMetadata = MainActor.assumeIsolated {
-                ProcessCollector.readVisibleApplicationMetadata()
-            }
-        } else {
-            applicationMetadata = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    ProcessCollector.readVisibleApplicationMetadata()
-                }
-            }
-        }
-        metadataTimestamp = now
+        applicationMetadata = MainActor.assumeIsolated { ProcessCollector.readVisibleApplicationMetadata() }
+        metadataTimestamp = ProcessInfo.processInfo.systemUptime
         return applicationMetadata
     }
 }

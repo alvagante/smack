@@ -14,7 +14,11 @@ import Testing
     #expect(settings.hoverDelay == 0)
     #expect(settings.backgroundSystemInterval == 1)
     #expect(settings.backgroundProcessInterval == 86_400)
+#if SMACK_APP_STORE
+    #expect(settings.backgroundInventoryInterval == nil)
+#else
     #expect(settings.backgroundInventoryInterval == 10)
+#endif
     #expect(settings.retentionDays == 1)
     #expect(settings.historyStorageLimitMB == 25)
 }
@@ -110,5 +114,9 @@ import Testing
     let store = SettingsStore(defaults: defaults, legacyDefaults: nil)
     store.update { $0.showMenuBarItems = true }
 
+#if SMACK_APP_STORE
+    #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.showMenuBarItems == false)
+#else
     #expect(SettingsStore(defaults: defaults, legacyDefaults: nil).settings.showMenuBarItems == true)
+#endif
 }

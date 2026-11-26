@@ -6,6 +6,11 @@ struct NetworkEndpoint: Equatable, Sendable {
     var port: UInt16
 }
 
+private struct ListenerClientKey: Hashable {
+    let pid: Int32
+    let port: UInt16
+}
+
 /// Builds listening-port inventory without spawning `lsof`. The app uses the unprivileged
 /// path; the root helper supplies all-users records when superuser sampling is enabled.
 final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
@@ -35,42 +40,58 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
         deniedProcessCount: Int = 0,
         timestamp: Date = Date()
     ) -> NetworkPortSnapshot {
+        let partitioned = partitionRecords(records)
+        let clientsByKey = Dictionary(grouping: partitioned.clients) {
+            ListenerClientKey(pid: $0.record.owner.pid, port: $0.local.port)
+        }
+        let ports = partitioned.listeners
+            .map { listener in
+                let key = ListenerClientKey(pid: listener.record.owner.pid, port: listener.local.port)
+                return listeningPort(for: listener, clients: clientsByKey[key] ?? [])
+            }
+            .sorted(by: portOrder)
+        let warning = warningMessage(deniedProcessCount: deniedProcessCount, hasPorts: !ports.isEmpty)
+        return NetworkPortSnapshot(timestamp: timestamp, ports: ports, warning: warning)
+    }
+
+    private static func partitionRecords(
+        _ records: [SocketRecord]
+    ) -> (
+        listeners: [(record: SocketRecord, local: NetworkEndpoint)],
+        clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)]
+    ) {
         var listeners: [(record: SocketRecord, local: NetworkEndpoint)] = []
         var clients: [(record: SocketRecord, local: NetworkEndpoint, remote: NetworkEndpoint)] = []
-
         for record in records {
             guard let local = endpoint(record.localAddress) else { continue }
-            switch record.state {
-            case "LISTEN":
+            if record.state == "LISTEN" {
                 listeners.append((record, local))
-            case "ESTABLISHED":
-                guard let remote = endpoint(record.remoteAddress) else { continue }
+            } else if record.state == "ESTABLISHED", let remote = endpoint(record.remoteAddress) {
                 clients.append((record, local, remote))
-            default:
-                continue
             }
         }
+        return (listeners, clients)
+    }
 
-        let ports = listeners.map { listener in
-            listeningPort(for: listener, clients: clients)
-        }.sorted {
-            if $0.port != $1.port { return $0.port < $1.port }
-            if $0.localAddress != $1.localAddress { return $0.localAddress < $1.localAddress }
-            if $0.processName != $1.processName {
-                return $0.processName.localizedStandardCompare($1.processName) == .orderedAscending
-            }
-            return $0.id < $1.id
+    private static func portOrder(_ lhs: ListeningPort, _ rhs: ListeningPort) -> Bool {
+        if lhs.port != rhs.port { return lhs.port < rhs.port }
+        if lhs.localAddress != rhs.localAddress { return lhs.localAddress < rhs.localAddress }
+        if lhs.processName != rhs.processName {
+            return lhs.processName.localizedStandardCompare(rhs.processName) == .orderedAscending
         }
+        return lhs.id < rhs.id
+    }
 
-        var snapshot = NetworkPortSnapshot(timestamp: timestamp, ports: ports, warning: nil)
-        if deniedProcessCount > 0 {
-            if Capabilities.isSandboxed && ports.isEmpty {
-                snapshot.warning = "Port inspection is limited by the App Sandbox; processes owned by other users are unavailable."
-            } else if ports.isEmpty {
-                snapshot.warning = "Port inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
-            }
+    static func warningMessage(
+        deniedProcessCount: Int,
+        hasPorts: Bool,
+        isSandboxed: Bool = Capabilities.isSandboxed
+    ) -> String? {
+        guard deniedProcessCount > 0, !hasPorts else { return nil }
+        if isSandboxed {
+            return "Port inspection is limited by the App Sandbox; processes owned by other users are unavailable."
         }
-        return snapshot
+        return "Port inspection is unavailable for \(deniedProcessCount) process(es); results may be incomplete."
     }
 
     private static func listeningPort(
@@ -111,21 +132,21 @@ final class NetworkPortCollector: NetworkPortCollecting, @unchecked Sendable {
     }
 
     static func endpoint(_ value: String) -> NetworkEndpoint? {
-        let host: Substring
-        let port: Substring
-        if value.hasPrefix("[") {
-            guard let closing = value.firstIndex(of: "]"), value.index(after: closing) < value.endIndex else { return nil }
-            let separator = value.index(after: closing)
-            guard value[separator] == ":" else { return nil }
-            host = value[value.index(after: value.startIndex)..<closing]
-            port = value[value.index(after: separator)...]
-        } else {
-            guard let separator = value.lastIndex(of: ":") else { return nil }
-            host = value[..<separator]
-            port = value[value.index(after: separator)...]
-        }
-        guard !host.isEmpty, let port = UInt16(port) else { return nil }
-        return NetworkEndpoint(host: String(host), port: port)
+        let parsed = value.hasPrefix("[") ? parseBracketedEndpoint(value) : parseColonEndpoint(value)
+        guard let parsed, !parsed.host.isEmpty, let port = UInt16(parsed.port) else { return nil }
+        return NetworkEndpoint(host: String(parsed.host), port: port)
+    }
+
+    private static func parseBracketedEndpoint(_ value: String) -> (host: Substring, port: Substring)? {
+        guard let closing = value.firstIndex(of: "]") else { return nil }
+        let separator = value.index(after: closing)
+        guard separator < value.endIndex, value[separator] == ":" else { return nil }
+        return (value[value.index(after: value.startIndex)..<closing], value[value.index(after: separator)...])
+    }
+
+    private static func parseColonEndpoint(_ value: String) -> (host: Substring, port: Substring)? {
+        guard let separator = value.lastIndex(of: ":") else { return nil }
+        return (value[..<separator], value[value.index(after: separator)...])
     }
 
     private static func isWildcard(_ host: String) -> Bool {

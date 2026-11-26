@@ -4,18 +4,43 @@ import IOKit
 import IOKit.ps
 
 enum SystemHardwareSampler {
-    static func readGPUName() -> String {
-        guard let matching = IOServiceMatching("AGXAccelerator") else { return "Unknown" }
+    private static let hostPageSize: UInt64 = {
+        var pageSize = vm_size_t()
+        guard host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS, pageSize > 0 else { return 0 }
+        return UInt64(pageSize)
+    }()
+    private static let volumeResourceKeys: [URLResourceKey] = [
+        .volumeNameKey,
+        .volumeTotalCapacityKey,
+        .volumeAvailableCapacityKey
+    ]
+    private static let volumeResourceKeySet = Set(volumeResourceKeys)
+
+    static func openServiceIterator(matching serviceName: String) -> io_iterator_t? {
+        guard let matching = IOServiceMatching(serviceName) else { return nil }
         var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { return "Unknown" }
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else {
+            return nil
+        }
+        return iterator
+    }
+
+    static func readGPUName() -> String {
+        guard let iterator = openServiceIterator(matching: "AGXAccelerator") else { return "Unknown" }
         defer { IOObjectRelease(iterator) }
         while true {
             let service = IOIteratorNext(iterator)
             guard service != 0 else { return "Unknown" }
             defer { IOObjectRelease(service) }
-            guard let value = IORegistryEntryCreateCFProperty(service, "model" as CFString, kCFAllocatorDefault, 0) else { continue }
-            if let name = value.takeRetainedValue() as? String, !name.isEmpty { return name }
+            if let name = modelName(from: service) { return name }
         }
+    }
+
+    private static func modelName(from service: io_registry_entry_t) -> String? {
+        guard let value = IORegistryEntryCreateCFProperty(service, "model" as CFString, kCFAllocatorDefault, 0),
+              let name = value.takeRetainedValue() as? String,
+              !name.isEmpty else { return nil }
+        return name
     }
 
     static func collectMemory() -> MemorySample {
@@ -33,12 +58,10 @@ enum SystemHardwareSampler {
             return emptyMemorySample(totalBytes: total)
         }
 
-        var pageSize = vm_size_t()
-        guard host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS, pageSize > 0 else {
+        let scale = Self.hostPageSize
+        guard scale > 0 else {
             return emptyMemorySample(totalBytes: total)
         }
-
-        let scale = UInt64(pageSize)
         let internalPages = UInt64(info.internal_page_count)
         let purgeablePages = UInt64(info.purgeable_count)
         let app = (internalPages >= purgeablePages ? internalPages - purgeablePages : 0) &* scale
@@ -75,16 +98,16 @@ enum SystemHardwareSampler {
     }
 
     static func collectVolumes() -> [VolumeSample] {
-        let keys: [URLResourceKey] = [.volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey]
         guard let urls = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: keys,
+            includingResourceValuesForKeys: Self.volumeResourceKeys,
             options: [.skipHiddenVolumes]
         ) else { return [] }
 
         var mountPaths = Set<String>()
+        mountPaths.reserveCapacity(urls.count)
         return urls.compactMap { url in
             guard mountPaths.insert(url.path).inserted,
-                  let values = try? url.resourceValues(forKeys: Set(keys)),
+                  let values = try? url.resourceValues(forKeys: Self.volumeResourceKeySet),
                   let total = values.volumeTotalCapacity, total > 0,
                   let available = values.volumeAvailableCapacity, available >= 0 else { return nil }
             let path = url.path
@@ -99,38 +122,43 @@ enum SystemHardwareSampler {
     }
 
     static func collectBattery() -> BatterySample? {
-        guard let infoHandle = IOPSCopyPowerSourcesInfo() else { return nil }
-        let info = infoHandle.takeRetainedValue()
-        guard let sourcesHandle = IOPSCopyPowerSourcesList(info) else { return nil }
-        let sources = sourcesHandle.takeRetainedValue() as NSArray
-
-        for source in sources {
-            guard let descriptionHandle = IOPSGetPowerSourceDescription(info, source as CFTypeRef),
-                  let description = descriptionHandle.takeUnretainedValue() as? [String: Any],
-                  description[kIOPSTypeKey as String] as? String == "InternalBattery",
-                  description[kIOPSIsPresentKey as String] as? Bool ?? true else { continue }
-
-            let current = (description[kIOPSCurrentCapacityKey as String] as? NSNumber)?.doubleValue
-            let maximum = (description[kIOPSMaxCapacityKey as String] as? NSNumber)?.doubleValue
-            let charge: Double? = if let current, let maximum, maximum > 0 {
-                SystemCollectorMath.normalizedPercentage(current * 100 / maximum)
-            } else {
-                nil
-            }
-            let isCharging = description[kIOPSIsChargingKey as String] as? Bool ?? false
-            let timeKey = isCharging ? "Time to Full" : kIOPSTimeToEmptyKey as String
-            let minutes = (description[timeKey] as? NSNumber)?.doubleValue
-            let timeRemaining = minutes.flatMap { $0.isFinite && $0 >= 0 ? $0 * 60 : nil }
-            return BatterySample(
-                chargePercent: charge,
-                isCharging: isCharging,
-                isPresent: true,
-                timeRemaining: timeRemaining,
-                health: description[kIOPSBatteryHealthKey as String] as? String,
-                cycleCount: (description["CycleCount"] as? NSNumber)?.intValue
-            )
+        for description in powerSourceDescriptions() {
+            if let sample = batterySample(from: description) { return sample }
         }
         return nil
+    }
+
+    private static func powerSourceDescriptions() -> [[String: Any]] {
+        guard let infoHandle = IOPSCopyPowerSourcesInfo() else { return [] }
+        let info = infoHandle.takeRetainedValue()
+        guard let sourcesHandle = IOPSCopyPowerSourcesList(info) else { return [] }
+        let sources = sourcesHandle.takeRetainedValue() as NSArray
+        return sources.compactMap { source in
+            IOPSGetPowerSourceDescription(info, source as CFTypeRef)?.takeUnretainedValue() as? [String: Any]
+        }
+    }
+
+    static func batterySample(from description: [String: Any]) -> BatterySample? {
+        guard description[kIOPSTypeKey as String] as? String == "InternalBattery",
+              description[kIOPSIsPresentKey as String] as? Bool ?? true else { return nil }
+
+        let current = (description[kIOPSCurrentCapacityKey as String] as? NSNumber)?.doubleValue
+        let maximum = (description[kIOPSMaxCapacityKey as String] as? NSNumber)?.doubleValue
+        let charge = (current != nil && maximum != nil && (maximum ?? 0) > 0)
+            ? SystemCollectorMath.normalizedPercentage((current ?? 0) * 100 / (maximum ?? 1))
+            : nil
+        let isCharging = description[kIOPSIsChargingKey as String] as? Bool ?? false
+        let timeKey = isCharging ? "Time to Full" : kIOPSTimeToEmptyKey as String
+        let minutes = (description[timeKey] as? NSNumber)?.doubleValue
+        let timeRemaining = minutes.flatMap { $0.isFinite && $0 >= 0 ? $0 * 60 : nil }
+        return BatterySample(
+            chargePercent: charge,
+            isCharging: isCharging,
+            isPresent: true,
+            timeRemaining: timeRemaining,
+            health: description[kIOPSBatteryHealthKey as String] as? String,
+            cycleCount: (description["CycleCount"] as? NSNumber)?.intValue
+        )
     }
 
     static var thermalCondition: ThermalCondition {

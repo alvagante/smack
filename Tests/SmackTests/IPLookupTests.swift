@@ -7,7 +7,7 @@ import Testing
     #expect(IPLookup.publicAddress("[2606:4700:4700::1111]") == "2606:4700:4700::1111")
     #expect(IPLookup.publicAddress("::ffff:1.1.1.1") == "1.1.1.1")
     for host in ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.10", "100.64.0.1", "169.254.1.1",
-                 "203.0.113.8", "224.0.0.251", "::1", "fe80::1%en0", "fd7a:115c:a1e0::1", "2001:db8::1", "::ffff:127.0.0.1", "*", "localhost"] {
+                 "203.0.113.8", "224.0.0.251", "::", "::1", "fe80::1%en0", "fc00::1", "fd7a:115c:a1e0::1", "ff02::1", "2001:db8::1", "::ffff:127.0.0.1", "*", "localhost"] {
         #expect(IPLookup.publicAddress(host) == nil, "\(host)")
     }
 }

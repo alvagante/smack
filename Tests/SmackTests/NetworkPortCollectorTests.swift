@@ -77,3 +77,33 @@ import Testing
     #expect(snapshot.timestamp <= Date())
     #expect(snapshot.warning?.contains("lsof") != true)
 }
+
+@Test func warningMessageHandlesDeniedProcessesAndSandboxedMode() {
+    #expect(NetworkPortCollector.warningMessage(deniedProcessCount: 0, hasPorts: false, isSandboxed: false) == nil)
+    #expect(NetworkPortCollector.warningMessage(deniedProcessCount: 3, hasPorts: true, isSandboxed: true) == nil)
+    #expect(NetworkPortCollector.warningMessage(deniedProcessCount: 3, hasPorts: false, isSandboxed: true)?.contains("App Sandbox") == true)
+    #expect(NetworkPortCollector.warningMessage(deniedProcessCount: 3, hasPorts: false, isSandboxed: false)?.contains("3 process(es)") == true)
+}
+
+@Test func endpointParsesValidAndRejectsMalformedBracketedAndColonInputs() {
+    #expect(NetworkPortCollector.endpoint("0.0.0.0:8080") == NetworkEndpoint(host: "0.0.0.0", port: 8080))
+    #expect(NetworkPortCollector.endpoint("[::]:8443") == NetworkEndpoint(host: "::", port: 8443))
+    #expect(NetworkPortCollector.endpoint("[:]:80") == NetworkEndpoint(host: ":", port: 80))
+    #expect(NetworkPortCollector.endpoint("[::1]") == nil)
+    #expect(NetworkPortCollector.endpoint("[]:80") == nil)
+    #expect(NetworkPortCollector.endpoint(":80") == nil)
+    #expect(NetworkPortCollector.endpoint("[::1]80") == nil)
+}
+
+@Test func snapshotAssociatesOnlyMatchingPidPortAndHostClients() {
+    let listenerOwner = SocketOwnerRecord(pid: 10, name: "web", userName: "al")
+    let otherOwner = SocketOwnerRecord(pid: 20, name: "other", userName: "al")
+    let snapshot = NetworkPortCollector.snapshot(from: [
+        SocketRecord(owner: listenerOwner, descriptor: 1, localAddress: "127.0.0.1:3000", remoteAddress: "—", state: "LISTEN"),
+        SocketRecord(owner: listenerOwner, descriptor: 2, localAddress: "127.0.0.1:3000", remoteAddress: "127.0.0.1:41000", state: "ESTABLISHED"),
+        SocketRecord(owner: listenerOwner, descriptor: 3, localAddress: "10.0.0.2:3000", remoteAddress: "10.0.0.3:41001", state: "ESTABLISHED"),
+        SocketRecord(owner: otherOwner, descriptor: 4, localAddress: "127.0.0.1:3000", remoteAddress: "127.0.0.1:41002", state: "ESTABLISHED")
+    ])
+    #expect(snapshot.ports.count == 1)
+    #expect(snapshot.ports[0].clients.map(\.remotePort) == [41000])
+}

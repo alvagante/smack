@@ -67,143 +67,13 @@ final class HistoryViewModel: ObservableObject {
     }
 }
 
-/// A metric that can share the History chart with others.
-protocol HistoryChartMetric: Hashable, CaseIterable where AllCases == [Self] {
-    var title: String { get }
-    var color: Color { get }
-    func format(_ value: Double) -> String
-    /// Multiplier mapping the metric onto 0...100 when several metrics share the chart; `peaks` when peaks are drawn.
-    func scale(for points: [HistoricalPoint], peaks: Bool) -> Double
-    /// Shortest spacing drawn as a break in the line.
-    static var minimumGap: TimeInterval { get }
-}
-
-/// Scales to the range maximum of averages so one spike does not flatten the line, or of peaks when they are drawn.
-private func rangeMaximumScale(_ points: [HistoricalPoint], peaks: Bool) -> Double {
-    let maximum = points.map { peaks ? $0.peak : $0.average }.max() ?? 0
-    return maximum > 0 ? 100 / maximum : 0
-}
-
-extension SystemMetric: HistoryChartMetric {
-    static var minimumGap: TimeInterval { 0 }
-
-    var title: String {
-        switch self {
-        case .cpu: "CPU"
-        case .memoryUsedBytes: "Memory"
-        case .networkReceiveRate: "Net In"
-        case .networkSendRate: "Net Out"
-        case .diskReadRate: "Disk Read"
-        case .diskWriteRate: "Disk Write"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .cpu: .blue
-        case .memoryUsedBytes: .purple
-        case .networkReceiveRate: .cyan
-        case .networkSendRate: .mint
-        case .diskReadRate: .orange
-        case .diskWriteRate: .pink
-        }
-    }
-
-    func format(_ value: Double) -> String {
-        switch self {
-        case .cpu: Formatting.percent(value)
-        case .memoryUsedBytes: Formatting.bytes(UInt64(max(0, value)))
-        default: Formatting.rate(value)
-        }
-    }
-
-    /// CPU stays absolute and memory is a share of physical memory; rates use the range maximum.
-    func scale(for points: [HistoricalPoint], peaks: Bool) -> Double {
-        switch self {
-        case .cpu: 1
-        case .memoryUsedBytes: 100 / Double(max(1, ProcessInfo.processInfo.physicalMemory))
-        default: rangeMaximumScale(points, peaks: peaks)
-        }
-    }
-}
-
-extension ProcessMetric: HistoryChartMetric {
-    /// Idle processes are stored only once per heartbeat, which must not look like a gap.
-    static var minimumGap: TimeInterval { HistoryRepository.processMinimumGap }
-
-    var title: String {
-        switch self {
-        case .cpuUsage: "CPU"
-        case .memoryBytes: "Memory"
-        case .diskReadRate: "Disk Read"
-        case .diskWriteRate: "Disk Write"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .cpuUsage: .blue
-        case .memoryBytes: .purple
-        case .diskReadRate: .orange
-        case .diskWriteRate: .pink
-        }
-    }
-
-    func format(_ value: Double) -> String {
-        switch self {
-        case .cpuUsage: Formatting.percent(value)
-        case .memoryBytes: Formatting.bytes(UInt64(max(0, value)))
-        default: Formatting.rate(value)
-        }
-    }
-
-    /// Process CPU can exceed 100% on several cores and process memory is a small share of RAM, so all use the range maximum.
-    func scale(for points: [HistoricalPoint], peaks: Bool) -> Double { rangeMaximumScale(points, peaks: peaks) }
-}
-
-/// One metric's line. `plotted` values are what the chart scales; `actual` values are shown in the hover readout.
-private struct HistorySeries: Identifiable {
-    struct Sample: Identifiable {
-        let id: Int
-        let timestamp: Date
-        let plotted: Double
-        let plottedPeak: Double
-        let actual: Double
-        let actualPeak: Double
-        /// Increases after each collection gap; the chart draws every segment as a separate line.
-        let segment: Int
-    }
-
-    let id: String
-    let color: Color
-    let samples: [Sample]
-    /// Readout shows nothing when the cursor is farther than this from a sample, i.e. inside a gap.
-    let gapThreshold: TimeInterval?
-    let format: (Double) -> String
-
-    init(id: String, color: Color, points: [HistoricalPoint], minimumGap: TimeInterval, format: @escaping (Double) -> String, plot: (Double) -> Double) {
-        let segments = HistoricalPoint.segments(points, minimumGap: minimumGap)
-        self.id = id
-        self.color = color
-        self.format = format
-        gapThreshold = HistoricalPoint.gapThreshold(points, minimum: minimumGap)
-        samples = points.indices.map { index in
-            let point = points[index]
-            return Sample(
-                id: index, timestamp: point.timestamp, plotted: plot(point.average), plottedPeak: plot(point.peak),
-                actual: point.average, actualPeak: point.peak, segment: segments[index]
-            )
-        }
-    }
-}
-
 struct HistoryView: View {
     @ObservedObject var store: MonitorStore
     @ObservedObject var model: HistoryViewModel
 
     init(store: MonitorStore) {
         self.store = store
-        model = store.historyViewModel
+        model = store.viewModels.history
     }
 
     var body: some View {
@@ -216,7 +86,7 @@ struct HistoryView: View {
         }
         .padding()
         .task(id: model.requestID) { await reload() }
-        .task(id: model.hours) { model.programs = await store.historicalPrograms(hours: model.hours) }
+        .task(id: model.hours) { model.programs = await MonitorHistoryReader.historicalPrograms(hours: model.hours, store: store) }
         .task(id: model.instancesRequestID) { await loadInstances() }
     }
 
@@ -229,11 +99,11 @@ struct HistoryView: View {
                 Text(program).font(.headline).lineLimit(1)
                 instancePicker
                 ForEach(ProcessMetric.allCases, id: \.self) { metric in
-                    metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
+                    Self.metricChip(metric, enabled: model.enabledProcessMetrics.contains(metric), points: model.processPoints[metric]) { model.toggle(metric) }
                 }
             } else {
                 ForEach(SystemMetric.allCases) { metric in
-                    metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
+                    Self.metricChip(metric, enabled: model.enabledMetrics.contains(metric), points: model.systemPoints[metric]) { model.toggle(metric) }
                 }
             }
             Spacer(minLength: 8)
@@ -254,7 +124,7 @@ struct HistoryView: View {
         Picker("Instance", selection: $model.selectedInstance) {
             Text("All instances (\(model.instances.count))").tag(String?.none)
             ForEach(model.instances.prefix(HistoryViewModel.instancePickerLimit)) { instance in
-                Text(instanceLabel(instance)).tag(Optional(instance.id))
+                Text(Self.instanceLabel(instance)).tag(Optional(instance.id))
             }
         }
         .labelsHidden()
@@ -265,14 +135,14 @@ struct HistoryView: View {
     }
 
     /// Process IDs are "pid-startTime".
-    private func instanceLabel(_ instance: HistoricalProcess) -> String {
+    static func instanceLabel(_ instance: HistoricalProcess) -> String {
         let parts = instance.id.split(separator: "-", maxSplits: 1)
         guard parts.count == 2, let start = Double(parts[1]) else { return instance.id }
         return "PID \(parts[0]), started \(Date(timeIntervalSince1970: start).formatted(date: .abbreviated, time: .shortened))"
     }
 
-    private func metricChip<M: HistoryChartMetric>(_ metric: M, enabled: Bool, points: [HistoricalPoint]?, toggle: @escaping () -> Void) -> some View {
-        let peak = points?.map(\.peak).max()
+    private static func metricChip<M: HistoryChartMetric>(_ metric: M, enabled: Bool, points: [HistoricalPoint]?, toggle: @escaping () -> Void) -> some View {
+        let peak = points?.max(by: { $0.peak < $1.peak })?.peak
         return Button(action: toggle) {
             HStack(spacing: 4) {
                 Circle().fill(enabled ? metric.color : .secondary.opacity(0.4)).frame(width: 8, height: 8)
@@ -360,7 +230,13 @@ struct HistoryView: View {
 
     private func yUpperBound(_ series: [HistorySeries]) -> Double {
         if normalized { return 100 }
-        let maximum = series.flatMap(\.samples).map { model.showPeaks ? max($0.plotted, $0.plottedPeak) : $0.plotted }.max() ?? 0
+        var maximum = 0.0
+        for line in series {
+            for sample in line.samples {
+                let value = model.showPeaks ? max(sample.plotted, sample.plottedPeak) : sample.plotted
+                if value > maximum { maximum = value }
+            }
+        }
         return maximum > 0 ? maximum * 1.05 : 1
     }
 
@@ -369,17 +245,7 @@ struct HistoryView: View {
             Text(date, format: model.hours > 24 ? .dateTime.weekday().hour().minute() : .dateTime.hour().minute().second())
                 .foregroundStyle(.secondary)
             ForEach(series) { line in
-                HStack(spacing: 4) {
-                    Circle().fill(line.color).frame(width: 6, height: 6)
-                    Text(line.id)
-                    Spacer(minLength: 8)
-                    if let sample = nearest(to: date, in: line) {
-                        Text(line.format(sample.actual)).monospacedDigit()
-                        Text("peak \(line.format(sample.actualPeak))").foregroundStyle(.secondary).monospacedDigit()
-                    } else {
-                        Text("no data").foregroundStyle(.secondary)
-                    }
-                }
+                Self.readoutRow(for: line, at: date)
             }
         }
         .font(.caption)
@@ -388,8 +254,22 @@ struct HistoryView: View {
         .fixedSize()
     }
 
+    private static func readoutRow(for line: HistorySeries, at date: Date) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(line.color).frame(width: 6, height: 6)
+            Text(line.id)
+            Spacer(minLength: 8)
+            if let sample = nearest(to: date, in: line) {
+                Text(line.format(sample.actual)).monospacedDigit()
+                Text("peak \(line.format(sample.actualPeak))").foregroundStyle(.secondary).monospacedDigit()
+            } else {
+                Text("no data").foregroundStyle(.secondary)
+            }
+        }
+    }
+
     /// Closest sample to `date`, or nil when the cursor sits inside a collection gap.
-    private func nearest(to date: Date, in line: HistorySeries) -> HistorySeries.Sample? {
+    static func nearest(to date: Date, in line: HistorySeries) -> HistorySeries.Sample? {
         let samples = line.samples
         var low = 0, high = samples.count
         while low < high {
@@ -463,11 +343,11 @@ struct HistoryView: View {
         defer { model.loading = false }
         let limit = HistoryViewModel.pointLimit
         if let program = model.selectedProgram {
-            model.processPoints = await store.processHistory(program: program, processID: model.selectedInstance, hours: model.hours, limit: limit)
+            model.processPoints = await MonitorHistoryReader.processHistory(program: program, processID: model.selectedInstance, hours: model.hours, limit: limit, store: store)
         } else {
             var result: [SystemMetric: [HistoricalPoint]] = [:]
             for metric in SystemMetric.allCases {
-                result[metric] = HistoricalPoint.downsampled(await store.systemHistory(metric, hours: model.hours), limit: limit)
+                result[metric] = HistoricalPoint.downsampled(await MonitorHistoryReader.systemHistory(metric, hours: model.hours, store: store), limit: limit)
             }
             model.systemPoints = result
         }
@@ -475,6 +355,6 @@ struct HistoryView: View {
 
     private func loadInstances() async {
         guard let program = model.selectedProgram else { return }
-        model.instances = await store.historicalInstances(of: program, hours: model.hours)
+        model.instances = await MonitorHistoryReader.historicalInstances(of: program, hours: model.hours, store: store)
     }
 }
