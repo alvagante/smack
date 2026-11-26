@@ -12,7 +12,7 @@ struct NetworkPortsView: View {
 
     init(store: MonitorStore) {
         self.store = store
-        model = store.networkPortsViewModel
+        model = store.viewModels.networkPorts
     }
 
     private var query: String { model.query }
@@ -22,22 +22,28 @@ struct NetworkPortsView: View {
     }
 
     private var ports: [ListeningPort] {
-        let ports = store.networkPorts?.ports ?? []
+        let ports = store.networkPortsState.snapshot?.ports ?? []
         guard !query.isEmpty else { return ports }
-        return ports.filter {
-            "\($0.localAddress) \($0.port) \($0.processName) \($0.pid) \($0.userName ?? "") \($0.scope.rawValue)"
-                .localizedCaseInsensitiveContains(query)
-        }
+        return ports.filter { Self.matches($0, query: query) }
+    }
+
+    private static func matches(_ port: ListeningPort, query: String) -> Bool {
+        port.localAddress.localizedCaseInsensitiveContains(query)
+            || port.processName.localizedCaseInsensitiveContains(query)
+            || (port.userName?.localizedCaseInsensitiveContains(query) == true)
+            || port.scope.rawValue.localizedCaseInsensitiveContains(query)
+            || String(port.port).contains(query)
+            || String(port.pid).contains(query)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                summary("Listening", value: store.networkPorts?.ports.count, color: .primary)
-                summary("External", value: store.networkPorts?.externalCount, color: .orange)
-                summary("Localhost", value: store.networkPorts?.localhostCount, color: .green)
+                Self.summary("Listening", value: store.networkPortsState.snapshot?.ports.count, color: .primary)
+                Self.summary("External", value: store.networkPortsState.snapshot?.externalCount, color: .orange)
+                Self.summary("Localhost", value: store.networkPortsState.snapshot?.localhostCount, color: .green)
                 Spacer()
-                if let timestamp = store.networkPorts?.timestamp {
+                if let timestamp = store.networkPortsState.snapshot?.timestamp {
                     Text(timestamp, style: .time)
                         .font(.caption)
                         .monospacedDigit()
@@ -46,13 +52,13 @@ struct NetworkPortsView: View {
                 Button {
                     store.loadNetworkPorts()
                 } label: {
-                    if store.networkPortsLoading {
+                    if store.networkPortsState.isLoading {
                         ProgressView().controlSize(.small)
                     } else {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
                 }
-                .disabled(store.networkPortsLoading)
+                .disabled(store.networkPortsState.isLoading)
             }
             .padding()
 
@@ -60,7 +66,7 @@ struct NetworkPortsView: View {
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal)
 
-            if let warning = store.networkPorts?.warning, !warning.isEmpty {
+            if let warning = store.networkPortsState.snapshot?.warning, !warning.isEmpty {
                 Label(warning, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -152,11 +158,11 @@ struct NetworkPortsView: View {
             }
         }
         .onAppear {
-            if store.networkPorts == nil { store.loadNetworkPorts() }
+            if store.networkPortsState.snapshot == nil { store.loadNetworkPorts() }
         }
     }
 
-    private func summary(_ title: String, value: Int?, color: Color) -> some View {
+    private static func summary(_ title: String, value: Int?, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value.map(String.init) ?? "—")
                 .font(.title2.weight(.semibold))

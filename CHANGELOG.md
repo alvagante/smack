@@ -2,6 +2,39 @@
 
 All notable changes to Smack are documented in this file.
 
+## [Unreleased] - 2026-11-26 UTC
+Branch: feature/reduce-complexity | Commit: 38bc42f
+
+### Changed
+
+- Updated bundle metadata (`Info.plist`) to `1.3.1-beta2` (build `15`).
+- Replaced `1 + 4 × N` per-process export queries with a single SQLite `UNION ALL` query in `HistoryRepository.appendProcessExportRecords`, and passed exact UTF-8 byte lengths to `sqlite3_bind_text` in `HistorySQLiteDatabase.bind`.
+- Precomputed `NetworkPortSnapshot.externalCount` and `localhostCount` in a single pass (`init` + `didSet`) and replaced string interpolation filtering in `NetworkPortsView` with `Self.matches(_:query:)`.
+- Cached boot-immutable `SystemInformation` sections and properties (`cachedHardwareSection`, `cachedOSBuild`, `cachedDarwinVersion`, `cachedKernelVersion`, `cachedBootTime`) and pre-allocated `storageSection(volumes:)`.
+- Added `ProcessSampling.allProcessIdentifiers(preferSysctl:)` and guarded `SmackMain.diagnose()` socket collection behind `Capabilities.supportsNetworkPortInspection` to eliminate avoidable App Sandbox kernel denials (`listpids`, `pidfdinfo`, `rusage`).
+- Cached per-process executable paths (`ProcessPathCacheKey` + `NSLock`), `getpwuid_r` lookups, boot-time `hostPageSize` / volume resource keys, IOKit disk names, `SystemInformation` properties, and bounded `64×64` rasterized `ApplicationIconCache` entries (`maxEntries = 128`).
+- Reused prepared SQLite statements (`ProcessWriteStatements` and `systemInsertStatement`) in `HistoryProcessWriter`, skipped `BEGIN IMMEDIATE`/`COMMIT` on quiet ticks with zero writes, and deferred `upsertProcess` past the `idleRuns` fast-skip path until change, 60s heartbeat, or exit.
+- Replaced O(P × A) application prefix scans with O(1) backwards root lookups (`inheritedApplicationsByRoot`), precomputed `ApplicationMetrics` totals, pre-reserved `LiveMetricHistory` series, added an O(N) `isAlreadySorted` fast-path in `ApplicationListViewModel`, and removed intermediate allocations in `HistoryView`, `SummaryView`, `Sparkline`, `HistoryExporter`, `SmackSound`, and `IPLookup`.
+- Expanded `Tests/SmackTests/` (`SmackMainTests`, `ViewAndChartTests`, `PrivilegedSamplingTests`, `ProcessCollectorTests`, `NativeMenuBarTests`, `SettingsTests`, `FormattingAndSoundTests`, `HistoryRepositoryTests`) for 100% file-level coverage across pending `Sources/` files and both `direct` and `-DSMACK_APP_STORE` targets.
+- Decomposed `HistoryRepository` into `HistorySQLiteDatabase`, `HistorySchemaMigrator`, `HistoryMaintenance`, and `HistoryExporter`, removing duplicated SQLite execution helpers in `migrate` (`openspec/specs/complexity-reduction/spec.md`).
+- Separated stateless hardware/OS readers (`SystemHardwareSampler`) and `SystemIOMetricsReader` from `SystemCollector`, extracted `CollectionScheduler` helpers and `PanelPlacement` from `PanelController`, and extracted `NativeMenuBarSystemBridge` (`!SMACK_APP_STORE`) from `NativeMenuBarStore`.
+- Unified duplicated application and process filtering/sorting in `ProcessViews` via `SortableProcessItem` inside `ApplicationListViewModel`, and extracted per-record rate computation in `ProcessSnapshotBuilder`.
+- Extracted a shared two-pass `proc_pidinfo` buffer helper and split vnode/socket inspection in `InventorySampling`.
+
+### Fixed
+
+- Upgraded `HistorySchemaMigrator`, `HistoryRepository`, and `HistoryMaintenance` to natively support SQLite schema version 5 (`processes.key`, `process_key`, v4 default columns, preserving `events`/`metadata`), resolving immediate launch termination (`unsupportedSchemaVersion(5)`) against existing `v1.3.0` databases, and added `LocalizedError` descriptions on `HistoryRepositoryError`.
+
+- Fixed 41.67× per-process CPU% under-reporting on Apple Silicon by scaling `proc_taskallinfo` Mach ticks (`pti_total_user + pti_total_system`) to nanoseconds using `mach_timebase_info` via overflow-safe 128-bit arithmetic (`ProcessSampling.machTicksToNanoseconds`).
+- Fixed `0 B` third-party process memory reporting under App Sandbox by falling back to `information.ptinfo.pti_resident_size` in `ProcessSampling.records` and updating sandbox messaging in `ProcessSnapshotBuilder` and `ProcessViews`.
+- Replaced `DispatchQueue.main.sync` in `ProcessSnapshotBuilder` with `@MainActor` async metadata resolution, made `PanelController.smackSound` lazy on first open, guarded `PanelPlacement.targetFrame()` against empty `NSScreen.screens`, and pruned exited PIDs from `MonitorStore.inventoryState.scheduled`.
+- Fixed permanent hover auto-dismiss failure in `PanelController.mouseMoved` by resetting `dismissTask` to `nil` on pointer re-entry and grace-period completion, and added `deinit` cleanup for `NSEvent` monitors.
+- Fixed IPv4 socket address decoding in `InventorySampling.addressBytes` to read `in4in6_addr.i46a_addr4` at bytes `12..<16` instead of `0..<4` (which previously reported `0.0.0.0`).
+
+### Security
+
+- Replaced raw timestamp string interpolation in `HistoryRepository` retention and storage-limit `DELETE` queries with bound SQLite `?` parameters (`CWE-89`).
+
 ## [0.4.0] - 2026-10-28
 
 ### Added

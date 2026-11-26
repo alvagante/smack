@@ -1,22 +1,41 @@
 import Foundation
 
+private struct CollectionProviders {
+    let system: SystemMetricsCollecting
+    let process: ProcessMetricsCollecting
+    let inventory: InventoryCollecting
+    let networkPort: NetworkPortCollecting
+}
+
+private struct CollectionCallbacks {
+    let onSystem: @Sendable (SystemSample) -> Void
+    let onProcesses: @Sendable (ProcessSnapshot) -> Void
+    let onInventory: @Sendable (String, ProcessInventory) -> Void
+    let onNetworkPorts: @Sendable (NetworkPortSnapshot) -> Void
+}
+
+private struct SchedulerTasks {
+    var system: Task<Void, Never>?
+    var process: Task<Void, Never>?
+    var inventory: Task<Void, Never>?
+    var networkPort: Task<Void, Never>?
+    var maintenance: Task<Void, Never>?
+
+    mutating func cancelSampling() {
+        system?.cancel()
+        process?.cancel()
+        inventory?.cancel()
+        networkPort?.cancel()
+    }
+}
+
 actor CollectionScheduler {
-    private let systemCollector: SystemMetricsCollecting
-    private let processCollector: ProcessMetricsCollecting
-    private let inventoryCollector: InventoryCollecting
-    private let networkPortCollector: NetworkPortCollecting
+    private let providers: CollectionProviders
+    private let callbacks: CollectionCallbacks
     private let history: HistoryRepository
     private var settings: CollectionSettings
     private var visible = false
-    private var systemTask: Task<Void, Never>?
-    private var processTask: Task<Void, Never>?
-    private var inventoryTask: Task<Void, Never>?
-    private var networkPortTask: Task<Void, Never>?
-    private var maintenanceTask: Task<Void, Never>?
-    private let onSystem: @Sendable (SystemSample) -> Void
-    private let onProcesses: @Sendable (ProcessSnapshot) -> Void
-    private let onInventory: @Sendable (String, ProcessInventory) -> Void
-    private let onNetworkPorts: @Sendable (NetworkPortSnapshot) -> Void
+    private var tasks = SchedulerTasks()
 
     init(
         systemCollector: SystemMetricsCollecting,
@@ -30,16 +49,20 @@ actor CollectionScheduler {
         onInventory: @escaping @Sendable (String, ProcessInventory) -> Void = { _, _ in },
         onNetworkPorts: @escaping @Sendable (NetworkPortSnapshot) -> Void = { _ in }
     ) {
-        self.systemCollector = systemCollector
-        self.processCollector = processCollector
-        self.inventoryCollector = inventoryCollector
-        self.networkPortCollector = networkPortCollector
+        providers = CollectionProviders(
+            system: systemCollector,
+            process: processCollector,
+            inventory: inventoryCollector,
+            networkPort: networkPortCollector
+        )
+        callbacks = CollectionCallbacks(
+            onSystem: onSystem,
+            onProcesses: onProcesses,
+            onInventory: onInventory,
+            onNetworkPorts: onNetworkPorts
+        )
         self.history = history
         self.settings = settings
-        self.onSystem = onSystem
-        self.onProcesses = onProcesses
-        self.onInventory = onInventory
-        self.onNetworkPorts = onNetworkPorts
     }
 
     func setVisible(_ value: Bool) {
@@ -53,50 +76,53 @@ actor CollectionScheduler {
     }
 
     func inventory(for process: ProcessMetrics) async -> ProcessInventory {
-        await inventoryCollector.collectInventory(
+        await providers.inventory.collectInventory(
             for: process,
             includePrivileged: settings.privilegedSampling
         )
     }
 
     func networkPorts() async -> NetworkPortSnapshot {
-        await networkPortCollector.collectNetworkPorts(
+        await providers.networkPort.collectNetworkPorts(
             includePrivileged: settings.privilegedSampling
         )
     }
 
     private func restartSampling() {
-        systemTask?.cancel()
-        processTask?.cancel()
-        inventoryTask?.cancel()
-        networkPortTask?.cancel()
-        systemTask = Task { await runSystemLoop() }
-        processTask = Task { await runProcessLoop() }
-        networkPortTask = Task { await runNetworkPortLoop() }
-        if maintenanceTask == nil {
-            maintenanceTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    await self.maintainHistory()
-                    try? await Task.sleep(for: .seconds(300))
-                }
+        tasks.cancelSampling()
+        tasks.system = Task { await runSystemLoop() }
+        tasks.process = Task { await runProcessLoop() }
+        tasks.networkPort = Task { await runNetworkPortLoop() }
+        startMaintenanceIfNeeded()
+        startInventoryIfEnabled()
+    }
+
+    private func startMaintenanceIfNeeded() {
+        guard tasks.maintenance == nil else { return }
+        tasks.maintenance = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.maintainHistory()
+                try? await Task.sleep(for: .seconds(300))
             }
         }
-        if let interval = settings.backgroundInventoryInterval {
-            inventoryTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    await self.runScheduledInventory()
-                    try? await Task.sleep(for: .seconds(interval))
-                }
+    }
+
+    private func startInventoryIfEnabled() {
+        guard let interval = settings.backgroundInventoryInterval else { return }
+        tasks.inventory = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.runScheduledInventory()
+                try? await Task.sleep(for: .seconds(interval))
             }
         }
     }
 
     private func runSystemLoop() async {
         while !Task.isCancelled {
-            let sample = systemCollector.collectSystemSample()
-            onSystem(sample)
+            let sample = providers.system.collectSystemSample()
+            callbacks.onSystem(sample)
             try? await history.save(system: sample)
             let interval = visible ? 1.0 : settings.backgroundSystemInterval
             guard let interval else { return }
@@ -106,8 +132,8 @@ actor CollectionScheduler {
 
     private func runProcessLoop() async {
         while !Task.isCancelled {
-            let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
-            onProcesses(snapshot)
+            let snapshot = await providers.process.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
+            callbacks.onProcesses(snapshot)
             try? await history.save(processes: snapshot)
             let interval = visible ? 1.0 : settings.backgroundProcessInterval
             guard let interval else { return }
@@ -118,25 +144,25 @@ actor CollectionScheduler {
     private func runNetworkPortLoop() async {
         guard Capabilities.supportsNetworkPortInspection else { return }
         while !Task.isCancelled {
-            let snapshot = await networkPortCollector.collectNetworkPorts(
+            let snapshot = await providers.networkPort.collectNetworkPorts(
                 includePrivileged: settings.privilegedSampling
             )
-            onNetworkPorts(snapshot)
+            callbacks.onNetworkPorts(snapshot)
             try? await Task.sleep(for: .seconds(visible ? 5 : 60))
         }
     }
 
     private func runScheduledInventory() async {
         guard !visible, !Capabilities.isSandboxed else { return }
-        let snapshot = await processCollector.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
+        let snapshot = await providers.process.collectProcessSnapshot(includePrivileged: settings.privilegedSampling)
         let processes = snapshot.applications.flatMap(\.processes) + snapshot.backgroundProcesses
         for process in processes {
             guard !Task.isCancelled else { return }
-            let inventory = await inventoryCollector.collectInventory(
+            let inventory = await providers.inventory.collectInventory(
                 for: process,
                 includePrivileged: settings.privilegedSampling
             )
-            onInventory(process.id, inventory)
+            callbacks.onInventory(process.id, inventory)
         }
     }
 

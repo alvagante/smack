@@ -40,7 +40,7 @@ struct SummaryView: View {
     private var networkPortsCard: some View {
         Button { store.route = .networkPorts } label: {
             MetricCard(title: "Network Ports", systemImage: "cable.connector") {
-                if let ports = store.networkPorts {
+                if let ports = store.networkPortsState.snapshot {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(ports.ports.count) listening")
                             .font(.title3.weight(.semibold))
@@ -124,7 +124,7 @@ struct SummaryView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.cpuUsage), color: .blue)], domain: 0...100)
+            Sparkline(series: [SparklineSeries(values: store.recentMetrics.cpuValues, color: .blue)], domain: 0...100)
         }
     }
 
@@ -141,19 +141,19 @@ struct SummaryView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Sparkline(series: [SparklineSeries(values: store.recentMetrics.points.map(\.memoryUsage), color: .purple)], domain: 0...100)
+            Sparkline(series: [SparklineSeries(values: store.recentMetrics.memoryValues, color: .purple)], domain: 0...100)
         }
     }
 
     private var networkCard: some View {
         card(.network, image: "network") {
             HStack(spacing: 8) {
-                throughput(label: "↓", value: Formatting.rate(store.system?.receiveRate ?? 0), color: .cyan)
-                throughput(label: "↑", value: Formatting.rate(store.system?.sendRate ?? 0), color: .mint)
+                Self.throughput(label: "↓", value: Formatting.rate(store.system?.receiveRate ?? 0), color: .cyan)
+                Self.throughput(label: "↑", value: Formatting.rate(store.system?.sendRate ?? 0), color: .mint)
             }
             Sparkline(series: [
-                SparklineSeries(values: store.recentMetrics.points.map(\.receiveRate), color: .cyan),
-                SparklineSeries(values: store.recentMetrics.points.map(\.sendRate), color: .mint)
+                SparklineSeries(values: store.recentMetrics.receiveValues, color: .cyan),
+                SparklineSeries(values: store.recentMetrics.sendValues, color: .mint)
             ])
         }
     }
@@ -161,33 +161,42 @@ struct SummaryView: View {
     private var diskCard: some View {
         card(.disk, image: "internaldrive") {
             HStack(spacing: 8) {
-                throughput(label: "R", value: Formatting.rate(store.system?.diskReadRate ?? 0), color: .orange)
-                throughput(label: "W", value: Formatting.rate(store.system?.diskWriteRate ?? 0), color: .pink)
+                Self.throughput(label: "R", value: Formatting.rate(store.system?.diskReadRate ?? 0), color: .orange)
+                Self.throughput(label: "W", value: Formatting.rate(store.system?.diskWriteRate ?? 0), color: .pink)
             }
             Sparkline(series: [
-                SparklineSeries(values: store.recentMetrics.points.map(\.diskReadRate), color: .orange),
-                SparklineSeries(values: store.recentMetrics.points.map(\.diskWriteRate), color: .pink)
+                SparklineSeries(values: store.recentMetrics.diskReadValues, color: .orange),
+                SparklineSeries(values: store.recentMetrics.diskWriteValues, color: .pink)
             ])
         }
     }
 
     private func storageCard(_ volumes: [VolumeSample]) -> some View {
-        let total = volumes.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
-        let used = volumes.reduce(UInt64(0)) { $0 &+ $1.usedBytes }
-        let fraction = total > 0 ? Double(used) / Double(total) : 0
+        let totals = Self.storageTotals(for: volumes)
+        let fraction = totals.total > 0 ? Double(totals.used) / Double(totals.total) : 0
         return card(.storage, image: "externaldrive") {
             HStack(spacing: 16) {
                 MetricGauge(value: fraction, text: Formatting.percent(fraction * 100), color: .indigo)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Formatting.bytes(used))
+                    Text(Formatting.bytes(totals.used))
                         .font(.title3.weight(.semibold))
-                    Text("used of \(Formatting.bytes(total))")
+                    Text("used of \(Formatting.bytes(totals.total))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    static func storageTotals(for volumes: [VolumeSample]) -> (total: UInt64, used: UInt64) {
+        var total: UInt64 = 0
+        var used: UInt64 = 0
+        for volume in volumes {
+            total &+= volume.totalBytes
+            used &+= volume.usedBytes
+        }
+        return (total, used)
     }
 
     private func batteryCard(_ battery: BatterySample) -> some View {
@@ -222,7 +231,7 @@ struct SummaryView: View {
         }
     }
 
-    private func throughput(label: String, value: String, color: Color) -> some View {
+    private static func throughput(label: String, value: String, color: Color) -> some View {
         HStack(spacing: 4) {
             Text(label)
                 .foregroundStyle(color)

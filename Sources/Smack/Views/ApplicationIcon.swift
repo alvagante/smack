@@ -2,8 +2,13 @@ import AppKit
 import SwiftUI
 
 @MainActor
-private enum ApplicationIconCache {
+enum ApplicationIconCache {
+    private static let maxEntries = 128
     private static var images: [String: NSImage] = [:]
+
+    static func reset() {
+        images.removeAll(keepingCapacity: true)
+    }
 
     static func image(bundleIdentifier: String?, executablePath: String?) -> NSImage {
         let key = bundleIdentifier ?? executablePath ?? "generic-application"
@@ -11,12 +16,22 @@ private enum ApplicationIconCache {
 
         let bundleURL = bundleIdentifier.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let executableBundleURL = executablePath.flatMap { path -> URL? in
-            guard let range = path.range(of: ".app/Contents/") else { return nil }
+            guard let range = path.range(of: ".app/Contents/", options: .backwards) else { return nil }
             return URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app")
         }
-        let image = (bundleURL ?? executableBundleURL).map { NSWorkspace.shared.icon(forFile: $0.path) }
-            ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)
-            ?? NSImage()
+        let image: NSImage
+        if let url = bundleURL ?? executableBundleURL {
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+                icon.draw(in: rect)
+                return true
+            }
+        } else {
+            image = NSImage(systemSymbolName: "app", accessibilityDescription: nil) ?? NSImage()
+        }
+        if images.count >= maxEntries {
+            images.removeAll(keepingCapacity: true)
+        }
         images[key] = image
         return image
     }

@@ -10,15 +10,30 @@ struct VisibleApplicationMetadata: Sendable {
 
 final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
     private let builder = ProcessSnapshotBuilder()
+    private let pathCacheLock = NSLock()
+    private var pathCache: [ProcessPathCacheKey: String?] = [:]
 
     init() {}
 
     func collectProcessSnapshot(includePrivileged: Bool) async -> ProcessSnapshot {
+        let metadata: [Int32: VisibleApplicationMetadata]
+        if let cached = builder.resolveVisibleApplicationMetadata() {
+            metadata = cached
+        } else {
+            metadata = await MainActor.run { ProcessCollector.readVisibleApplicationMetadata() }
+        }
         // App Sandbox denies proc_pid_rusage for other processes; skip the failing calls
         // instead of generating a denied syscall for every process on every sample.
-        builder.build(
-            records: ProcessSampling.records(restrictUsageToCurrentProcess: Capabilities.isSandboxed),
-            timestamp: Date()
+        let records = pathCacheLock.withLock {
+            ProcessSampling.records(
+                restrictUsageToCurrentProcess: Capabilities.isSandboxed,
+                pathCache: &pathCache
+            )
+        }
+        return builder.build(
+            records: records,
+            timestamp: Date(),
+            metadata: metadata
         )
     }
 
@@ -27,27 +42,20 @@ final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
         metadata: [Int32: VisibleApplicationMetadata]
     ) -> (applications: [ApplicationMetrics], background: [ProcessMetrics]) {
         var groups: [String: [ProcessMetrics]] = [:]
+        groups.reserveCapacity(metadata.count)
         var names: [String: String] = [:]
+        names.reserveCapacity(metadata.count)
         var background: [ProcessMetrics] = []
+        background.reserveCapacity(processes.count)
 
-        func bundleRoot(_ path: String?) -> String? {
-            guard let path, let range = path.range(of: ".app/Contents/") else { return nil }
-            return String(path[..<range.lowerBound]) + ".app"
-        }
-
-        let inheritedMetadata = metadata.values.compactMap { application -> (prefix: String, metadata: VisibleApplicationMetadata)? in
-            guard let root = bundleRoot(application.executablePath) else { return nil }
-            return (root + "/", application)
-        }.sorted { $0.prefix.count > $1.prefix.count }
+        let inheritedByRoot = inheritedApplicationsByRoot(from: metadata)
         let applicationMetadata = Dictionary(metadata.values.compactMap { application in
             (application.bundleIdentifier ?? application.executablePath).map { ($0, application) }
         }, uniquingKeysWith: { _, last in last })
 
         for process in processes {
-            let inherited = process.executablePath.flatMap { path in
-                inheritedMetadata.first { path.hasPrefix($0.prefix) }?.metadata
-            }
-            guard let application = metadata[process.identity.pid] ?? inherited else {
+            guard let application = metadata[process.identity.pid]
+                    ?? inheritedApplication(for: process.executablePath, byRoot: inheritedByRoot) else {
                 background.append(process)
                 continue
             }
@@ -56,18 +64,54 @@ final class ProcessCollector: ProcessMetricsCollecting, @unchecked Sendable {
             names[key] = application.name
         }
 
-        let applications = groups.map { key, processes in
-            let orderedProcesses = processes.sorted { $0.identity.id < $1.identity.id }
-            let application = applicationMetadata[key]
-            return ApplicationMetrics(
-                id: key,
-                name: names[key] ?? orderedProcesses[0].name,
-                bundleIdentifier: application?.bundleIdentifier ?? orderedProcesses.compactMap(\.bundleIdentifier).first,
-                executablePath: application?.executablePath ?? orderedProcesses.compactMap(\.executablePath).first,
-                processes: orderedProcesses
-            )
+        let applications = groups.map { key, groupProcesses in
+            buildApplication(key: key, name: names[key], processes: groupProcesses, metadata: applicationMetadata[key])
         }
         return (applications, background)
+    }
+
+    private static func inheritedApplicationsByRoot(
+        from metadata: [Int32: VisibleApplicationMetadata]
+    ) -> [String: VisibleApplicationMetadata] {
+        var result: [String: VisibleApplicationMetadata] = [:]
+        result.reserveCapacity(metadata.count)
+        for application in metadata.values {
+            guard let path = application.executablePath,
+                  let range = path.range(of: ".app/Contents/", options: .backwards) else { continue }
+            let root = String(path[..<range.lowerBound]) + ".app"
+            result[root] = application
+        }
+        return result
+    }
+
+    private static func inheritedApplication(
+        for path: String?,
+        byRoot: [String: VisibleApplicationMetadata]
+    ) -> VisibleApplicationMetadata? {
+        guard let path, !byRoot.isEmpty else { return nil }
+        var searchEnd = path.endIndex
+        while let range = path.range(of: ".app/Contents/", options: .backwards, range: path.startIndex..<searchEnd) {
+            let root = String(path[..<range.lowerBound]) + ".app"
+            if let match = byRoot[root] { return match }
+            searchEnd = range.lowerBound
+        }
+        return nil
+    }
+
+    private static func buildApplication(
+        key: String,
+        name: String?,
+        processes: [ProcessMetrics],
+        metadata: VisibleApplicationMetadata?
+    ) -> ApplicationMetrics {
+        let orderedProcesses = processes.sorted { $0.identity.id < $1.identity.id }
+        return ApplicationMetrics(
+            id: key,
+            name: name ?? orderedProcesses[0].name,
+            bundleIdentifier: metadata?.bundleIdentifier ?? orderedProcesses.first(where: { $0.bundleIdentifier != nil })?.bundleIdentifier,
+            executablePath: metadata?.executablePath ?? orderedProcesses.first(where: { $0.executablePath != nil })?.executablePath,
+            processes: orderedProcesses
+        )
     }
 
     @MainActor

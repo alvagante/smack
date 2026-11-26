@@ -75,16 +75,8 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Se
         lock.unlock()
         if let existing { return existing }
 
-        // The daemon lives in the system bootstrap whichever way it was installed.
-        let new = NSXPCConnection(machServiceName: SmackIPC.machServiceName, options: .privileged)
-        new.remoteObjectInterface = NSXPCInterface(with: SmackPrivilegedSampling.self)
-        new.invalidationHandler = { [weak self, weak new] in
-            guard let new else { return }
-            self?.invalidate(new)
-        }
-        new.interruptionHandler = { [weak self, weak new] in
-            guard let new else { return }
-            self?.invalidate(new)
+        let new = Self.makeConnection { [weak self] stale in
+            self?.invalidate(stale)
         }
 
         lock.lock()
@@ -97,6 +89,23 @@ final class PrivilegedSamplingClient: PrivilegedSamplingProviding, @unchecked Se
         lock.unlock()
         new.resume()
         return new
+    }
+
+    private static func makeConnection(
+        onInvalidated: @escaping @Sendable (NSXPCConnection) -> Void
+    ) -> NSXPCConnection {
+        // The daemon lives in the system bootstrap whichever way it was installed.
+        let connection = NSXPCConnection(machServiceName: SmackIPC.machServiceName, options: .privileged)
+        connection.remoteObjectInterface = NSXPCInterface(with: SmackPrivilegedSampling.self)
+        connection.invalidationHandler = { [weak connection] in
+            guard let connection else { return }
+            onInvalidated(connection)
+        }
+        connection.interruptionHandler = { [weak connection] in
+            guard let connection else { return }
+            onInvalidated(connection)
+        }
+        return connection
     }
 
     private func invalidate(_ connection: NSXPCConnection) {

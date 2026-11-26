@@ -10,6 +10,19 @@ enum ProcessSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+protocol SortableProcessItem {
+    var name: String { get }
+    var bundleIdentifier: String? { get }
+    var cpuUsage: Double { get }
+    var memoryBytes: UInt64 { get }
+    var diskReadRate: Double { get }
+    var diskWriteRate: Double { get }
+    var energyImpact: Double? { get }
+}
+
+extension ApplicationMetrics: SortableProcessItem {}
+extension ProcessMetrics: SortableProcessItem {}
+
 @MainActor
 final class ApplicationListViewModel: ObservableObject {
     @Published var query = ""
@@ -24,11 +37,71 @@ final class ApplicationListViewModel: ObservableObject {
             ascending = newSort == .name
         }
     }
+
+    func filtered<Item: SortableProcessItem>(_ items: [Item]) -> [Item] {
+        let matching = query.isEmpty ? items : items.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(query) == true)
+        }
+        if Self.isAlreadySorted(matching, by: sort, ascending: ascending) {
+            return matching
+        }
+        return matching.sorted { Self.compare($0, $1, by: sort, ascending: ascending) }
+    }
+
+    private static func isAlreadySorted<Item: SortableProcessItem>(
+        _ items: [Item],
+        by sort: ProcessSort,
+        ascending: Bool
+    ) -> Bool {
+        guard items.count > 1 else { return true }
+        for index in 1..<items.count {
+            if compare(items[index], items[index - 1], by: sort, ascending: ascending) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func compare<Item: SortableProcessItem>(
+        _ lhs: Item,
+        _ rhs: Item,
+        by sort: ProcessSort,
+        ascending: Bool
+    ) -> Bool {
+        switch sort {
+        case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage, ascending: ascending)
+        case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes, ascending: ascending)
+        case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate, ascending: ascending)
+        case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity, ascending: ascending)
+        case .name: lhs.name.localizedCaseInsensitiveCompare(rhs.name) == (ascending ? .orderedAscending : .orderedDescending)
+        }
+    }
+
+    private static func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value, ascending: Bool) -> Bool {
+        ascending ? lhs < rhs : lhs > rhs
+    }
 }
 
 @MainActor
 final class ProcessDetailViewModel: ObservableObject {
     @Published var filter = ""
+
+    func filtered(_ values: [OpenFile]) -> [OpenFile] {
+        filterValues(values) { $0.path }
+    }
+
+    func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] {
+        filterValues(values) { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)" }
+    }
+
+    func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] {
+        filterValues(values) { $0.path }
+    }
+
+    private func filterValues<Item>(_ values: [Item], text: (Item) -> String) -> [Item] {
+        filter.isEmpty ? values : values.filter { text($0).localizedCaseInsensitiveContains(filter) }
+    }
 }
 
 struct ApplicationListView: View {
@@ -39,7 +112,7 @@ struct ApplicationListView: View {
 
     init(store: MonitorStore) {
         self.store = store
-        model = store.applicationListViewModel
+        model = store.viewModels.applicationList
     }
 
     var body: some View {
@@ -68,7 +141,7 @@ struct ApplicationListView: View {
 
             List {
                 Section("Applications") {
-                    ForEach(filtered(store.processes?.applications ?? [])) { application in
+                    ForEach(model.filtered(store.processes?.applications ?? [])) { application in
                         Button { store.route = .application(application.id) } label: {
                             HStack(spacing: 12) {
                                 HStack(spacing: 10) {
@@ -80,10 +153,10 @@ struct ApplicationListView: View {
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                metric(Formatting.percent(application.cpuUsage), width: metricWidth)
-                                metric(memory(application.memoryBytes), width: metricWidth)
-                                metric(disk(application.diskReadRate + application.diskWriteRate), width: diskWidth)
-                                metric(energy(application.energyImpact), width: metricWidth)
+                                Self.metric(Formatting.percent(application.cpuUsage), width: metricWidth)
+                                Self.metric(Self.memory(application.memoryBytes), width: metricWidth)
+                                Self.metric(Self.disk(application.diskReadRate + application.diskWriteRate), width: diskWidth)
+                                Self.metric(Self.energy(application.energyImpact), width: metricWidth)
                             }
                         }
                         .buttonStyle(.plain)
@@ -91,7 +164,7 @@ struct ApplicationListView: View {
                 }
                 if store.settingsStore.settings.showBackgroundProcesses {
                     Section("Background Processes") {
-                        ForEach(filtered(store.processes?.backgroundProcesses ?? [])) { process in
+                        ForEach(model.filtered(store.processes?.backgroundProcesses ?? [])) { process in
                             Button { store.route = .process(process.id) } label: {
                                 HStack(spacing: 12) {
                                     HStack(spacing: 10) {
@@ -101,10 +174,10 @@ struct ApplicationListView: View {
                                         Text(process.name).lineLimit(1)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    metric(Formatting.percent(process.cpuUsage), width: metricWidth)
-                                    metric(memory(process.memoryBytes), width: metricWidth)
-                                    metric(disk(process.diskReadRate + process.diskWriteRate), width: diskWidth)
-                                    metric(energy(process.energyImpact), width: metricWidth)
+                                    Self.metric(Formatting.percent(process.cpuUsage), width: metricWidth)
+                                    Self.metric(Self.memory(process.memoryBytes), width: metricWidth)
+                                    Self.metric(Self.disk(process.diskReadRate + process.diskWriteRate), width: diskWidth)
+                                    Self.metric(Self.energy(process.energyImpact), width: metricWidth)
                                 }
                             }
                             .buttonStyle(.plain)
@@ -131,7 +204,7 @@ struct ApplicationListView: View {
         .help("Sort by \(sort.rawValue)")
     }
 
-    private func metric(_ value: String, width: CGFloat) -> some View {
+    private static func metric(_ value: String, width: CGFloat) -> some View {
         Text(value)
             .font(.callout)
             .monospacedDigit()
@@ -140,49 +213,19 @@ struct ApplicationListView: View {
             .frame(width: width, alignment: .trailing)
     }
 
-    private func energy(_ value: Double?) -> String {
+    private static func energy(_ value: Double?) -> String {
         if Capabilities.isSandboxed, value == nil || value == 0 { return "—" }
         return value?.formatted(.number.precision(.fractionLength(1))) ?? "—"
     }
 
-    private func memory(_ value: UInt64) -> String {
+    private static func memory(_ value: UInt64) -> String {
         if Capabilities.isSandboxed, value == 0 { return "—" }
         return Formatting.bytes(value)
     }
 
-    private func disk(_ value: Double) -> String {
+    private static func disk(_ value: Double) -> String {
         if Capabilities.isSandboxed, value == 0 { return "—" }
         return Formatting.rate(value)
-    }
-
-    private func filtered(_ applications: [ApplicationMetrics]) -> [ApplicationMetrics] {
-        let result = model.query.isEmpty ? applications : applications.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
-        }
-    }
-
-    private func filtered(_ processes: [ProcessMetrics]) -> [ProcessMetrics] {
-        let result = model.query.isEmpty ? processes : processes.filter { $0.name.localizedCaseInsensitiveContains(model.query) || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(model.query) == true) }
-        return result.sorted { lhs, rhs in
-            switch model.sort {
-            case .cpu: ordered(lhs.cpuUsage, rhs.cpuUsage)
-            case .memory: ordered(lhs.memoryBytes, rhs.memoryBytes)
-            case .disk: ordered(lhs.diskReadRate + lhs.diskWriteRate, rhs.diskReadRate + rhs.diskWriteRate)
-            case .energy: ordered(lhs.energyImpact ?? -.infinity, rhs.energyImpact ?? -.infinity)
-            case .name: ordered(lhs.name.localizedLowercase, rhs.name.localizedLowercase)
-            }
-        }
-    }
-
-    private func ordered<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool {
-        model.ascending ? lhs < rhs : lhs > rhs
     }
 }
 
@@ -241,7 +284,7 @@ struct ProcessDetailView: View {
     init(store: MonitorStore, id: String) {
         self.store = store
         self.id = id
-        model = store.processDetailViewModel
+        model = store.viewModels.processDetail
     }
     var body: some View {
         ScrollView {
@@ -254,7 +297,9 @@ struct ProcessDetailView: View {
                     KeyValueRow(key: "User", value: process.userName ?? "Permission denied")
                     KeyValueRow(key: "CPU", value: Formatting.percent(process.cpuUsage))
                     KeyValueRow(
-                        key: "Physical Footprint",
+                        key: Capabilities.isSandboxed && process.identity.pid != getpid()
+                            ? "Resident Memory"
+                            : "Physical Footprint",
                         value: Capabilities.isSandboxed && process.memoryBytes == 0
                             ? "Unavailable in App Sandbox"
                             : Formatting.bytes(process.memoryBytes)
@@ -268,22 +313,22 @@ struct ProcessDetailView: View {
                     )
                     if let path = process.executablePath { KeyValueRow(key: "Executable", value: path) }
                     Button("Refresh Live Inventory") { store.loadInventory(for: process) }
-                    if store.inventoryLoading { ProgressView("Inspecting process…") }
-                    if let inventory = store.inventory {
+                    if store.inventoryState.isLoading { ProgressView("Inspecting process…") }
+                    if let inventory = store.inventoryState.current {
                         if !inventory.warnings.isEmpty {
                             ForEach(inventory.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
                         }
                         TextField("Filter files, connections, and libraries", text: $model.filter).textFieldStyle(.roundedBorder)
-                        inventorySection("Open Files", count: inventory.files.count) {
-                            ForEach(filtered(inventory.files)) { file in
+                        Self.inventorySection("Open Files", count: inventory.files.count) {
+                            ForEach(model.filtered(inventory.files)) { file in
                                 HStack {
                                     FileLookupLinks(path: file.path, checksFileOnDisk: false)
                                     Text(file.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }
-                        inventorySection("Network Connections", count: inventory.connections.count) {
-                            ForEach(filtered(inventory.connections)) { connection in
+                        Self.inventorySection("Network Connections", count: inventory.connections.count) {
+                            ForEach(model.filtered(inventory.connections)) { connection in
                                 HStack {
                                     IPLookupLinks(host: NetworkPortCollector.endpoint(connection.remoteAddress)?.host ?? "")
                                     VStack(alignment: .leading) {
@@ -294,11 +339,11 @@ struct ProcessDetailView: View {
                                 }
                             }
                         }
-                        inventorySection("Threads", count: inventory.threads.count) {
+                        Self.inventorySection("Threads", count: inventory.threads.count) {
                             ForEach(inventory.threads) { thread in Text(thread.name ?? "Thread \(thread.id)") }
                         }
-                        inventorySection("Loaded Libraries", count: inventory.libraries.count) {
-                            ForEach(filtered(inventory.libraries)) { library in
+                        Self.inventorySection("Loaded Libraries", count: inventory.libraries.count) {
+                            ForEach(model.filtered(inventory.libraries)) { library in
                                 HStack {
                                     FileLookupLinks(path: library.path)
                                     Text(library.path).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -311,11 +356,7 @@ struct ProcessDetailView: View {
         }.onAppear { if let process = store.process(id: id) { store.loadInventory(for: process) } }
     }
 
-    private func inventorySection<Content: View>(_ title: String, count: Int, @ViewBuilder content: () -> Content) -> some View {
+    private static func inventorySection<Content: View>(_ title: String, count: Int, @ViewBuilder content: () -> Content) -> some View {
         Section { content() } header: { SectionHeader(title: "\(title) (\(count))") }
     }
-
-    private func filtered(_ values: [OpenFile]) -> [OpenFile] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
-    private func filtered(_ values: [NetworkConnection]) -> [NetworkConnection] { model.filter.isEmpty ? values : values.filter { "\($0.localAddress) \($0.remoteAddress) \($0.protocolName)".localizedCaseInsensitiveContains(model.filter) } }
-    private func filtered(_ values: [LoadedLibrary]) -> [LoadedLibrary] { model.filter.isEmpty ? values : values.filter { $0.path.localizedCaseInsensitiveContains(model.filter) } }
 }

@@ -47,8 +47,8 @@ struct NativeMenuBarView: View {
                     Text("Screen Recording is required to show native icons. Reopen Smack after granting it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("Open Settings") { menuBarStore.openScreenCaptureSettings() }
-                    Button("Reopen") { menuBarStore.relaunch() }
+                    Button("Open Settings") { NativeMenuBarStore.openScreenCaptureSettings() }
+                    Button("Reopen") { NativeMenuBarStore.relaunch() }
                 }
             } else if menuBarStore.items.isEmpty {
                 if menuBarStore.loadAttempted {
@@ -75,7 +75,7 @@ struct NativeMenuBarView: View {
                     Text("Accessibility is required for native click actions.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Button("Open Settings") { menuBarStore.openAccessibilitySettings() }
+                    Button("Open Settings") { NativeMenuBarStore.openAccessibilitySettings() }
                     Button("Retry") { menuBarStore.refresh() }
                 }
             }

@@ -25,33 +25,98 @@ enum AppRoute: Hashable {
 }
 
 @MainActor
+struct MonitorViewModels {
+    let history = HistoryViewModel()
+    let applicationList = ApplicationListViewModel()
+    let processDetail = ProcessDetailViewModel()
+    let networkPorts = NetworkPortsViewModel()
+    let settings = SettingsViewModel()
+}
+
+struct MonitorInventoryState {
+    var current: ProcessInventory?
+    var isLoading = false
+    var scheduled: [String: ProcessInventory] = [:]
+}
+
+struct MonitorNetworkPortsState {
+    var snapshot: NetworkPortSnapshot?
+    var isLoading = false
+}
+
+private struct MonitorActiveTasks {
+    var inventory: Task<Void, Never>?
+    var networkPorts: Task<Void, Never>?
+}
+
+@MainActor
+enum MonitorHistoryReader {
+    static func systemHistory(_ metric: SystemMetric, hours: Double = 1, store: MonitorStore) async -> [HistoricalPoint] {
+        await read(fallback: [], store: store) {
+            try await $0.systemSeries(metric, from: Date().addingTimeInterval(-hours * 3_600))
+        }
+    }
+
+    /// Every metric for one instance (`processID`), or summed over all instances of `program`.
+    static func processHistory(
+        program: String,
+        processID: String?,
+        hours: Double,
+        limit: Int,
+        store: MonitorStore
+    ) async -> [ProcessMetric: [HistoricalPoint]] {
+        await read(fallback: [:], store: store) {
+            try await $0.processHistory(
+                program: program,
+                processID: processID,
+                from: Date().addingTimeInterval(-hours * 3_600),
+                limit: limit
+            )
+        }
+    }
+
+    static func historicalPrograms(hours: Double, store: MonitorStore) async -> [HistoricalProgram] {
+        await read(fallback: [], store: store) {
+            try await $0.programs(from: Date().addingTimeInterval(-hours * 3_600))
+        }
+    }
+
+    static func historicalInstances(of program: String, hours: Double, store: MonitorStore) async -> [HistoricalProcess] {
+        await read(fallback: [], store: store) {
+            try await $0.instances(named: program, from: Date().addingTimeInterval(-hours * 3_600))
+        }
+    }
+
+    private static func read<T>(
+        fallback: T,
+        store: MonitorStore,
+        operation: (HistoryRepository) async throws -> T
+    ) async -> T {
+        do {
+            return try await operation(store.history)
+        } catch {
+            store.errorMessage = "History could not be read: \(error.localizedDescription)"
+            return fallback
+        }
+    }
+}
+
+@MainActor
 final class MonitorStore: ObservableObject {
     @Published var system: SystemSample?
     @Published var processes: ProcessSnapshot?
     @Published var route: AppRoute = .summary
     @Published private(set) var recentMetrics = LiveMetricHistory()
-    @Published var inventory: ProcessInventory?
-
-    var recentCPU: [HistoricalPoint] {
-        recentMetrics.points.map { HistoricalPoint(timestamp: $0.timestamp, average: $0.cpuUsage, peak: $0.cpuUsage) }
-    }
-    @Published var inventoryLoading = false
-    @Published private(set) var networkPorts: NetworkPortSnapshot?
-    @Published private(set) var networkPortsLoading = false
+    @Published var inventoryState = MonitorInventoryState()
+    @Published var networkPortsState = MonitorNetworkPortsState()
     @Published var errorMessage: String?
-    private var scheduledInventories: [String: ProcessInventory] = [:]
 
     let settingsStore: SettingsStore
     let privilegedSampling: PrivilegedSamplingController?
     let history: HistoryRepository
-    let historyViewModel = HistoryViewModel()
-    let applicationListViewModel = ApplicationListViewModel()
-    let processDetailViewModel = ProcessDetailViewModel()
-    let networkPortsViewModel = NetworkPortsViewModel()
-    let settingsViewModel = SettingsViewModel()
+    let viewModels = MonitorViewModels()
     private let scheduler: CollectionScheduler
-    private var inventoryTask: Task<Void, Never>?
-    private var networkPortsTask: Task<Void, Never>?
+    private var activeTasks = MonitorActiveTasks()
 
     init(
         settingsStore: SettingsStore,
@@ -92,21 +157,31 @@ final class MonitorStore: ObservableObject {
 
     func receive(_ snapshot: ProcessSnapshot) {
         processes = snapshot
+        guard !inventoryState.scheduled.isEmpty else { return }
+        var activeIDs = Set<String>()
+        let estimatedCount = snapshot.backgroundProcesses.count
+            + snapshot.applications.reduce(0) { $0 + $1.processes.count }
+        activeIDs.reserveCapacity(estimatedCount)
+        for application in snapshot.applications {
+            for process in application.processes { activeIDs.insert(process.id) }
+        }
+        for process in snapshot.backgroundProcesses { activeIDs.insert(process.id) }
+        inventoryState.scheduled = inventoryState.scheduled.filter { activeIDs.contains($0.key) }
     }
 
     func receive(_ snapshot: NetworkPortSnapshot) {
-        networkPorts = snapshot
-        networkPortsLoading = false
+        networkPortsState.snapshot = snapshot
+        networkPortsState.isLoading = false
     }
 
     func receive(_ inventory: ProcessInventory, for id: String) {
-        scheduledInventories[id] = inventory
+        inventoryState.scheduled[id] = inventory
     }
 
     func loadNetworkPorts() {
-        networkPortsTask?.cancel()
-        networkPortsLoading = true
-        networkPortsTask = Task {
+        activeTasks.networkPorts?.cancel()
+        networkPortsState.isLoading = true
+        activeTasks.networkPorts = Task {
             let result = await scheduler.networkPorts()
             guard !Task.isCancelled else { return }
             receive(result)
@@ -118,56 +193,25 @@ final class MonitorStore: ObservableObject {
     }
 
     func process(id: String) -> ProcessMetrics? {
-        processes?.applications.flatMap(\.processes).first { $0.id == id }
-            ?? processes?.backgroundProcesses.first { $0.id == id }
+        if let applications = processes?.applications {
+            for application in applications {
+                if let match = application.processes.first(where: { $0.id == id }) {
+                    return match
+                }
+            }
+        }
+        return processes?.backgroundProcesses.first { $0.id == id }
     }
 
     func loadInventory(for process: ProcessMetrics) {
-        inventoryTask?.cancel()
-        inventory = scheduledInventories[process.id]
-        inventoryLoading = true
-        inventoryTask = Task {
+        activeTasks.inventory?.cancel()
+        inventoryState.current = inventoryState.scheduled[process.id]
+        inventoryState.isLoading = true
+        activeTasks.inventory = Task {
             let result = await scheduler.inventory(for: process)
             guard !Task.isCancelled else { return }
-            inventory = result
-            inventoryLoading = false
-        }
-    }
-
-    func systemHistory(_ metric: SystemMetric, hours: Double = 1) async -> [HistoricalPoint] {
-        do {
-            return try await history.systemSeries(metric, from: Date().addingTimeInterval(-hours * 3600))
-        } catch {
-            errorMessage = "History could not be read: \(error.localizedDescription)"
-            return []
-        }
-    }
-
-    /// Every metric for one instance (`processID`), or summed over all instances of `program`.
-    func processHistory(program: String, processID: String?, hours: Double, limit: Int) async -> [ProcessMetric: [HistoricalPoint]] {
-        do {
-            return try await history.processHistory(program: program, processID: processID, from: Date().addingTimeInterval(-hours * 3600), limit: limit)
-        } catch {
-            errorMessage = "History could not be read: \(error.localizedDescription)"
-            return [:]
-        }
-    }
-
-    func historicalPrograms(hours: Double) async -> [HistoricalProgram] {
-        do {
-            return try await history.programs(from: Date().addingTimeInterval(-hours * 3600))
-        } catch {
-            errorMessage = "History could not be read: \(error.localizedDescription)"
-            return []
-        }
-    }
-
-    func historicalInstances(of program: String, hours: Double) async -> [HistoricalProcess] {
-        do {
-            return try await history.instances(named: program, from: Date().addingTimeInterval(-hours * 3600))
-        } catch {
-            errorMessage = "History could not be read: \(error.localizedDescription)"
-            return []
+            inventoryState.current = result
+            inventoryState.isLoading = false
         }
     }
 }

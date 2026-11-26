@@ -6,16 +6,16 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var settings: CollectionSettings
     @Published var errorMessage: String?
     private let defaults: UserDefaults
-    private let key = "collection-settings-v1"
+    private static let key = "collection-settings-v1"
     /// Bundle identifier used up to 0.3.0. Its defaults domain is readable only outside the sandbox.
     static let legacyDefaultsDomain = "com.smack.monitor"
 
     init(defaults: UserDefaults = .standard, legacyDefaults: UserDefaults? = UserDefaults(suiteName: legacyDefaultsDomain)) {
         self.defaults = defaults
-        if defaults.data(forKey: key) == nil, let legacy = legacyDefaults?.data(forKey: key) {
-            defaults.set(legacy, forKey: key)
+        if defaults.data(forKey: Self.key) == nil, let legacy = legacyDefaults?.data(forKey: Self.key) {
+            defaults.set(legacy, forKey: Self.key)
         }
-        if let data = defaults.data(forKey: key),
+        if let data = defaults.data(forKey: Self.key),
            let decoded = try? JSONDecoder().decode(CollectionSettings.self, from: data) {
             settings = decoded
         } else {
@@ -31,7 +31,7 @@ final class SettingsStore: ObservableObject {
         updated.validate()
         settings = updated
         if let data = try? JSONEncoder().encode(updated) {
-            defaults.set(data, forKey: key)
+            defaults.set(data, forKey: Self.key)
         }
         if oldLoginPreference != updated.launchAtLogin {
             updateLoginItem(enabled: updated.launchAtLogin)
